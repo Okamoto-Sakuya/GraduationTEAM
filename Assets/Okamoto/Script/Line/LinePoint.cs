@@ -8,6 +8,9 @@ public class LinePoint : MonoBehaviour
     public bool isRecoveryPoint;
     public RecoveryPoint recoveryPoint;
 
+    [Header("ï™äÚì_ê›íË")]
+    public bool isBranchPoint;
+
     private readonly List<TrackEdge> connectedEdges =
         new List<TrackEdge>();
 
@@ -31,7 +34,13 @@ public class LinePoint : MonoBehaviour
 
     private void OnDrawGizmos()
     {
-        Gizmos.color = isRecoveryPoint ? Color.yellow : Color.white;
+        if (isRecoveryPoint)
+            Gizmos.color = Color.yellow;
+        else if (isBranchPoint)
+            Gizmos.color = Color.cyan;
+        else
+            Gizmos.color = Color.white;
+
         Gizmos.DrawSphere(transform.position, 0.12f);
     }
 }
