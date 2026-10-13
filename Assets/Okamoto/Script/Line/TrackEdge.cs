@@ -11,6 +11,11 @@ public abstract class TrackEdge : MonoBehaviour
 
     public abstract bool CanDepartFrom(LinePoint point);
 
+    public virtual bool CanEnter()
+    {
+        return true;
+    }
+
     public virtual LinePoint GetOtherPoint(LinePoint point)
     {
         if (point == pointA) return pointB;
@@ -42,8 +47,9 @@ public abstract class TrackEdge : MonoBehaviour
             return;
         }
 
-        lineRenderer.positionCount = 2;
         lineRenderer.useWorldSpace = true;
+        lineRenderer.positionCount = 2;
+
         lineRenderer.SetPosition(0, pointA.transform.position);
         lineRenderer.SetPosition(1, pointB.transform.position);
     }

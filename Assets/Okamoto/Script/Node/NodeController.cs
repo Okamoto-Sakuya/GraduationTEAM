@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 public class NodeController : MonoBehaviour
@@ -11,25 +10,17 @@ public class NodeController : MonoBehaviour
 
     [Header("ノード設定")]
     public NodeType nodeType = NodeType.Good;
-
-    [Header("移動速度")]
-    [Min(0.01f)]
     public float moveSpeed = 2f;
 
-    [Header("属性変化時間")]
-    [Min(0.1f)]
+    [Header("種類変更時間")]
     public float goodToBadTime = 10f;
-
-    [Min(0.1f)]
     public float badToGoodTime = 15f;
 
     [Header("見た目")]
     public SpriteRenderer spriteRenderer;
     public Color goodColor = Color.blue;
     public Color badColor = Color.red;
-    public Color greenColor = Color.green;
-
-    [Tooltip("良性ノードを緑色で表示する")]
+    public Color greenGoodColor = Color.green;
     public bool useGreenForGood;
 
     private TrackEdge currentEdge;
@@ -39,41 +30,43 @@ public class NodeController : MonoBehaviour
 
     private float progress;
     private float stateTimer;
+
     private bool initialized;
     private bool recovered;
 
+    // 造線の警告表示用。通常時は1。
+    private float wireWarningAlpha = 1f;
+
     public void Initialize(TrackEdge startingEdge, NodeType type)
     {
-        currentEdge = startingEdge;
-        nodeType = type;
-
-        if (currentEdge == null ||
-            currentEdge.pointA == null ||
-            currentEdge.pointB == null)
+        if (startingEdge == null ||
+            startingEdge.pointA == null ||
+            startingEdge.pointB == null)
         {
-            Destroy(gameObject);
+            Debug.LogWarning("Nodeの開始線または接続点が設定されていません。");
             return;
         }
 
-        fromPoint = currentEdge.pointA;
-        targetPoint = currentEdge.pointB;
+        currentEdge = startingEdge;
+        fromPoint = startingEdge.pointA;
+        targetPoint = startingEdge.pointB;
+
+        nodeType = type;
         progress = 0f;
         stateTimer = 0f;
         initialized = true;
+        recovered = false;
+        wireWarningAlpha = 1f;
 
         transform.position = fromPoint.transform.position;
-
-        if (spriteRenderer == null)
-        {
-            spriteRenderer = GetComponent<SpriteRenderer>();
-        }
 
         UpdateAppearance();
     }
 
     private void Update()
     {
-        if (!initialized || recovered) return;
+        if (!initialized || recovered)
+            return;
 
         if (GameManager.Instance != null &&
             GameManager.Instance.IsGameOver)
@@ -92,31 +85,12 @@ public class NodeController : MonoBehaviour
         if (nodeType == NodeType.Good &&
             stateTimer >= goodToBadTime)
         {
-            nodeType = NodeType.Bad;
-            stateTimer = 0f;
-            UpdateAppearance();
+            SetType(NodeType.Bad);
         }
         else if (nodeType == NodeType.Bad &&
                  stateTimer >= badToGoodTime)
         {
-            nodeType = NodeType.Good;
-            stateTimer = 0f;
-            UpdateAppearance();
-        }
-    }
-
-    private void UpdateAppearance()
-    {
-        if (spriteRenderer == null) return;
-
-        if (nodeType == NodeType.Bad)
-        {
-            spriteRenderer.color = badColor;
-        }
-        else
-        {
-            spriteRenderer.color =
-                useGreenForGood ? greenColor : goodColor;
+            SetType(NodeType.Good);
         }
     }
 
@@ -129,9 +103,10 @@ public class NodeController : MonoBehaviour
             return;
         }
 
-        float distance = Vector3.Distance(
-            fromPoint.transform.position,
-            targetPoint.transform.position);
+        Vector3 start = fromPoint.transform.position;
+        Vector3 end = targetPoint.transform.position;
+
+        float distance = Vector3.Distance(start, end);
 
         if (distance <= 0.001f)
         {
@@ -142,112 +117,180 @@ public class NodeController : MonoBehaviour
         progress += moveSpeed * Time.deltaTime / distance;
         progress = Mathf.Clamp01(progress);
 
-        transform.position = Vector3.Lerp(
-            fromPoint.transform.position,
-            targetPoint.transform.position,
-            progress);
+        transform.position = Vector3.Lerp(start, end, progress);
 
         if (progress >= 1f)
-        {
             ArriveAtPoint();
-        }
     }
 
     private void ArriveAtPoint()
     {
+        if (targetPoint == null)
+            return;
+
         transform.position = targetPoint.transform.position;
 
-        // 四肢の回収点に到着
-        if (targetPoint.isRecoveryPoint &&
-            targetPoint.recoveryPoint != null)
+        // 回収点を最優先
+        if (targetPoint.isRecoveryPoint)
         {
-            targetPoint.recoveryPoint.Recover(this);
-            return;
+            RecoveryPoint recovery = targetPoint.recoveryPoint;
+
+            if (recovery == null)
+                recovery = targetPoint.GetComponent<RecoveryPoint>();
+
+            if (recovery != null)
+            {
+                recovery.Recover(this);
+                return;
+            }
         }
 
-        ChooseNextEdge();
+        ChooseNextEdge(targetPoint);
     }
 
-    private void ChooseNextEdge()
+    private void ChooseNextEdge(LinePoint arrivedPoint)
     {
-        LinePoint arrivedPoint = targetPoint;
+        if (arrivedPoint == null)
+            return;
+
         TrackEdge nextEdge = null;
+        LinePoint nextPoint = null;
 
-        IReadOnlyList<TrackEdge> edges =
-            arrivedPoint.ConnectedEdges;
-
-        // 造線を優先する
-        foreach (TrackEdge edge in edges)
+        // 優先1：接続可能な造線
+        foreach (TrackEdge edge in arrivedPoint.ConnectedEdges)
         {
             if (edge == null ||
                 edge == currentEdge ||
                 edge == previousEdge ||
-                !(edge is DrawnWire))
+                edge is not DrawnWire)
             {
                 continue;
             }
 
-            if (edge.CanDepartFrom(arrivedPoint) &&
-                edge.GetOtherPoint(arrivedPoint) != null)
+            if (!edge.CanDepartFrom(arrivedPoint) ||
+                !edge.CanEnter())
             {
-                nextEdge = edge;
-                break;
+                continue;
             }
+
+            LinePoint other = edge.GetOtherPoint(arrivedPoint);
+
+            if (other == null)
+                continue;
+
+            nextEdge = edge;
+            nextPoint = other;
+            break;
         }
 
-        // 造線がなければ基本線の進行方向へ
+        // 優先2：基本線
+        // 造線が使えなければ、基本線の続きへ進む
         if (nextEdge == null)
         {
-            foreach (TrackEdge edge in edges)
+            foreach (TrackEdge edge in arrivedPoint.ConnectedEdges)
             {
                 if (edge == null ||
                     edge == currentEdge ||
-                    edge == previousEdge ||
-                    !(edge is BasicLine))
+                    edge == previousEdge)
                 {
                     continue;
                 }
 
-                if (edge.CanDepartFrom(arrivedPoint) &&
-                    edge.GetOtherPoint(arrivedPoint) != null)
+                if (!(edge is BasicLine))
+                    continue;
+
+                if (!edge.CanDepartFrom(arrivedPoint) ||
+                    !edge.CanEnter())
                 {
-                    nextEdge = edge;
-                    break;
+                    continue;
                 }
+
+                LinePoint other = edge.GetOtherPoint(arrivedPoint);
+
+                if (other == null)
+                    continue;
+
+                nextEdge = edge;
+                nextPoint = other;
+                break;
             }
         }
 
-        if (nextEdge == null)
+        if (nextEdge == null || nextPoint == null)
         {
-            // 行き先がない場合は停止する
+            // 移動先がない場合は現在位置で停止
+            progress = 0f;
             return;
         }
 
         previousEdge = currentEdge;
         currentEdge = nextEdge;
         fromPoint = arrivedPoint;
-        targetPoint = nextEdge.GetOtherPoint(arrivedPoint);
+        targetPoint = nextPoint;
         progress = 0f;
+
+        // 造線に入ったタイミングで通過回数を加算
+        if (currentEdge is DrawnWire drawnWire)
+        {
+            wireWarningAlpha = 1f;
+            drawnWire.RegisterPass();
+        }
+        else
+        {
+            wireWarningAlpha = 1f;
+        }
+
+        UpdateAppearance();
     }
 
     public void SetType(NodeType newType)
     {
         nodeType = newType;
         stateTimer = 0f;
+
+        UpdateAppearance();
+    }
+
+    private void UpdateAppearance()
+    {
+        if (spriteRenderer == null)
+            spriteRenderer = GetComponent<SpriteRenderer>();
+
+        if (spriteRenderer == null)
+            return;
+
+        Color color;
+
+        if (nodeType == NodeType.Good)
+        {
+            color = useGreenForGood ? greenGoodColor : goodColor;
+        }
+        else
+        {
+            color = badColor;
+        }
+
+        color.a *= wireWarningAlpha;
+        spriteRenderer.color = color;
+    }
+
+    public bool IsOnEdge(TrackEdge edge)
+    {
+        return initialized &&
+               !recovered &&
+               currentEdge == edge;
+    }
+
+    public void SetWireWarningAlpha(float alpha)
+    {
+        wireWarningAlpha = Mathf.Clamp01(alpha);
         UpdateAppearance();
     }
 
     public void MarkRecovered()
     {
-        if (recovered) return;
-
         recovered = true;
-
-        if (currentEdge != null &&
-            currentEdge is BasicLine basicLine)
-        {
-            // 出現確率の更新はSpawner側で管理する
-        }
+        initialized = false;
 
         Destroy(gameObject);
     }
