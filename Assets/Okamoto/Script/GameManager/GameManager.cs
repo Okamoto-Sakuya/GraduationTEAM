@@ -1,3 +1,4 @@
+
 using UnityEngine;
 
 public class GameManager : MonoBehaviour
@@ -9,6 +10,9 @@ public class GameManager : MonoBehaviour
     public int scorePerGoodNode = 100;
     public int scorePerBadNode = -100;
     public int damagePerBadNode = 1;
+
+    [Header("体力Image UI")]
+    public HealthImageUI healthImageUI;
 
     public int Score { get; private set; }
     public int Health { get; private set; }
@@ -29,9 +33,21 @@ public class GameManager : MonoBehaviour
         IsGameOver = false;
     }
 
+    private void Start()
+    {
+        // 初期HPをImageに反映
+        if (healthImageUI != null)
+        {
+            healthImageUI.ResetHealth(Health);
+        }
+
+        RefreshUI();
+    }
+
     public void RecoverNode(NodeController.NodeType type)
     {
-        if (IsGameOver) return;
+        if (IsGameOver)
+            return;
 
         if (type == NodeController.NodeType.Good)
         {
@@ -40,8 +56,16 @@ public class GameManager : MonoBehaviour
         else
         {
             Score += scorePerBadNode;
+
+            // ダメージ処理
             Health -= damagePerBadNode;
             Health = Mathf.Max(0, Health);
+
+            // 体力Imageを更新して点滅演出
+            if (healthImageUI != null)
+            {
+                healthImageUI.UpdateHealth(Health);
+            }
         }
 
         RefreshUI();
