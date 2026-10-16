@@ -219,6 +219,7 @@ public class WireDrawingController : MonoBehaviour
         return null;
     }
 
+
     private void TryCreateWire(LinePoint start, LinePoint end)
     {
         if (start == null || end == null || start == end)
@@ -233,8 +234,8 @@ public class WireDrawingController : MonoBehaviour
         if (cost > remainingGauge)
             return;
 
-        if (CrossesExistingLine(start, end))
-            return;
+        // 既存線との交差は許可する。
+        // 交差地点に接続点は作らない。
 
         GameObject wireObject = new GameObject("DrawnWire");
 
@@ -252,11 +253,11 @@ public class WireDrawingController : MonoBehaviour
             this,
             cost);
 
-        remainingGauge -= cost;
-        remainingGauge = Mathf.Max(0f, remainingGauge);
+        remainingGauge = Mathf.Max(0f, remainingGauge - cost);
 
         UpdateGaugeUI();
     }
+
 
     /// <summary>
     /// 既存の線を横切る造線は拒否する。

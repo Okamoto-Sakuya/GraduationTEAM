@@ -4,7 +4,7 @@ using UnityEngine;
 [RequireComponent(typeof(Collider2D))]
 public class LinePoint : MonoBehaviour
 {
-    [Header("‰ñû“_İ’è")]
+    [Header("‰ñû“_İ’èLinePoint ")]
     public bool isRecoveryPoint;
     public RecoveryPoint recoveryPoint;
 
