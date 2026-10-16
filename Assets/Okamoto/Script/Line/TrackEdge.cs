@@ -53,4 +53,11 @@ public abstract class TrackEdge : MonoBehaviour
         lineRenderer.SetPosition(0, pointA.transform.position);
         lineRenderer.SetPosition(1, pointB.transform.position);
     }
+    // =====================================================
+    // Ú‘±î•ñ‚ğ‰ğœ‚·‚é
+    // =====================================================
+    public void UnregisterFromPoints()
+    {
+        UnregisterPoints();
+    }
 }

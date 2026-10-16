@@ -28,8 +28,8 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 5.06, y: 0.89, z: 0}
-  m_LocalScale: {x: 1.5, y: 1.5, z: 1.5}
-  m_ConstrainProportionsScale: 0
+  m_LocalScale: {x: 0.40000004, y: 0.40000004, z: 0.40000004}
+  m_ConstrainProportionsScale: 1
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -46,14 +46,35 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NodeController
   nodeType: 0
+  level: 1
   moveSpeed: 2
-  goodToBadTime: 10
-  badToGoodTime: 15
+  maxGauge: 100
+  gaugeChangePerSecond: 10
+  currentGauge: 100
+  goodLevel1Sprite: {fileID: 21300000, guid: bc1827366a91b6f418375909e5924343, type: 3}
+  goodLevel2Sprite: {fileID: 21300000, guid: 8bdeee59c03df194eb399a8708204a46, type: 3}
+  goodLevel3Sprite: {fileID: 21300000, guid: fac028e4ba4a44c4c9def18e5e76d0ba, type: 3}
+  goodLevel4Sprite: {fileID: 21300000, guid: 7c7c2c24a8698814ca4a588a5c034c74, type: 3}
+  badLevel1Sprite: {fileID: 21300000, guid: 3328b986938903747b38db2448e8519c, type: 3}
+  badLevel2Sprite: {fileID: 21300000, guid: 411fc2949f60a794ba1814fcf5bc3ef2, type: 3}
+  badLevel3Sprite: {fileID: 21300000, guid: d1598684c4d36c54eb8ebd677d7b4023, type: 3}
+  badLevel4Sprite: {fileID: 21300000, guid: dda064b81479ff844b4512bc2e6eeada, type: 3}
+  goodToBadTime: 5
+  badToGoodTime: 5
+  level1Damage: 5
+  level2Damage: 7
+  level3Damage: 10
+  level4Damage: 15
+  level1SAN: 3
+  level2SAN: 5
+  level3SAN: 8
+  level4SAN: 10
   spriteRenderer: {fileID: 3904351501689301891}
   goodColor: {r: 0, g: 0, b: 1, a: 1}
   badColor: {r: 1, g: 0, b: 0, a: 1}
-  greenColor: {r: 0, g: 1, b: 0, a: 1}
+  greenGoodColor: {r: 0, g: 1, b: 0, a: 1}
   useGreenForGood: 0
+  prioritizeDrawnWire: 1
 --- !u!212 &3904351501689301891
 SpriteRenderer:
   serializedVersion: 2

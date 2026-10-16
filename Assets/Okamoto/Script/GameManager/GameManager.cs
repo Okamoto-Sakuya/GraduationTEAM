@@ -11,12 +11,18 @@ public class GameManager : MonoBehaviour
     public int scorePerBadNode = -100;
     public int damagePerBadNode = 1;
 
+    [Header("SAN値設定")]
+    public int initialSanity = 100;
+
     [Header("体力Image UI")]
     public HealthImageUI healthImageUI;
 
     public int Score { get; private set; }
     public int Health { get; private set; }
+    public int Sanity { get; private set; }
     public bool IsGameOver { get; private set; }
+
+    public bool IsSanityDepleted => Sanity <= 0;
 
     private void Awake()
     {
@@ -30,12 +36,12 @@ public class GameManager : MonoBehaviour
 
         Score = 0;
         Health = initialHealth;
+        Sanity = Mathf.Max(0, initialSanity);
         IsGameOver = false;
     }
 
     private void Start()
     {
-        // 初期HPをImageに反映
         if (healthImageUI != null)
         {
             healthImageUI.ResetHealth(Health);
@@ -57,11 +63,9 @@ public class GameManager : MonoBehaviour
         {
             Score += scorePerBadNode;
 
-            // ダメージ処理
             Health -= damagePerBadNode;
             Health = Mathf.Max(0, Health);
 
-            // 体力Imageを更新して点滅演出
             if (healthImageUI != null)
             {
                 healthImageUI.UpdateHealth(Health);
@@ -75,6 +79,31 @@ public class GameManager : MonoBehaviour
             IsGameOver = true;
             Debug.Log("ゲームオーバー");
         }
+    }
+
+    /// <summary>
+    /// Badノードが回収地点に到達したときにSAN値を減らす。
+    /// 回収地点HPへのダメージはRecoveryPoint側で処理する。
+    /// </summary>
+    public void DamageSanity(int amount)
+    {
+        if (IsGameOver || amount <= 0)
+            return;
+
+        Sanity = Mathf.Max(0, Sanity - amount);
+
+        Debug.Log($"SAN値: {Sanity}/{initialSanity}");
+
+        if (Sanity <= 0)
+        {
+            Debug.Log("SAN値が0になりました。");
+        }
+    }
+
+    public void ResetSanity()
+    {
+        Sanity = Mathf.Max(0, initialSanity);
+        Debug.Log($"SAN値をリセットしました: {Sanity}");
     }
 
     private void RefreshUI()
