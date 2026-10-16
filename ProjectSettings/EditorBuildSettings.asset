@@ -6,6 +6,12 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Saijou/Scene/TitleScene.unity
+    guid: 3f5817a775550ec4dae65fa3c35b8cc2
+  - enabled: 1
+    path: Assets/Saijou/Scene/SelectScene.unity
+    guid: a916f543d2d37ca40bcf2955e8a43264
+  - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 8c9cfa26abfee488c85f1582747f6a02
   m_configObjects:
