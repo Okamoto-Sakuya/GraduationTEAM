@@ -1,3 +1,4 @@
+
 using System.Collections;
 using UnityEngine;
 
@@ -5,6 +6,10 @@ public class NodeSpawner : MonoBehaviour
 {
     [Header("出現する基本線（6本）")]
     public BasicLine[] basicLines = new BasicLine[6];
+
+    [Header("ノード出現地点（LinePoint）")]
+    [Tooltip("ノードを出現させたい基本線のPoint Aを登録")]
+    public LinePoint[] spawnPoints;
 
     [Header("ノードPrefab")]
     public NodeController nodePrefab;
@@ -70,7 +75,7 @@ public class NodeSpawner : MonoBehaviour
 
     // =====================================================
     // Nodeの出現
-    // Is Recovery PointにチェックがないPoint Aだけを候補にする
+    // Inspectorで指定されたLinePointから出現させる
     // =====================================================
     private void SpawnNode()
     {
@@ -85,7 +90,6 @@ public class NodeSpawner : MonoBehaviour
             totalWeight += weights[i];
         }
 
-        // 出現できる場所がない
         if (totalWeight <= 0f)
             return;
 
@@ -112,11 +116,12 @@ public class NodeSpawner : MonoBehaviour
             return;
 
         BasicLine selectedLine = basicLines[selectedIndex];
+        LinePoint spawnPoint = selectedLine.pointA;
 
-        // Point Aの位置からNodeを出現させる
+        // 指定したLinePointの位置からNodeを出現させる
         NodeController node = Instantiate(
             nodePrefab,
-            selectedLine.pointA.transform.position,
+            spawnPoint.transform.position,
             Quaternion.identity);
 
         // 良性・悪性をランダムで決定
@@ -159,9 +164,27 @@ public class NodeSpawner : MonoBehaviour
             return false;
         }
 
-        // Point Aにチェックが入っている場合は出現禁止
+        // Point Aが回復地点なら出現禁止
         if (line.pointA.isRecoveryPoint)
             return false;
+
+        // LinePointが指定されている場合は、指定地点だけを使用
+        if (spawnPoints != null && spawnPoints.Length > 0)
+        {
+            bool isSpecified = false;
+
+            for (int i = 0; i < spawnPoints.Length; i++)
+            {
+                if (spawnPoints[i] == line.pointA)
+                {
+                    isSpecified = true;
+                    break;
+                }
+            }
+
+            if (!isSpecified)
+                return false;
+        }
 
         return true;
     }

@@ -11,6 +11,10 @@ public class LinePoint : MonoBehaviour
     [Header("分岐点設定")]
     public bool isBranchPoint;
 
+    [Header("造線の設定")]
+    [Tooltip("チェックすると、この地点から造線を引けなくなる")]
+    public bool preventWireDrawing = false;
+
     private readonly List<TrackEdge> connectedEdges =
         new List<TrackEdge>();
 

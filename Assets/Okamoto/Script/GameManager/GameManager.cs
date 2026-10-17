@@ -1,5 +1,6 @@
 
 using UnityEngine;
+using TMPro;
 
 public class GameManager : MonoBehaviour
 {
@@ -16,6 +17,12 @@ public class GameManager : MonoBehaviour
 
     [Header("体力Image UI")]
     public HealthImageUI healthImageUI;
+
+    [Header("全部位破壊時のテキスト")]
+    public TMP_Text allPartsDestroyedText;
+
+    private RecoveryPointHealth[] allRecoveryPoints;
+    private bool allPartsDestroyedShown;
 
     public int Score { get; private set; }
     public int Health { get; private set; }
@@ -48,6 +55,20 @@ public class GameManager : MonoBehaviour
         }
 
         RefreshUI();
+
+        // 全部位の体力を確認する対象を取得
+        allRecoveryPoints =
+            FindObjectsByType<RecoveryPointHealth>(
+                FindObjectsSortMode.None);
+
+        // 最初はテキストを非表示
+        if (allPartsDestroyedText != null)
+        {
+            allPartsDestroyedText.gameObject.SetActive(false);
+        }
+
+        allPartsDestroyedShown = false;
+        CheckAllPartsDestroyed();
     }
 
     public void RecoverNode(NodeController.NodeType type)
@@ -112,5 +133,40 @@ public class GameManager : MonoBehaviour
         {
             UIManager.Instance.UpdateUI(Score, Health);
         }
+    }
+    // =====================================================
+    // 全部位の体力を確認
+    // =====================================================
+
+    public void CheckAllPartsDestroyed()
+    {
+        if (allPartsDestroyedShown)
+            return;
+
+        if (allRecoveryPoints == null ||
+            allRecoveryPoints.Length == 0)
+        {
+            return;
+        }
+
+        foreach (RecoveryPointHealth part in allRecoveryPoints)
+        {
+            // まだ存在していて、HPが残っている部位がある
+            if (part != null && !part.IsDead)
+            {
+                return;
+            }
+        }
+
+        // すべての部位が破壊された
+        allPartsDestroyedShown = true;
+
+        if (allPartsDestroyedText != null)
+        {
+            allPartsDestroyedText.gameObject.SetActive(true);
+            allPartsDestroyedText.text = "すべての部位が破壊されました";
+        }
+
+        Debug.Log("全部位が破壊されました！");
     }
 }
