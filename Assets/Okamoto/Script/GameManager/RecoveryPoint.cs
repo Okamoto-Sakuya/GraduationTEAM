@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using System.Collections.Generic;
 
 public class RecoveryPoint : MonoBehaviour
 {
@@ -211,6 +212,7 @@ public void TakeDamage(int damage)
     }
 
 
+
     // =====================================================
     // HPが0になったときの破壊処理
     // =====================================================
@@ -226,7 +228,13 @@ public void TakeDamage(int damage)
         // この部位自身のLinePointだけを取得
         LinePoint ownPoint = GetComponent<LinePoint>();
 
-        // Inspectorで指定された削除対象だけを削除
+        // -------------------------------------------------
+        // 破壊時に削除する基本線を先に無効化
+        // 同じ線が複数回指定されていても安全に処理する
+        // -------------------------------------------------
+
+        HashSet<BasicLine> removedLines = new HashSet<BasicLine>();
+
         if (basicLinesToRemove != null)
         {
             foreach (BasicLine line in basicLinesToRemove)
@@ -234,19 +242,28 @@ public void TakeDamage(int damage)
                 if (line == null)
                     continue;
 
-                line.UnregisterFromPoints();
-                Destroy(line.gameObject);
+                // 同じ基本線の重複処理を防止
+                if (!removedLines.Add(line))
+                    continue;
+
+                RemoveBasicLineImmediately(line);
             }
         }
 
+        // -------------------------------------------------
         // 自分のLinePointだけを無効化
+        // -------------------------------------------------
+
         if (ownPoint != null)
         {
             ownPoint.isRecoveryPoint = false;
             ownPoint.recoveryPoint = null;
         }
 
-        // 破壊時に生成する線をすべて生成
+        // -------------------------------------------------
+        // 破壊時に生成する基本線を生成
+        // -------------------------------------------------
+
         if (spawnBasicLineWhenDestroyed)
         {
             SpawnBasicLines();
@@ -257,6 +274,31 @@ public void TakeDamage(int damage)
         // 自分の部位だけを削除
         Destroy(gameObject);
     }
+
+    // =====================================================
+    // 基本線を即時に無効化して削除
+    // =====================================================
+
+    private void RemoveBasicLineImmediately(BasicLine line)
+    {
+        if (line == null)
+            return;
+
+        // LinePoint側の接続リストから先に解除する
+        line.UnregisterFromPoints();
+
+        // Destroyの実行待ち中に使われないよう無効化する
+        line.gameObject.SetActive(false);
+
+        // GameObjectを削除予約
+        Destroy(line.gameObject);
+
+        Debug.Log(
+            $"{recoveryPointName}：基本線「{line.lineName}」を削除しました。",
+            this
+        );
+    }
+
 
 
     // =====================================================
