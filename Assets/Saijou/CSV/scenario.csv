@@ -1,0 +1,10 @@
+id,speaker,text,nextId,storyType
+1,A,kkkkkkkkkk,2,
+2,B,hhhhhhhh,3,
+3,A,It<color=#FF0000>Hello</color>ppppppp,4,
+4,B,kkkkkkkk,5,
+5,A,aaaaaaa,6,
+6,B,bbbbbbbb,7,
+7,A,cccccccc,8,
+8,B,dddddddd,9,
+9,A,eeeeeeee,,stageEnd
