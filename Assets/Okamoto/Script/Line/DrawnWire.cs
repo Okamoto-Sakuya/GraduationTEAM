@@ -37,6 +37,20 @@ public class DrawnWire : TrackEdge
     private WireState state = WireState.Active;
     private bool initialized;
 
+
+    /// <summary>
+    /// 造線が完成しているか
+    /// </summary>
+    public bool IsCompleted => initialized && !isPreviewing && state != WireState.Removed;
+
+
+    // 描画中の仮線かどうか
+    private bool isPreviewing;
+
+    public bool IsPreviewing => isPreviewing;
+
+    private LinePoint previewEndPoint;
+
     public WireState State => state;
 
     public void Initialize(
@@ -78,10 +92,18 @@ public class DrawnWire : TrackEdge
         RegisterPoints();
     }
 
+
     private void Update()
     {
         if (!initialized || state == WireState.Removed)
             return;
+
+        // 描画中の仮線は寿命カウントを開始しない
+        if (isPreviewing)
+        {
+            UpdateLine();
+            return;
+        }
 
         if (state == WireState.WaitingForNodes)
         {
@@ -127,6 +149,7 @@ public class DrawnWire : TrackEdge
             }
         }
     }
+
 
     public override bool CanDepartFrom(LinePoint point)
     {
@@ -257,5 +280,128 @@ public class DrawnWire : TrackEdge
     private void OnDestroy()
     {
         UnregisterPoints();
+    }
+
+    // =====================================================
+    // 描画中の仮線を初期化
+    // =====================================================
+    public void InitializePreview(
+        LinePoint start,
+        LinePoint temporaryEnd,
+        Material material,
+        float width,
+        Color color,
+        WireDrawingController wireOwner)
+    {
+        if (start == null || temporaryEnd == null)
+            return;
+
+        previewEndPoint = temporaryEnd;
+
+        Initialize(
+            start,
+            temporaryEnd,
+            material,
+            width,
+            color,
+            wireOwner,
+            0f
+        );
+
+        isPreviewing = true;
+    }
+
+    // =====================================================
+    // 描画中の終点をリアルタイム更新
+    // =====================================================
+    public void UpdatePreviewEnd(Vector3 position)
+    {
+        if (!isPreviewing || previewEndPoint == null)
+            return;
+
+        previewEndPoint.transform.position = position;
+
+        if (lineRenderer != null)
+        {
+            lineRenderer.SetPosition(0, pointA.transform.position);
+            lineRenderer.SetPosition(1, position);
+        }
+    }
+
+    // =====================================================
+    // 仮線を確定して通常の造線にする
+    // =====================================================
+    public void CompletePreview(LinePoint finalEndPoint, float gaugeCost)
+    {
+        if (!isPreviewing ||
+            finalEndPoint == null ||
+            pointA == null ||
+            finalEndPoint == pointA)
+        {
+            return;
+        }
+
+        LinePoint oldPreviewEnd = previewEndPoint;
+
+        // ノードが使用している接続情報を更新
+        UnregisterPoints();
+
+        pointB = finalEndPoint;
+        reservedGauge = gaugeCost;
+        elapsedTime = 0f;
+        passCount = 0;
+        state = WireState.Active;
+
+        RegisterPoints();
+
+        // ノードの移動先が仮の終点だった場合、確定先へ更新
+        NodeController[] nodes =
+            FindObjectsByType<NodeController>(
+                FindObjectsSortMode.None);
+
+        foreach (NodeController node in nodes)
+        {
+            if (node != null)
+            {
+                node.HandleWirePreviewCompleted(
+                    this,
+                    oldPreviewEnd,
+                    finalEndPoint);
+            }
+        }
+
+        isPreviewing = false;
+        previewEndPoint = null;
+
+        if (lineRenderer != null)
+        {
+            lineRenderer.SetPosition(0, pointA.transform.position);
+            lineRenderer.SetPosition(1, finalEndPoint.transform.position);
+        }
+
+        if (oldPreviewEnd != null)
+            Destroy(oldPreviewEnd.gameObject);
+    }
+
+    // =====================================================
+    // 描画キャンセル時に仮線を削除
+    // =====================================================
+    public void CancelPreview()
+    {
+        if (!isPreviewing)
+            return;
+
+        isPreviewing = false;
+        state = WireState.Removed;
+
+        UnregisterPoints();
+
+        if (previewEndPoint != null)
+        {
+            Destroy(previewEndPoint.gameObject);
+            previewEndPoint = null;
+        }
+
+        Destroy(gameObject);
     }
 }

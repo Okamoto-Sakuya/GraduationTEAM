@@ -31,6 +31,9 @@ public class WireDrawingController : MonoBehaviour
     private LinePoint startPoint;
     private LineRenderer previewLine;
 
+    private DrawnWire previewWire;
+    private LinePoint previewEndPoint;
+
     private void Start()
     {
         if (targetCamera == null)
@@ -53,12 +56,31 @@ public class WireDrawingController : MonoBehaviour
 
             LinePoint point = GetOrCreatePointAt(mouseWorld);
 
-            if (point != null && remainingGauge > 0f)
+            if (point != null &&
+     !point.preventWireDrawing &&
+     remainingGauge > 0f)
             {
                 startPoint = point;
                 isDrawing = true;
 
-                previewLine.enabled = true;
+                // 描画開始時に仮終点と仮造線を作成
+                previewEndPoint = CreateTemporaryEndPoint(mouseWorld);
+
+                GameObject wireObject = new GameObject("DrawnWire_Preview");
+                previewWire = wireObject.AddComponent<DrawnWire>();
+
+                previewWire.InitializePreview(
+                    startPoint,
+                    previewEndPoint,
+                    wireMaterial,
+                    wireWidth,
+                    wireColor,
+                    this
+                );
+
+                if (previewLine != null)
+                    previewLine.enabled = false;
+
                 UpdatePreview(mouseWorld);
             }
         }
@@ -73,8 +95,32 @@ public class WireDrawingController : MonoBehaviour
             Vector3 mouseWorld = GetMouseWorldPosition();
             LinePoint endPoint = GetOrCreatePointAt(mouseWorld);
 
-            if (endPoint != null && endPoint != startPoint)
-                TryCreateWire(startPoint, endPoint);
+            if (endPoint != null &&
+                endPoint != startPoint &&
+                !endPoint.preventWireDrawing &&
+                previewWire != null)
+            {
+                float length = Vector2.Distance(
+                    startPoint.transform.position,
+                    endPoint.transform.position);
+
+                float cost = length * gaugeCostPerMeter;
+
+                if (cost <= remainingGauge)
+                {
+                    previewWire.CompletePreview(endPoint, cost);
+
+                    remainingGauge = Mathf.Max(
+                        0f,
+                        remainingGauge - cost);
+
+                    UpdateGaugeUI();
+
+                    // 確定済みなので、CancelDrawingで削除しない
+                    previewWire = null;
+                    previewEndPoint = null;
+                }
+            }
 
             CancelDrawing();
         }
@@ -115,17 +161,32 @@ public class WireDrawingController : MonoBehaviour
 
     private void UpdatePreview(Vector3 mouseWorld)
     {
-        if (previewLine == null || startPoint == null)
+        if (startPoint == null)
             return;
 
-        previewLine.SetPosition(0, startPoint.transform.position);
-        previewLine.SetPosition(1, mouseWorld);
+        if (previewWire != null && previewWire.IsPreviewing)
+        {
+            previewWire.UpdatePreviewEnd(mouseWorld);
+        }
+        else if (previewLine != null)
+        {
+            previewLine.SetPosition(0, startPoint.transform.position);
+            previewLine.SetPosition(1, mouseWorld);
+        }
     }
 
     private void CancelDrawing()
     {
         isDrawing = false;
         startPoint = null;
+
+        // 確定していない仮線だけを削除
+        if (previewWire != null)
+        {
+            previewWire.CancelPreview();
+            previewWire = null;
+            previewEndPoint = null;
+        }
 
         if (previewLine != null)
             previewLine.enabled = false;
@@ -347,5 +408,23 @@ public class WireDrawingController : MonoBehaviour
 
             UIManager.Instance.UpdateWireGauge(normalized);
         }
+    }
+    // =====================================================
+    // 描画中の仮終点を作成
+    // =====================================================
+    private LinePoint CreateTemporaryEndPoint(Vector3 position)
+    {
+        GameObject obj = new GameObject("WirePreviewEndPoint");
+        obj.transform.position = position;
+
+        // LinePointのCollider2D必須条件を満たす
+        CircleCollider2D col = obj.AddComponent<CircleCollider2D>();
+        col.enabled = false;
+
+        LinePoint point = obj.AddComponent<LinePoint>();
+        point.isRecoveryPoint = false;
+        point.preventWireDrawing = true;
+
+        return point;
     }
 }

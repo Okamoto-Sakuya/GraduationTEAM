@@ -60,4 +60,54 @@ public abstract class TrackEdge : MonoBehaviour
     {
         UnregisterPoints();
     }
+    // =====================================================
+    // BasicLineを有効化して接続を登録
+    // =====================================================
+    public void ActivateLine()
+    {
+        if (pointA == null || pointB == null)
+        {
+            Debug.LogWarning(
+                $"{name}: pointA または pointB が設定されていません。",
+                this
+            );
+            return;
+        }
+
+        enabled = true;
+
+        if (this is BasicLine basicLine)
+        {
+            basicLine.RegisterPointsForRuntime();
+        }
+        else
+        {
+            RegisterPoints();
+        }
+
+        // 線を表示
+        if (lineRenderer != null)
+        {
+            lineRenderer.enabled = true;
+            UpdateLine();
+        }
+    }
+
+    // =====================================================
+    // 2本のBasicLineを同時に有効化
+    // =====================================================
+    public static void ActivateTwoBasicLines(
+        BasicLine line1,
+        BasicLine line2)
+    {
+        if (line1 != null)
+        {
+            line1.ActivateLine();
+        }
+
+        if (line2 != null)
+        {
+            line2.ActivateLine();
+        }
+    }
 }

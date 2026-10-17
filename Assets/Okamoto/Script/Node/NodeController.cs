@@ -97,8 +97,36 @@ public class NodeController : MonoBehaviour
     public bool useGreenForGood;
 
     [Header("ルート選択")]
-    [Tooltip("接続されている造線を優先して進む")]
+    [Tooltip("接続されている完成済みの造線を優先して進む")]
     public bool prioritizeDrawnWire = true;
+
+    // =====================================================
+    // 近くの回収地点を優先する設定
+    // =====================================================
+
+    [Header("回収地点への優先移動")]
+    [Tooltip("近くに回収地点があれば、基本線より優先して向かう")]
+    public bool prioritizeNearbyRecoveryPoint = true;
+
+    [Tooltip("この距離以内に回収地点があれば向かう")]
+    [Min(0f)]
+    public float recoveryPointDetectionRadius = 1.5f;
+
+    [Tooltip("回収地点に到着したと判定する距離")]
+    [Min(0.01f)]
+    public float recoveryPointArrivalDistance = 0.1f;
+
+    [Tooltip("回収地点へ向かう速度倍率")]
+    [Min(0.1f)]
+    public float recoveryPointMoveSpeedMultiplier = 1f;
+
+    [Tooltip("回収地点を再検索する間隔（秒）")]
+    [Min(0.05f)]
+    public float recoveryPointSearchInterval = 0.2f;
+
+    private RecoveryPoint currentRecoveryTarget;
+    private RecoveryPoint[] cachedRecoveryPoints;
+    private float recoveryPointSearchTimer;
 
     private TrackEdge currentEdge;
     private LinePoint fromPoint;
@@ -162,6 +190,9 @@ public class NodeController : MonoBehaviour
         stateTimer = 0f;
         wireWarningAlpha = 1f;
 
+        currentRecoveryTarget = null;
+        recoveryPointSearchTimer = 0f;
+
         initialized = true;
         recovered = false;
 
@@ -174,19 +205,89 @@ public class NodeController : MonoBehaviour
     // 更新
     // =====================================================
 
-    private void Update()
-    {
-        if (!initialized || recovered)
-            return;
+   private void Update()
+{
+    if (!initialized || recovered)
+        return;
 
-        if (GameManager.Instance != null &&
-            GameManager.Instance.IsGameOver)
+    // 問題モードの準備中は、移動もゲージ変化も停止
+    if (problemModePaused)
+        return;
+
+    if (GameManager.Instance != null &&
+        GameManager.Instance.IsGameOver)
+    {
+        return;
+    }
+
+    UpdateGaugeAndLevel();
+
+        // -------------------------------------------------
+        // 造線上では回収地点への寄り道をしない
+        // 描画中の造線への切り替えも行わない
+        // -------------------------------------------------
+
+        if (currentEdge is DrawnWire)
         {
+            MoveAlongEdge();
             return;
         }
 
-        UpdateGaugeAndLevel();
+        // -------------------------------------------------
+        // 次の接続地点に完成済みの造線がある場合は、
+        // 回収地点への直接移動を中断して線に沿って進む
+        // -------------------------------------------------
+
+        if (prioritizeDrawnWire &&
+            HasCompletedDrawnWireAtPoint(targetPoint))
+        {
+            currentRecoveryTarget = null;
+            MoveAlongEdge();
+            return;
+        }
+
+        // -------------------------------------------------
+        // 造線がなければ従来どおり近くの回収地点を優先
+        // -------------------------------------------------
+
+        if (MoveToNearbyRecoveryPoint())
+            return;
+
         MoveAlongEdge();
+    }
+
+    // =====================================================
+    // 指定地点に完成済みの造線があるか確認
+    // =====================================================
+
+    private bool HasCompletedDrawnWireAtPoint(LinePoint point)
+    {
+        if (!prioritizeDrawnWire || point == null)
+            return false;
+
+        foreach (TrackEdge edge in point.ConnectedEdges)
+        {
+            if (!(edge is DrawnWire drawnWire))
+                continue;
+
+            // 描画中・消滅済み・進入できない造線は無視
+            if (!drawnWire.IsCompleted)
+                continue;
+
+            if (!drawnWire.CanEnter())
+                continue;
+
+            // その地点から造線に進める場合のみ優先する
+            if (!drawnWire.CanDepartFrom(point))
+                continue;
+
+            if (drawnWire.GetOtherPoint(point) == null)
+                continue;
+
+            return true;
+        }
+
+        return false;
     }
 
     // =====================================================
@@ -198,36 +299,44 @@ public class NodeController : MonoBehaviour
     // 良性1に戻る
     // =====================================================
 
+
+    // =====================================================
+    // ゲージとレベルの更新
+    //
+    // BadNode  1 → 2 → 3 → 4 → 3 → 2 → 1
+    // GoodNode 1 → 2 → 3 → 4 → 3 → 2 → 1
+    //
+    // レベル1まで下降したら種類を切り替える
+    // =====================================================
+
     private void UpdateGaugeAndLevel()
     {
         float change = gaugeChangePerSecond * Time.deltaTime;
 
         // -------------------------------------------------
-        // 良性ノード
-        // ゲージが0になるたびにレベルアップ
-        // 良性レベル4の次は悪性レベル1
+        // 上昇中
+        // GoodNode・BadNode共通
+        // ゲージが満タンになるたびにレベルアップ
         // -------------------------------------------------
 
-        if (nodeType == NodeType.Good)
+        if (increasingBadLevel)
         {
-            currentGauge -= change;
-            currentGauge = Mathf.Max(0f, currentGauge);
+            currentGauge += change;
+            currentGauge = Mathf.Min(maxGauge, currentGauge);
 
-            if (currentGauge <= 0f)
+            if (currentGauge >= maxGauge)
             {
                 if (level < 4)
                 {
-                    // 良性レベルアップ
+                    // レベルアップ
                     level++;
-                    currentGauge = maxGauge;
+                    currentGauge = 0f;
                 }
                 else
                 {
-                    // 良性レベル4から悪性レベル1へ
-                    nodeType = NodeType.Bad;
-                    level = 1;
-                    currentGauge = 0f;
-                    increasingBadLevel = true;
+                    // レベル4になったら下降開始
+                    increasingBadLevel = false;
+                    currentGauge = maxGauge;
                 }
 
                 stateTimer = 0f;
@@ -236,6 +345,45 @@ public class NodeController : MonoBehaviour
 
             return;
         }
+
+        // -------------------------------------------------
+        // 下降中
+        // GoodNode・BadNode共通
+        // ゲージが0になるたびにレベルダウン
+        // -------------------------------------------------
+
+        currentGauge -= change;
+        currentGauge = Mathf.Max(0f, currentGauge);
+
+        if (currentGauge <= 0f)
+        {
+            if (level > 1)
+            {
+                // レベルダウン
+                level--;
+                currentGauge = maxGauge;
+            }
+            else
+            {
+                // レベル1まで下降したら種類を切り替える
+                if (nodeType == NodeType.Bad)
+                {
+                    nodeType = NodeType.Good;
+                }
+                else
+                {
+                    nodeType = NodeType.Bad;
+                }
+
+                level = 1;
+                currentGauge = maxGauge;
+                increasingBadLevel = true;
+            }
+
+            stateTimer = 0f;
+            UpdateAppearance();
+        }
+
 
         // -------------------------------------------------
         // 悪性ノード：レベル上昇
@@ -379,7 +527,45 @@ public class NodeController : MonoBehaviour
 
         transform.position = targetPoint.transform.position;
 
-        // 回収点を最優先
+        // 問題モード：指定された回収点がゴールならクリア
+        if (problemModeManager != null && targetPoint.isRecoveryPoint)
+        {
+            RecoveryPoint reachedPoint = targetPoint.recoveryPoint;
+
+            if (reachedPoint == null)
+                reachedPoint = targetPoint.GetComponent<RecoveryPoint>();
+
+            if (reachedPoint == problemModeManager.GoalRecoveryPoint)
+            {
+                problemModeManager.NotifyGoalReached();
+                return;
+            }
+        }
+
+        // 描画中の造線の仮終点では、確定するまで待つ
+        if (currentEdge is DrawnWire previewWire &&
+            previewWire.IsPreviewing &&
+            targetPoint == previewWire.pointB)
+        {
+            return;
+        }
+
+        // -------------------------------------------------
+        // 完成済み造線を回収地点より優先する
+        // -------------------------------------------------
+
+        if (prioritizeDrawnWire &&
+            HasCompletedDrawnWireAtPoint(targetPoint))
+        {
+            currentRecoveryTarget = null;
+            ChooseNextEdge(targetPoint);
+            return;
+        }
+
+        // -------------------------------------------------
+        // 造線がなければ回収点を優先
+        // -------------------------------------------------
+
         if (targetPoint.isRecoveryPoint)
         {
             RecoveryPoint recovery = targetPoint.recoveryPoint;
@@ -389,6 +575,7 @@ public class NodeController : MonoBehaviour
 
             if (recovery != null)
             {
+                currentRecoveryTarget = null;
                 recovery.Recover(this);
                 return;
             }
@@ -399,7 +586,7 @@ public class NodeController : MonoBehaviour
 
     // =====================================================
     // 次に進む線を選択
-    // 造線 → 基本線の順で優先する
+    // 完成済み造線 → 基本線の順で優先する
     // =====================================================
 
     private void ChooseNextEdge(LinePoint arrivedPoint)
@@ -410,13 +597,20 @@ public class NodeController : MonoBehaviour
         TrackEdge nextEdge = null;
         LinePoint nextPoint = null;
 
-        // 優先1：接続されている造線
+        // -------------------------------------------------
+        // 優先1：接続されている完成済み造線
+        // -------------------------------------------------
+
         if (prioritizeDrawnWire)
         {
             foreach (TrackEdge edge in arrivedPoint.ConnectedEdges)
             {
-                if (!(edge is DrawnWire))
-                    continue;
+                if (!(edge is DrawnWire wire))
+    continue;
+
+// 描画中の造線には切り替えない
+if (!wire.IsCompleted)
+    continue;
 
                 if (!CanUseEdge(edge, arrivedPoint))
                     continue;
@@ -432,7 +626,10 @@ public class NodeController : MonoBehaviour
             }
         }
 
+        // -------------------------------------------------
         // 優先2：基本線
+        // -------------------------------------------------
+
         if (nextEdge == null)
         {
             foreach (TrackEdge edge in arrivedPoint.ConnectedEdges)
@@ -454,16 +651,27 @@ public class NodeController : MonoBehaviour
             }
         }
 
+        // -------------------------------------------------
         // 移動先がない場合
+        // -------------------------------------------------
+
         if (nextEdge == null || nextPoint == null)
         {
             Debug.LogWarning(
                 "ノードの移動先がありません: " + arrivedPoint.name,
                 arrivedPoint);
+
+            // 問題モードではゴールに到達できなかった
+            if (problemModeManager != null)
+                problemModeManager.NotifyNodeFailed();
+
             return;
         }
 
+        // -------------------------------------------------
         // 選択した線へ移動
+        // -------------------------------------------------
+
         previousEdge = currentEdge;
         currentEdge = nextEdge;
 
@@ -471,15 +679,13 @@ public class NodeController : MonoBehaviour
         targetPoint = nextPoint;
 
         progress = 0f;
+        currentRecoveryTarget = null;
+
+        wireWarningAlpha = 1f;
 
         if (currentEdge is DrawnWire drawnWire)
         {
-            wireWarningAlpha = 1f;
             drawnWire.RegisterPass();
-        }
-        else
-        {
-            wireWarningAlpha = 1f;
         }
 
         UpdateAppearance();
@@ -790,6 +996,34 @@ public class NodeController : MonoBehaviour
     }
 
     // =====================================================
+    // 描画中の造線が確定したとき、ノードの移動先を更新
+    // =====================================================
+
+    public void HandleWirePreviewCompleted(
+        DrawnWire wire,
+        LinePoint oldPreviewEnd,
+        LinePoint finalEndPoint)
+    {
+        if (!initialized ||
+            recovered ||
+            wire == null ||
+            oldPreviewEnd == null ||
+            finalEndPoint == null)
+        {
+            return;
+        }
+
+        if (currentEdge != wire)
+            return;
+
+        if (targetPoint == oldPreviewEnd)
+            targetPoint = finalEndPoint;
+
+        if (fromPoint == oldPreviewEnd)
+            fromPoint = finalEndPoint;
+    }
+
+    // =====================================================
     // 回収処理
     // =====================================================
 
@@ -802,5 +1036,155 @@ public class NodeController : MonoBehaviour
         initialized = false;
 
         Destroy(gameObject);
+    }
+
+    // =====================================================
+    // 近くの回収地点を探して優先的に移動
+    // =====================================================
+
+    private bool MoveToNearbyRecoveryPoint()
+    {
+        if (!prioritizeNearbyRecoveryPoint ||
+            recoveryPointDetectionRadius <= 0f)
+        {
+            currentRecoveryTarget = null;
+            return false;
+        }
+
+        // すでに回収地点へ向かっている場合は、
+        // 到着するまでその回収地点を優先する
+        if (currentRecoveryTarget != null)
+        {
+            if (currentRecoveryTarget.IsDestroyed)
+            {
+                currentRecoveryTarget = null;
+            }
+            else
+            {
+                return MoveToRecoveryTarget();
+            }
+        }
+
+        // 一定間隔で回収地点を再検索
+        recoveryPointSearchTimer -= Time.deltaTime;
+
+        if (cachedRecoveryPoints == null ||
+            recoveryPointSearchTimer <= 0f)
+        {
+            cachedRecoveryPoints =
+                FindObjectsByType<RecoveryPoint>(
+                    FindObjectsSortMode.None);
+
+            recoveryPointSearchTimer =
+                Mathf.Max(0.05f, recoveryPointSearchInterval);
+        }
+
+        RecoveryPoint nearestPoint = null;
+        float nearestDistance = recoveryPointDetectionRadius;
+
+        // 自分の近くにある回収地点を探す
+        if (cachedRecoveryPoints != null)
+        {
+            foreach (RecoveryPoint point in cachedRecoveryPoints)
+            {
+                if (point == null || point.IsDestroyed)
+                    continue;
+
+                float distance = Vector3.Distance(
+                    transform.position,
+                    point.transform.position);
+
+                if (distance <= nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearestPoint = point;
+                }
+            }
+        }
+
+        // 範囲内に回収地点がない
+        if (nearestPoint == null)
+            return false;
+
+        // 最も近い回収地点を移動先にする
+        currentRecoveryTarget = nearestPoint;
+
+        return MoveToRecoveryTarget();
+    }
+
+    // =====================================================
+    // 回収地点へ向かって移動
+    // =====================================================
+
+    private bool MoveToRecoveryTarget()
+    {
+        if (currentRecoveryTarget == null)
+        {
+            currentRecoveryTarget = null;
+            return false;
+        }
+
+        if (currentRecoveryTarget.IsDestroyed)
+        {
+            currentRecoveryTarget = null;
+            return false;
+        }
+
+        Vector3 targetPosition =
+            currentRecoveryTarget.transform.position;
+
+        float arrivalDistance =
+            Mathf.Max(0.01f, recoveryPointArrivalDistance);
+
+        float distance = Vector3.Distance(
+            transform.position,
+            targetPosition);
+
+        // 回収地点に到着
+        if (distance <= arrivalDistance)
+        {
+            RecoveryPoint reachedPoint = currentRecoveryTarget;
+
+            currentRecoveryTarget = null;
+
+            if (reachedPoint != null &&
+                !reachedPoint.IsDestroyed)
+            {
+                transform.position = targetPosition;
+                reachedPoint.Recover(this);
+            }
+
+            return true;
+        }
+
+        // 回収地点へ直接移動する
+        float speed = moveSpeed *
+                      Mathf.Max(0.1f,
+                          recoveryPointMoveSpeedMultiplier);
+
+        transform.position = Vector3.MoveTowards(
+            transform.position,
+            targetPosition,
+            speed * Time.deltaTime);
+
+        return true;
+    }
+    // =====================================================
+    // 問題モード用
+    // =====================================================
+
+    [Header("問題モード")]
+    public bool problemModePaused = false;
+
+    private ProblemModeManager problemModeManager;
+
+    public void SetProblemModePaused(bool paused)
+    {
+        problemModePaused = paused;
+    }
+
+    public void SetProblemModeManager(ProblemModeManager manager)
+    {
+        problemModeManager = manager;
     }
 }
