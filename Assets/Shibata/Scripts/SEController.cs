@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using UnityEngine;
 using static AudioManager;
 using static SEController;
@@ -452,6 +451,20 @@ public class SEController : MonoBehaviour
     }
 
     //============================================================
-    // AddressabeŠÖŒW
+    // AddressableŠÖŒW
     //============================================================
+
+    public void LoadEnemy()
+    {
+        Addressables.LoadAssetAsync<GameObject>("Enemy/Goblin")
+            .Completed += OnLoaded;
+    }
+
+    void OnLoaded(AsyncOperationHandle<AudioClip> handle)
+    {
+        if (handle.Status == AsyncOperationStatus.Succeeded)
+        {
+            
+        }
+    }
 }
