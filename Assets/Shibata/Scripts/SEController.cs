@@ -454,17 +454,17 @@ public class SEController : MonoBehaviour
     // AddressableŠÖŒW
     //============================================================
 
-    public void LoadEnemy()
-    {
-        Addressables.LoadAssetAsync<GameObject>("Enemy/Goblin")
-            .Completed += OnLoaded;
-    }
+    //public void LoadEnemy()
+    //{
+    //    Addressables.LoadAssetAsync<GameObject>("Enemy/Goblin")
+    //        .Completed += OnLoaded;
+    //}
 
-    void OnLoaded(AsyncOperationHandle<AudioClip> handle)
-    {
-        if (handle.Status == AsyncOperationStatus.Succeeded)
-        {
+    //void OnLoaded(AsyncOperationHandle<AudioClip> handle)
+    //{
+    //    if (handle.Status == AsyncOperationStatus.Succeeded)
+    //    {
             
-        }
-    }
+    //    }
+    //}
 }
