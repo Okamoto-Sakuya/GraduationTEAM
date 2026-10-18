@@ -2,6 +2,8 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 /// <summary>
 /// 読み込んだセリフを TextMeshPro に表示するスクリプト
 /// </summary>
@@ -64,32 +66,28 @@ public class ScenarioPlayer : MonoBehaviour
 
     private void Update()
     {
-        // 左クリックされた瞬間だけ判定する
-        if (Input.GetMouseButtonDown(0))
-        {
-            // UIボタンなどをクリックしている場合は、
-            // テキストを進めずに処理を終了する
-            if (UnityEngine.EventSystems.EventSystem.current != null &&
-                UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
-            {
-                return;
-            }
+        // 左クリックされた瞬間だけ判定
+        if (!Input.GetMouseButtonDown(0))
+            return;
 
-            // シナリオ終了後なら次のシーンへ移動する
-            if (isScenarioEnded)
-            {
-                LoadNextScene();
-            }
-            // 文字送り中なら全文を表示する
-            else if (isTyping)
-            {
-                CompleteTyping();
-            }
-            // 全文表示済みなら次のセリフへ進む
-            else
-            {
-                Next();
-            }
+        // クリック位置にButtonがある場合だけ無視する
+        if (IsPointerOverButton())
+            return;
+
+        // シナリオ終了後なら次のシーンへ移動
+        if (isScenarioEnded)
+        {
+            LoadNextScene();
+        }
+        // 文字送り中なら全文を表示
+        else if (isTyping)
+        {
+            CompleteTyping();
+        }
+        // 全文表示済みなら次のセリフへ進む
+        else
+        {
+            Next();
         }
     }
 
@@ -374,5 +372,29 @@ public class ScenarioPlayer : MonoBehaviour
     public float GetCharacterInterval()
     {
         return characterInterval;
+    }
+
+    private bool IsPointerOverButton()
+    {
+        if (EventSystem.current == null)
+            return false;
+
+        // マウス位置にあるUIを取得
+        PointerEventData eventData = new PointerEventData(EventSystem.current);
+        eventData.position = Input.mousePosition;
+
+        var results = new System.Collections.Generic.List<RaycastResult>();
+        EventSystem.current.RaycastAll(eventData, results);
+
+        foreach (RaycastResult result in results)
+        {
+            // Button本体、または親オブジェクトにButtonがあれば無視
+            if (result.gameObject.GetComponentInParent<Button>() != null)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
