@@ -554,8 +554,8 @@ MonoBehaviour:
   - {fileID: 84245555}
   - {fileID: 1031606100}
   - {fileID: 56671637}
-  slideDistance: 50
-  animationDuration: 0.03
+  slideDistance: 30
+  animationDuration: 0.02
   staggerDelay: 0.03
 --- !u!4 &182298218
 Transform:
