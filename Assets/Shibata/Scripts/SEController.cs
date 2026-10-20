@@ -1,7 +1,9 @@
+
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using static AudioManager;
-using static SEController;
 
 public class SEController : MonoBehaviour
 {
@@ -15,7 +17,9 @@ public class SEController : MonoBehaviour
     public class SEData
     {
         public SEType type;
-        public AudioClip clip;
+
+        [Header("AddressableのSE")]
+        public AssetReferenceT<AudioClip> clip;
     }
 
     //============================================================
@@ -24,7 +28,9 @@ public class SEController : MonoBehaviour
 
     public enum SEType
     {
-        Click,
+        Enter,
+        Cancel,
+        OpenWindow,
     }
 
     //============================================================
@@ -34,24 +40,35 @@ public class SEController : MonoBehaviour
     [SerializeField]
     private List<SEData> seList = new();
 
+    // ロード済みのAudioClip
     private Dictionary<SEType, AudioClip> seDictionary = new();
+
+    // Addressablesのロードハンドル
+    private Dictionary<SEType, AsyncOperationHandle<AudioClip>>
+        seHandles = new();
+
+    // ロード中のSE
+    private HashSet<SEType> loadingSE = new();
+
+    // ロード中に要求された再生回数
+    private Dictionary<SEType, int> pendingPlayCounts = new();
+
+    //============================================================
+    // SEごとの音量設定
+    //============================================================
+
+    [Header("SEごとの音量設定")]
+    [SerializeField]
+    private ReadCSV_Audio readCSVAudio;
 
     //============================================================
     // ミュートするSE
     //============================================================
 
     [Header("ミュートするSE")]
-
-    /// <summary>
-    /// MuteSE() / UnmuteSE() の対象となるSE
-    /// Inspectorから設定する
-    /// </summary>
     [SerializeField]
     private SEType[] muteSE;
 
-    /// <summary>
-    /// muteSEが現在ミュートされているか
-    /// </summary>
     private bool isMuteSE = false;
 
     //============================================================
@@ -59,10 +76,6 @@ public class SEController : MonoBehaviour
     //============================================================
 
     [Header("複数再生していいSE")]
-
-    /// <summary>
-    /// 同じSEを連続して複数再生してもいいSE
-    /// </summary>
     [SerializeField]
     private SEType[] consecutiveSE;
 
@@ -70,12 +83,10 @@ public class SEController : MonoBehaviour
     // AudioSource
     //============================================================
 
-    // SEを同時に10個まで再生する
     private const int MaxSECount = 10;
 
     private AudioSource[] audioSources;
 
-    // AudioSourceの再生順を管理する
     // 0 = 最も古い
     private Queue<AudioSource> playOrder = new();
 
@@ -85,20 +96,16 @@ public class SEController : MonoBehaviour
 
     private void Awake()
     {
-        DontDestroyOnLoad(this.gameObject);
-
-        if (Inst_SEManager != null)
+        if (Inst_SEManager != null && Inst_SEManager != this)
         {
             Destroy(gameObject);
             return;
         }
 
         Inst_SEManager = this;
+        DontDestroyOnLoad(gameObject);
 
-        //========================================================
         // AudioSourceを作成
-        //========================================================
-
         audioSources = new AudioSource[MaxSECount];
 
         for (int i = 0; i < MaxSECount; i++)
@@ -109,16 +116,75 @@ public class SEController : MonoBehaviour
             audioSources[i].loop = false;
         }
 
-        //========================================================
-        // Inspectorで設定した内容をDictionaryへ変換
-        //========================================================
+        // AddressablesからSEをロード
+        LoadAllSE();
+    }
+
+    //============================================================
+    // Addressablesロード
+    //============================================================
+
+    /// <summary>
+    /// Inspectorで設定したSEをすべて非同期ロードする
+    /// </summary>
+    private void LoadAllSE()
+    {
+        HashSet<SEType> registeredTypes = new();
 
         foreach (SEData data in seList)
         {
-            if (data.clip != null)
+            if (data == null || data.clip == null)
+                continue;
+
+            if (!registeredTypes.Add(data.type))
             {
-                seDictionary[data.type] = data.clip;
+                Debug.LogWarning(
+                    $"SETypeが重複しています: {data.type}");
+                continue;
             }
+
+            SEType type = data.type;
+
+            loadingSE.Add(type);
+
+            AsyncOperationHandle<AudioClip> handle =
+                Addressables.LoadAssetAsync<AudioClip>(data.clip);
+
+            seHandles[type] = handle;
+
+            handle.Completed += operation =>
+            {
+                if (this == null)
+                    return;
+
+                loadingSE.Remove(type);
+
+                if (operation.Status == AsyncOperationStatus.Succeeded)
+                {
+                    seDictionary[type] = operation.Result;
+
+                    Debug.Log($"SEロード成功: {type}");
+
+                    // ロード中に要求された再生を実行
+                    if (pendingPlayCounts.TryGetValue(
+                        type, out int count))
+                    {
+                        pendingPlayCounts.Remove(type);
+
+                        for (int i = 0; i < count; i++)
+                        {
+                            PlaySE(type);
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.LogError(
+                        $"SEロード失敗: {type}");
+
+                    pendingPlayCounts.Remove(type);
+                }
+            };
         }
     }
 
@@ -131,14 +197,21 @@ public class SEController : MonoBehaviour
         if (audioSources == null)
             return;
 
-        // 全AudioSourceに音量を適用
+        // 全体音量を適用
+        // SEごとの音量はPlayOneShotのvolumeScaleで適用する
         foreach (AudioSource source in audioSources)
         {
             source.volume = masterVolume * seVolume;
         }
 
-        // 再生が終了したAudioSourceをQueueから削除
         RemoveFinishedSources();
+
+        // デバッグ用
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            PlaySE(SEType.Enter);
+            Debug.Log("PlaySE: Enter");
+        }
     }
 
     //============================================================
@@ -146,7 +219,7 @@ public class SEController : MonoBehaviour
     //============================================================
 
     /// <summary>
-    /// Inspectorで設定したmuteSEをミュートする
+    /// Inspectorで設定したSEをミュートする
     /// </summary>
     public static void MuteSE()
     {
@@ -156,13 +229,11 @@ public class SEController : MonoBehaviour
             return;
         }
 
-        // ミュート状態にする
         Inst_SEManager.isMuteSE = true;
 
         if (Inst_SEManager.muteSE == null)
             return;
 
-        // 現在再生中の対象SEを停止してAudioSourceから外す
         foreach (SEType type in Inst_SEManager.muteSE)
         {
             Inst_SEManager.RemoveSEFromAudioSource(type);
@@ -170,7 +241,7 @@ public class SEController : MonoBehaviour
     }
 
     /// <summary>
-    /// muteSEのミュートを解除する
+    /// ミュートを解除する
     /// </summary>
     public static void UnmuteSE()
     {
@@ -180,32 +251,27 @@ public class SEController : MonoBehaviour
             return;
         }
 
-        // ミュート解除
         Inst_SEManager.isMuteSE = false;
     }
 
     /// <summary>
-    /// 指定したSEが現在ミュート対象になっているか
+    /// 指定したSEが現在ミュート対象か確認
     /// </summary>
     private static bool IsMuteSE(SEType type)
     {
         if (Inst_SEManager == null)
             return false;
 
-        // 現在MuteSE()が呼ばれていなければ再生可能
         if (!Inst_SEManager.isMuteSE)
             return false;
 
         if (Inst_SEManager.muteSE == null)
             return false;
 
-        // muteSEに指定されているか確認
         foreach (SEType muteType in Inst_SEManager.muteSE)
         {
             if (muteType == type)
-            {
                 return true;
-            }
         }
 
         return false;
@@ -226,12 +292,11 @@ public class SEController : MonoBehaviour
         if (Inst_SEManager.consecutiveSE == null)
             return false;
 
-        foreach (SEType consecutiveType in Inst_SEManager.consecutiveSE)
+        foreach (SEType consecutiveType
+                 in Inst_SEManager.consecutiveSE)
         {
             if (consecutiveType == type)
-            {
                 return true;
-            }
         }
 
         return false;
@@ -242,13 +307,15 @@ public class SEController : MonoBehaviour
     //============================================================
 
     /// <summary>
-    /// 指定したSEを再生しているAudioSourceからClipを外す
+    /// 指定したSEを再生中のAudioSourceを停止する
     /// </summary>
     public void RemoveSEFromAudioSource(SEType type)
     {
-        // SETypeに対応するAudioClipを取得
-        if (!seDictionary.TryGetValue(type, out AudioClip clip))
+        if (!seDictionary.TryGetValue(
+            type, out AudioClip clip))
         {
+            // ロード中の場合も再生要求を破棄
+            pendingPlayCounts.Remove(type);
             return;
         }
 
@@ -256,13 +323,9 @@ public class SEController : MonoBehaviour
         {
             if (source.clip == clip)
             {
-                // 再生停止
                 source.Stop();
-
-                // AudioClipを外す
                 source.clip = null;
 
-                // Queueから削除
                 RemoveSourceFromQueue(source);
             }
         }
@@ -272,9 +335,6 @@ public class SEController : MonoBehaviour
     // 再生終了SEの整理
     //============================================================
 
-    /// <summary>
-    /// 再生が終了したAudioSourceを再生順リストから削除
-    /// </summary>
     private void RemoveFinishedSources()
     {
         if (playOrder.Count == 0)
@@ -287,6 +347,10 @@ public class SEController : MonoBehaviour
             if (source.isPlaying)
             {
                 newQueue.Enqueue(source);
+            }
+            else
+            {
+                source.clip = null;
             }
         }
 
@@ -302,108 +366,133 @@ public class SEController : MonoBehaviour
     /// </summary>
     public static void PlaySE(SEType type)
     {
-        Debug.Log("PlaySE:" +  type);
-
         if (Inst_SEManager == null)
         {
             Debug.LogWarning("SEManagerが存在しません");
             return;
         }
 
-        //========================================================
-        // MuteSE()が呼ばれていて、
-        // かつmuteSEに登録されているSEなら再生しない
-        //========================================================
-
+        // ミュート中なら再生しない
         if (IsMuteSE(type))
+            return;
+
+        SEController manager = Inst_SEManager;
+
+        // ロード済みか確認
+        if (!manager.seDictionary.TryGetValue(
+            type, out AudioClip clip))
         {
+            // ロード中なら再生要求を保留する
+            if (manager.loadingSE.Contains(type))
+            {
+                if (IsConsecutiveSE(type))
+                {
+                    manager.pendingPlayCounts.TryGetValue(
+                        type, out int count);
+
+                    manager.pendingPlayCounts[type] = count + 1;
+                }
+                else
+                {
+                    // 同じSEの要求は1回にまとめる
+                    manager.pendingPlayCounts[type] = 1;
+                }
+
+                return;
+            }
+
+            Debug.LogWarning($"SE未登録またはロード失敗: {type}");
             return;
         }
 
-        //========================================================
-        // SEを取得
-        //========================================================
-
-        if (!Inst_SEManager.seDictionary.TryGetValue(type, out AudioClip clip))
-        {
-            Debug.LogWarning($"SE未登録: {type}");
-            return;
-        }
-
-        //========================================================
-        // consecutiveSEに登録されていないSEの場合
-        // 同じSEが再生中なら何もしない
-        //========================================================
-
+        // 複数再生不可なら同じSEの重複再生を防ぐ
         if (!IsConsecutiveSE(type))
         {
-            foreach (AudioSource source in Inst_SEManager.audioSources)
+            foreach (AudioSource source in manager.audioSources)
             {
                 if (source.isPlaying && source.clip == clip)
-                {
                     return;
-                }
             }
         }
 
-        //========================================================
         // 空いているAudioSourceを探す
-        //========================================================
-
-        foreach (AudioSource source in Inst_SEManager.audioSources)
+        foreach (AudioSource source in manager.audioSources)
         {
             if (!source.isPlaying)
             {
-                PlayOnSource(source, clip);
+                PlayOnSource(source, clip, type);
                 return;
             }
         }
 
-        //========================================================
-        // 10個とも使用中
-        //========================================================
-
-        if (Inst_SEManager.playOrder.Count > 0)
+        // すべて使用中なら最も古いSEを停止して再利用
+        if (manager.playOrder.Count > 0)
         {
-            // Queueの先頭 = 最も古く再生したAudioSource
             AudioSource oldestSource =
-                Inst_SEManager.playOrder.Dequeue();
+                manager.playOrder.Dequeue();
 
             oldestSource.Stop();
+            oldestSource.clip = null;
 
-            PlayOnSource(oldestSource, clip);
+            PlayOnSource(oldestSource, clip, type);
         }
+    }
+
+    //============================================================
+    // SEごとの音量取得
+    //============================================================
+
+    /// <summary>
+    /// SETypeとClipVolumes.nameが一致する音量を取得
+    /// </summary>
+    private static float GetClipVolume(SEType type)
+    {
+        SEController manager = Inst_SEManager;
+
+        if (manager == null || manager.readCSVAudio == null)
+        {
+            Debug.LogWarning(
+                "ReadCSV_Audioが設定されていません。音量を1にします。");
+
+            return 1f;
+        }
+
+        // Enum名とCSVのnameを照合
+        return manager.readCSVAudio.GetVolume(type.ToString());
     }
 
     //============================================================
     // AudioSourceで再生
     //============================================================
 
-    /// <summary>
-    /// 指定したAudioSourceでSEを再生
-    /// </summary>
     private static void PlayOnSource(
         AudioSource source,
-        AudioClip clip)
+        AudioClip clip,
+        SEType type)
     {
-        // 念のため、Queue内に同じAudioSourceが残っていたら削除
-        Inst_SEManager.RemoveSourceFromQueue(source);
+        SEController manager = Inst_SEManager;
 
-        source.clip = clip;
+        manager.RemoveSourceFromQueue(source);
+
+        // SETypeとClipVolumes.nameが一致する音量を取得
+        float clipVolume = GetClipVolume(type);
+
+        // AudioSource.volumeは全体音量にする
         source.volume = masterVolume * seVolume;
-        source.Play();
 
-        // 今回再生したAudioSourceを最後尾へ追加
-        Inst_SEManager.playOrder.Enqueue(source);
+        // 再生中のSEを管理するためclipを設定
+        source.clip = clip;
+
+        // SEごとの音量はvolumeScaleで適用
+        source.PlayOneShot(clip, clipVolume);
+
+        manager.playOrder.Enqueue(source);
     }
 
     //============================================================
     // Queue管理
     //============================================================
 
-    /// <summary>
-    /// Queueから指定AudioSourceを削除
-    /// </summary>
     private void RemoveSourceFromQueue(AudioSource target)
     {
         Queue<AudioSource> newQueue = new();
@@ -424,7 +513,7 @@ public class SEController : MonoBehaviour
     //============================================================
 
     /// <summary>
-    /// 再生中のすべてのSEを停止
+    /// 再生中のすべてのSEを停止する
     /// </summary>
     public static void StopAllSE()
     {
@@ -434,37 +523,58 @@ public class SEController : MonoBehaviour
             return;
         }
 
-        // 全AudioSourceを停止
-        foreach (AudioSource source in Inst_SEManager.audioSources)
+        SEController manager = Inst_SEManager;
+
+        foreach (AudioSource source in manager.audioSources)
         {
             if (source.isPlaying)
-            {
                 source.Stop();
-            }
 
-            // 再生中のClipも解除
             source.clip = null;
         }
 
-        // 再生順もリセット
-        Inst_SEManager.playOrder.Clear();
+        manager.playOrder.Clear();
+
+        // ロード中の再生要求も破棄
+        manager.pendingPlayCounts.Clear();
     }
 
     //============================================================
-    // Addressable関係
+    // 終了処理・Addressables解放
     //============================================================
 
-    //public void LoadEnemy()
-    //{
-    //    Addressables.LoadAssetAsync<GameObject>("Enemy/Goblin")
-    //        .Completed += OnLoaded;
-    //}
+    private void OnDestroy()
+    {
+        if (Inst_SEManager != this)
+            return;
 
-    //void OnLoaded(AsyncOperationHandle<AudioClip> handle)
-    //{
-    //    if (handle.Status == AsyncOperationStatus.Succeeded)
-    //    {
-            
-    //    }
-    //}
+        // 再生中の音声を停止
+        if (audioSources != null)
+        {
+            foreach (AudioSource source in audioSources)
+            {
+                if (source != null)
+                {
+                    source.Stop();
+                    source.clip = null;
+                }
+            }
+        }
+
+        // ロードしたAddressablesのハンドルを解放
+        foreach (var pair in seHandles)
+        {
+            if (pair.Value.IsValid())
+            {
+                Addressables.Release(pair.Value);
+            }
+        }
+
+        seHandles.Clear();
+        seDictionary.Clear();
+        loadingSE.Clear();
+        pendingPlayCounts.Clear();
+
+        Inst_SEManager = null;
+    }
 }

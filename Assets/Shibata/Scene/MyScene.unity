@@ -206,6 +206,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1266467659}
+  - component: {fileID: 1266467660}
   m_Layer: 0
   m_Name: SEController
   m_TagString: Untagged
@@ -228,6 +229,43 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1083654050}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1266467660
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1266467658}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8bdd10aa6e8cbff489600aabefa1fb79, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SEController
+  seList:
+  - type: 0
+    clip:
+      m_AssetGUID: ff406a4a8cdc11440aa4af864f7b733a
+      m_SubObjectName: 
+      m_SubObjectType: 
+      m_SubObjectGUID: 
+      m_EditorAssetChanged: 0
+  - type: 1
+    clip:
+      m_AssetGUID: f91ebdf628488e044b32e4a0548b5a81
+      m_SubObjectName: 
+      m_SubObjectType: 
+      m_SubObjectGUID: 
+      m_EditorAssetChanged: 0
+  - type: 2
+    clip:
+      m_AssetGUID: 7abea9c04523b514bb21b7384151449d
+      m_SubObjectName: 
+      m_SubObjectType: 
+      m_SubObjectGUID: 
+      m_EditorAssetChanged: 1
+  readCSVAudio: {fileID: 1083654051}
+  muteSE: 
+  consecutiveSE: 
 --- !u!1 &1758929771
 GameObject:
   m_ObjectHideFlags: 0
