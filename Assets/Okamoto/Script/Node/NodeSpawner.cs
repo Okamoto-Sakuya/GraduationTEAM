@@ -1,203 +1,241 @@
-
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class NodeSpawner : MonoBehaviour
 {
-    [Header("出現する基本線（6本）")]
-    public BasicLine[] basicLines = new BasicLine[6];
+    [System.Serializable]
+    public class SpawnPoint
+    {
+        [Header("出現する基本線")]
+        public BasicLine basicLine;
 
-    [Header("ノード出現地点（LinePoint）")]
-    [Tooltip("ノードを出現させたい基本線のPoint Aを登録")]
-    public LinePoint[] spawnPoints;
+        [Header("出現確率の重み")]
+        [Min(0.01f)]
+        public float weight = 1f;
 
-    [Header("ノードPrefab")]
-    public NodeController nodePrefab;
+        [HideInInspector]
+        public float currentWeight;
+
+        [HideInInspector]
+        public int spawnCount;
+    }
+
+    [Header("ノードのPrefab")]
+    [SerializeField] private GameObject nodePrefab;
+
+    [Header("出現候補")]
+    [SerializeField]
+    private List<SpawnPoint> spawnPoints =
+        new List<SpawnPoint>();
 
     [Header("出現設定")]
-    [Min(0.1f)]
-    public float spawnInterval = 2f;
-
-    [Range(0f, 1f)]
-    public float badNodeChance = 0.35f;
+    [SerializeField] private float spawnInterval = 3f;
+    [SerializeField] private int maxNodeCount = 10;
+    [SerializeField] private bool spawnOnStart = true;
 
     [Header("出現確率の調整")]
-    [Min(0f)]
-    public float weightIncrease = 0.5f;
-
+    [Tooltip("出現後、その場所の重みを何倍にするか")]
     [Range(0.01f, 1f)]
-    public float selectedWeightMultiplier = 0.5f;
+    [SerializeField] private float weightReductionRate = 0.5f;
 
-    [Min(0.01f)]
-    public float minimumWeight = 0.1f;
+    [Tooltip("出現していない場所の重みを増やす量")]
+    [Min(0f)]
+    [SerializeField] private float unusedWeightIncrease = 0.2f;
 
-    private float[] weights;
+    private readonly List<GameObject> activeNodes =
+        new List<GameObject>();
+
     private Coroutine spawnCoroutine;
 
     private void Start()
     {
-        if (basicLines == null || basicLines.Length == 0 ||
-            nodePrefab == null)
+        // 初期重みを設定
+        foreach (SpawnPoint point in spawnPoints)
         {
-            Debug.LogError(
-                "NodeSpawner：基本線またはノードPrefabが未設定です。",
-                this);
-
-            enabled = false;
-            return;
+            if (point != null)
+            {
+                point.currentWeight = point.weight;
+                point.spawnCount = 0;
+            }
         }
 
-        weights = new float[basicLines.Length];
-
-        for (int i = 0; i < basicLines.Length; i++)
+        if (spawnOnStart)
         {
-            weights[i] = basicLines[i] != null
-                ? Mathf.Max(minimumWeight, basicLines[i].spawnWeight)
-                : 0f;
+            spawnCoroutine = StartCoroutine(SpawnLoop());
         }
-
-        spawnCoroutine = StartCoroutine(SpawnLoop());
     }
 
     private IEnumerator SpawnLoop()
     {
+        // 最初のノードを生成
+        TrySpawnNode();
+
         while (true)
         {
-            if (GameManager.Instance == null ||
-                !GameManager.Instance.IsGameOver)
-            {
-                SpawnNode();
-            }
-
             yield return new WaitForSeconds(spawnInterval);
+
+            // 最大数を超えないようにする
+            RemoveNullNodes();
+
+            if (activeNodes.Count < maxNodeCount)
+            {
+                TrySpawnNode();
+            }
         }
     }
 
-    // =====================================================
-    // Nodeの出現
-    // Inspectorで指定されたLinePointから出現させる
-    // =====================================================
-    private void SpawnNode()
+    // ノードを1体生成
+    public void TrySpawnNode()
     {
+        if (nodePrefab == null)
+        {
+            Debug.LogWarning("NodeSpawner：Node Prefabが設定されていません。");
+            return;
+        }
+
+        RemoveNullNodes();
+
+        if (activeNodes.Count >= maxNodeCount)
+        {
+            return;
+        }
+
+        SpawnPoint selectedPoint = SelectSpawnPoint();
+
+        if (selectedPoint == null || selectedPoint.basicLine == null)
+        {
+            Debug.LogWarning("NodeSpawner：有効な出現場所がありません。");
+            return;
+        }
+
+        BasicLine basicLine = selectedPoint.basicLine;
+
+        if (!basicLine.isActive || basicLine.startPoint == null)
+        {
+            return;
+        }
+
+        // 指定したBasicLineのStart Pointから生成
+        GameObject node = Instantiate(
+            nodePrefab,
+            basicLine.startPoint.position,
+            Quaternion.identity
+        );
+
+        NodeController controller = node.GetComponent<NodeController>();
+
+        if (controller != null)
+        {
+            controller.SetSpawnBasicLine(basicLine);
+        }
+
+        activeNodes.Add(node);
+
+        // 選ばれた場所の重みを下げる
+        selectedPoint.currentWeight = Mathf.Max(
+            0.01f,
+            selectedPoint.currentWeight * weightReductionRate
+        );
+
+        selectedPoint.spawnCount++;
+
+        // 選ばれなかった場所の重みを上げる
+        foreach (SpawnPoint point in spawnPoints)
+        {
+            if (point == null || point == selectedPoint)
+            {
+                continue;
+            }
+
+            if (point.basicLine == null || !point.basicLine.isActive)
+            {
+                continue;
+            }
+
+            point.currentWeight += unusedWeightIncrease;
+        }
+
+        Debug.Log(
+            $"ノード出現：{basicLine.name} / " +
+            $"出現回数：{selectedPoint.spawnCount}"
+        );
+    }
+
+    // 重み付きランダムで出現位置を選択
+    private SpawnPoint SelectSpawnPoint()
+    {
+        List<SpawnPoint> candidates = new List<SpawnPoint>();
+
         float totalWeight = 0f;
 
-        // 出現可能な基本線の重みを合計
-        for (int i = 0; i < basicLines.Length; i++)
+        foreach (SpawnPoint point in spawnPoints)
         {
-            if (!CanSpawnAt(i))
+            if (point == null || point.basicLine == null)
+            {
                 continue;
+            }
 
-            totalWeight += weights[i];
+            if (!point.basicLine.isActive ||
+                point.basicLine.startPoint == null)
+            {
+                continue;
+            }
+
+            float weight = Mathf.Max(0.01f, point.currentWeight);
+
+            candidates.Add(point);
+            totalWeight += weight;
         }
 
-        if (totalWeight <= 0f)
-            return;
-
-        // 重み付きランダムで基本線を選択
-        float randomValue = Random.value * totalWeight;
-        float cumulativeWeight = 0f;
-        int selectedIndex = -1;
-
-        for (int i = 0; i < basicLines.Length; i++)
+        if (candidates.Count == 0 || totalWeight <= 0f)
         {
-            if (!CanSpawnAt(i))
-                continue;
+            return null;
+        }
 
-            cumulativeWeight += weights[i];
+        float randomValue = Random.Range(0f, totalWeight);
 
-            if (randomValue <= cumulativeWeight)
+        foreach (SpawnPoint point in candidates)
+        {
+            randomValue -= Mathf.Max(0.01f, point.currentWeight);
+
+            if (randomValue <= 0f)
             {
-                selectedIndex = i;
-                break;
+                return point;
             }
         }
 
-        if (selectedIndex < 0)
-            return;
+        return candidates[candidates.Count - 1];
+    }
 
-        BasicLine selectedLine = basicLines[selectedIndex];
-        LinePoint spawnPoint = selectedLine.pointA;
+    // 削除済みノードをリストから除去
+    private void RemoveNullNodes()
+    {
+        activeNodes.RemoveAll(node => node == null);
+    }
 
-        // 指定したLinePointの位置からNodeを出現させる
-        NodeController node = Instantiate(
-            nodePrefab,
-            spawnPoint.transform.position,
-            Quaternion.identity);
+    // 外部からノードを1体生成したい場合に使用
+    public void SpawnOneNode()
+    {
+        TrySpawnNode();
+    }
 
-        // 良性・悪性をランダムで決定
-        NodeController.NodeType type =
-            Random.value < badNodeChance
-                ? NodeController.NodeType.Bad
-                : NodeController.NodeType.Good;
-
-        node.Initialize(selectedLine, type);
-
-        // 選ばれた基本線の出現確率を下げる
-        weights[selectedIndex] = Mathf.Max(
-            minimumWeight,
-            weights[selectedIndex] * selectedWeightMultiplier);
-
-        // 選ばれなかった基本線の出現確率を上げる
-        for (int i = 0; i < weights.Length; i++)
+    // 自動生成を停止
+    public void StopSpawning()
+    {
+        if (spawnCoroutine != null)
         {
-            if (i == selectedIndex || basicLines[i] == null)
-                continue;
-
-            weights[i] += weightIncrease;
+            StopCoroutine(spawnCoroutine);
+            spawnCoroutine = null;
         }
     }
 
-    // =====================================================
-    // 出現可能な場所か確認
-    // =====================================================
-    private bool CanSpawnAt(int index)
+    // 自動生成を再開
+    public void ResumeSpawning()
     {
-        if (index < 0 || index >= basicLines.Length)
-            return false;
-
-        BasicLine line = basicLines[index];
-
-        if (line == null ||
-            line.pointA == null ||
-            line.pointB == null)
+        if (spawnCoroutine == null)
         {
-            return false;
+            spawnCoroutine = StartCoroutine(SpawnLoop());
         }
-
-        // Point Aが回復地点なら出現禁止
-        if (line.pointA.isRecoveryPoint)
-            return false;
-
-        // LinePointが指定されている場合は、指定地点だけを使用
-        if (spawnPoints != null && spawnPoints.Length > 0)
-        {
-            bool isSpecified = false;
-
-            for (int i = 0; i < spawnPoints.Length; i++)
-            {
-                if (spawnPoints[i] == line.pointA)
-                {
-                    isSpecified = true;
-                    break;
-                }
-            }
-
-            if (!isSpecified)
-                return false;
-        }
-
-        return true;
-    }
-
-    public float GetWeight(int index)
-    {
-        if (weights == null ||
-            index < 0 ||
-            index >= weights.Length)
-        {
-            return 0f;
-        }
-
-        return weights[index];
     }
 }
