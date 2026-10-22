@@ -1,7 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
-using TMPro;
 
 public class LineManager : MonoBehaviour
 {
@@ -65,12 +63,35 @@ public class LineManager : MonoBehaviour
     [SerializeField]
     private Color previewLineColor = Color.white;
 
-    [Header("UI")]
+    [Header("開始禁止範囲(造線の始点・終点の周囲)")]
+    [Tooltip("この半径の中には、新しい造線の始点を置けない")]
     [SerializeField]
-    private Slider lineGaugeSlider;
+    private float forbiddenRadius = 0.5f;
 
     [SerializeField]
-    private TMP_Text lineGaugeText;
+    private Color forbiddenFillColor = new Color(0.35f, 0.1f, 0.1f, 0.45f);
+
+    [SerializeField]
+    private Color forbiddenBorderColor = new Color(0.9f, 0.45f, 0.45f, 1f);
+
+    [SerializeField]
+    private float forbiddenBorderWidth = 0.03f;
+
+    [Tooltip("中心から円周へ引く細い線(半径の表示)")]
+    [SerializeField]
+    private Color forbiddenRadiusLineColor = new Color(0.9f, 0.45f, 0.45f, 1f);
+
+    [Tooltip("始点・終点の丸い点")]
+    [SerializeField]
+    private Color endpointDotColor = new Color(0.45f, 0.65f, 0.85f, 1f);
+
+    [SerializeField]
+    private float endpointDotSize = 0.14f;
+
+    [Header("UI")]
+    [Tooltip("造線ゲージのバー表示(LineGaugeBar)")]
+    [SerializeField]
+    private LineGaugeBar lineGaugeBar;
 
     [Header("カメラ")]
     [SerializeField]
@@ -108,6 +129,18 @@ public class LineManager : MonoBehaviour
     // 点線のプレビュー
     private LineRenderer previewLine;
 
+    // 描画中の始点に表示する禁止範囲
+    private GameObject previewZone;
+
+    // 今引いている造線の消費予定量(ゲージ表示用)
+    private float pendingCost;
+
+    // 禁止範囲の表示用キャッシュ
+    private Mesh discMesh;
+    private Material zoneFillMaterial;
+    private Material dashedMaterial;
+    private Material solidMaterial;
+
     // 造線データ
     private class CreatedLine
     {
@@ -144,6 +177,12 @@ public class LineManager : MonoBehaviour
     private void Update()
     {
         if (targetCamera == null)
+        {
+            return;
+        }
+
+        // ゲームオーバー中は造線を操作できない
+        if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
         {
             return;
         }
@@ -292,6 +331,13 @@ public class LineManager : MonoBehaviour
                 return;
             }
 
+            // 既存の造線の始点・終点の禁止範囲内には始点を置けない
+            if (IsInForbiddenZone(line.GetClosestPoint(mousePosition)))
+            {
+                Debug.Log("開始禁止範囲内です。");
+                return;
+            }
+
             StartDrawing(line, mousePosition);
 
             return;
@@ -369,6 +415,9 @@ public class LineManager : MonoBehaviour
 
         previewLine.SetPosition(0, startPosition);
         previewLine.SetPosition(1, startPosition);
+
+        DestroyPreviewZone();
+        previewZone = CreateEndpointVisual(transform, startPosition, -45f);
     }
 
     // 点線を更新
@@ -378,6 +427,25 @@ public class LineManager : MonoBehaviour
 
         previewLine.SetPosition(0, startPosition);
         previewLine.SetPosition(1, mousePosition);
+
+        // 消費予定量: 終点にできる基本線の近くなら、その位置までの長さで計算
+        Vector2 endPosition = mousePosition;
+
+        BasicLine endLine = GetNearestBasicLine(mousePosition);
+
+        if (endLine != null && endLine != selectedStartLine)
+        {
+            endPosition = endLine.GetClosestPoint(mousePosition);
+        }
+
+        float newCost =
+            Vector2.Distance(startPosition, endPosition) * lineCostPerMeter;
+
+        if (!Mathf.Approximately(newCost, pendingCost))
+        {
+            pendingCost = newCost;
+            UpdateGaugeUI();
+        }
     }
 
     // 造線を作成
@@ -401,6 +469,10 @@ public class LineManager : MonoBehaviour
 
         lr.startColor = createdLineColor;
         lr.endColor = createdLineColor;
+
+        // 始点・終点の開始禁止範囲(造線と一緒に消える)
+        CreateEndpointVisual(obj.transform, start, -45f);
+        CreateEndpointVisual(obj.transform, end, -135f);
 
         // ゲージ消費
         currentLineGauge -= cost;
@@ -438,6 +510,11 @@ public class LineManager : MonoBehaviour
         selectedStartLine = null;
 
         previewLine.enabled = false;
+
+        DestroyPreviewZone();
+
+        pendingCost = 0f;
+        UpdateGaugeUI();
     }
 
     // 描画確定後の後処理
@@ -448,6 +525,265 @@ public class LineManager : MonoBehaviour
         selectedStartLine = null;
 
         previewLine.enabled = false;
+
+        DestroyPreviewZone();
+
+        pendingCost = 0f;
+        UpdateGaugeUI();
+    }
+
+    private void DestroyPreviewZone()
+    {
+        if (previewZone != null)
+        {
+            Destroy(previewZone);
+            previewZone = null;
+        }
+    }
+
+    // ===== 開始禁止範囲 =====
+
+    // 点が、既存の造線の始点・終点の禁止範囲内か
+    private bool IsInForbiddenZone(Vector2 point)
+    {
+        foreach (CreatedLine line in createdLines)
+        {
+            if (line == null || !line.isActive)
+            {
+                continue;
+            }
+
+            if (Vector2.Distance(point, line.start) <= forbiddenRadius ||
+                Vector2.Distance(point, line.end) <= forbiddenRadius)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // 禁止範囲の表示(塗り・点線の円・半径の線・中心の点)
+    // radiusAngle: 半径の線を引く角度(度)。始点は-45、終点は-135
+    private GameObject CreateEndpointVisual(
+        Transform parent,
+        Vector2 center,
+        float radiusAngle)
+    {
+        GameObject root = new GameObject("EndpointZone");
+        root.transform.SetParent(parent, false);
+        root.transform.position = new Vector3(center.x, center.y, 0f);
+
+        // 塗りつぶし(暗い赤)
+        GameObject fill = new GameObject("Fill");
+        fill.transform.SetParent(root.transform, false);
+        fill.transform.localScale =
+            new Vector3(forbiddenRadius, forbiddenRadius, 1f);
+
+        fill.AddComponent<MeshFilter>().sharedMesh = GetDiscMesh();
+
+        MeshRenderer meshRenderer = fill.AddComponent<MeshRenderer>();
+        meshRenderer.sharedMaterial = GetZoneFillMaterial();
+        meshRenderer.sortingOrder = 8;
+
+        // 点線の円
+        const int segments = 96;
+
+        LineRenderer circle = CreateZoneLine(
+            root.transform,
+            "Border",
+            segments + 1,
+            forbiddenBorderWidth,
+            forbiddenBorderColor,
+            GetDashedMaterial(),
+            9
+        );
+
+        circle.textureMode = LineTextureMode.Stretch;
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float angle = (float)i / segments * Mathf.PI * 2f;
+
+            circle.SetPosition(
+                i,
+                new Vector3(
+                    center.x + Mathf.Cos(angle) * forbiddenRadius,
+                    center.y + Mathf.Sin(angle) * forbiddenRadius,
+                    0f
+                )
+            );
+        }
+
+        // 中心から円周への細い線
+        float rad = radiusAngle * Mathf.Deg2Rad;
+
+        LineRenderer radiusLine = CreateZoneLine(
+            root.transform,
+            "RadiusLine",
+            2,
+            forbiddenBorderWidth * 0.6f,
+            forbiddenRadiusLineColor,
+            GetSolidMaterial(),
+            9
+        );
+
+        radiusLine.SetPosition(
+            0,
+            new Vector3(center.x, center.y, 0f)
+        );
+
+        radiusLine.SetPosition(
+            1,
+            new Vector3(
+                center.x + Mathf.Cos(rad) * forbiddenRadius,
+                center.y + Mathf.Sin(rad) * forbiddenRadius,
+                0f
+            )
+        );
+
+        // 中心の丸い点(太い線の両端を丸くして円にする)
+        LineRenderer dot = CreateZoneLine(
+            root.transform,
+            "Dot",
+            2,
+            endpointDotSize,
+            endpointDotColor,
+            GetSolidMaterial(),
+            11
+        );
+
+        dot.numCapVertices = 12;
+
+        dot.SetPosition(0, new Vector3(center.x, center.y, 0f));
+        dot.SetPosition(1, new Vector3(center.x + 0.0001f, center.y, 0f));
+
+        return root;
+    }
+
+    private LineRenderer CreateZoneLine(
+        Transform parent,
+        string objectName,
+        int positionCount,
+        float width,
+        Color color,
+        Material material,
+        int sortingOrder)
+    {
+        GameObject obj = new GameObject(objectName);
+        obj.transform.SetParent(parent, false);
+
+        LineRenderer lr = obj.AddComponent<LineRenderer>();
+
+        lr.useWorldSpace = true;
+        lr.positionCount = positionCount;
+        lr.startWidth = width;
+        lr.endWidth = width;
+        lr.startColor = color;
+        lr.endColor = color;
+        lr.sharedMaterial = material;
+        lr.sortingOrder = sortingOrder;
+        lr.numCapVertices = 0;
+
+        return lr;
+    }
+
+    // 半径1の円盤メッシュ
+    private Mesh GetDiscMesh()
+    {
+        if (discMesh != null)
+        {
+            return discMesh;
+        }
+
+        const int segments = 48;
+
+        Vector3[] vertices = new Vector3[segments + 1];
+        int[] triangles = new int[segments * 3];
+
+        vertices[0] = Vector3.zero;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = (float)i / segments * Mathf.PI * 2f;
+
+            vertices[i + 1] = new Vector3(
+                Mathf.Cos(angle),
+                Mathf.Sin(angle),
+                0f
+            );
+
+            triangles[i * 3] = 0;
+            triangles[i * 3 + 1] = i + 1;
+            triangles[i * 3 + 2] = (i + 1) % segments + 1;
+        }
+
+        discMesh = new Mesh();
+        discMesh.name = "ZoneDisc";
+        discMesh.vertices = vertices;
+        discMesh.triangles = triangles;
+        discMesh.RecalculateBounds();
+
+        return discMesh;
+    }
+
+    private Material GetZoneFillMaterial()
+    {
+        if (zoneFillMaterial == null)
+        {
+            zoneFillMaterial = new Material(Shader.Find("Sprites/Default"));
+            zoneFillMaterial.color = forbiddenFillColor;
+        }
+
+        return zoneFillMaterial;
+    }
+
+    private Material GetSolidMaterial()
+    {
+        if (solidMaterial == null)
+        {
+            solidMaterial = new Material(Shader.Find("Sprites/Default"));
+        }
+
+        return solidMaterial;
+    }
+
+    // 円周に等間隔で並ぶ細かい点線(24個の破線)
+    private Material GetDashedMaterial()
+    {
+        if (dashedMaterial != null)
+        {
+            return dashedMaterial;
+        }
+
+        const int width = 96;
+
+        Texture2D texture = new Texture2D(
+            width,
+            1,
+            TextureFormat.RGBA32,
+            false
+        );
+
+        texture.filterMode = FilterMode.Point;
+        texture.wrapMode = TextureWrapMode.Clamp;
+
+        for (int i = 0; i < width; i++)
+        {
+            // 2ピクセル表示、2ピクセル透明を繰り返す
+            Color color = (i % 4) < 2
+                ? Color.white
+                : new Color(1f, 1f, 1f, 0f);
+
+            texture.SetPixel(i, 0, color);
+        }
+
+        texture.Apply();
+
+        dashedMaterial = new Material(Shader.Find("Sprites/Default"));
+        dashedMaterial.mainTexture = texture;
+
+        return dashedMaterial;
     }
 
     // 最も近い基本線を取得
@@ -685,17 +1021,13 @@ public class LineManager : MonoBehaviour
     // ゲージUI更新
     private void UpdateGaugeUI()
     {
-        if (lineGaugeSlider != null)
+        if (lineGaugeBar != null)
         {
-            lineGaugeSlider.maxValue = maxLineGauge;
-
-            lineGaugeSlider.value = currentLineGauge;
-        }
-
-        if (lineGaugeText != null)
-        {
-            lineGaugeText.text =
-                $"造線ゲージ {currentLineGauge:F0} / {maxLineGauge:F0}";
+            lineGaugeBar.SetValues(
+                currentLineGauge,
+                maxLineGauge,
+                isDrawing ? pendingCost : 0f
+            );
         }
     }
 
@@ -716,6 +1048,12 @@ public class LineManager : MonoBehaviour
     public float GetCurrentLineGauge()
     {
         return currentLineGauge;
+    }
+
+    // 最大ゲージを取得
+    public float GetMaxLineGauge()
+    {
+        return maxLineGauge;
     }
 
     // ノードが移動経路として利用できる造線を取得
