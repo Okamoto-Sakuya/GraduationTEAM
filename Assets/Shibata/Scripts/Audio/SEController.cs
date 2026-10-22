@@ -7,7 +7,7 @@ using static AudioManager;
 
 public class SEController : MonoBehaviour
 {
-    public static SEController Inst_SEManager;
+    public static SEController instance;
 
     //============================================================
     // SEデータ
@@ -96,13 +96,13 @@ public class SEController : MonoBehaviour
 
     private void Awake()
     {
-        if (Inst_SEManager != null && Inst_SEManager != this)
+        if (instance != null && instance != this)
         {
             Destroy(gameObject);
             return;
         }
 
-        Inst_SEManager = this;
+        instance = this;
         DontDestroyOnLoad(gameObject);
 
         // AudioSourceを作成
@@ -223,20 +223,20 @@ public class SEController : MonoBehaviour
     /// </summary>
     public static void MuteSE()
     {
-        if (Inst_SEManager == null)
+        if (instance == null)
         {
             Debug.LogWarning("SEManagerが存在しません");
             return;
         }
 
-        Inst_SEManager.isMuteSE = true;
+        instance.isMuteSE = true;
 
-        if (Inst_SEManager.muteSE == null)
+        if (instance.muteSE == null)
             return;
 
-        foreach (SEType type in Inst_SEManager.muteSE)
+        foreach (SEType type in instance.muteSE)
         {
-            Inst_SEManager.RemoveSEFromAudioSource(type);
+            instance.RemoveSEFromAudioSource(type);
         }
     }
 
@@ -245,13 +245,13 @@ public class SEController : MonoBehaviour
     /// </summary>
     public static void UnmuteSE()
     {
-        if (Inst_SEManager == null)
+        if (instance == null)
         {
             Debug.LogWarning("SEManagerが存在しません");
             return;
         }
 
-        Inst_SEManager.isMuteSE = false;
+        instance.isMuteSE = false;
     }
 
     /// <summary>
@@ -259,16 +259,16 @@ public class SEController : MonoBehaviour
     /// </summary>
     private static bool IsMuteSE(SEType type)
     {
-        if (Inst_SEManager == null)
+        if (instance == null)
             return false;
 
-        if (!Inst_SEManager.isMuteSE)
+        if (!instance.isMuteSE)
             return false;
 
-        if (Inst_SEManager.muteSE == null)
+        if (instance.muteSE == null)
             return false;
 
-        foreach (SEType muteType in Inst_SEManager.muteSE)
+        foreach (SEType muteType in instance.muteSE)
         {
             if (muteType == type)
                 return true;
@@ -286,14 +286,14 @@ public class SEController : MonoBehaviour
     /// </summary>
     private static bool IsConsecutiveSE(SEType type)
     {
-        if (Inst_SEManager == null)
+        if (instance == null)
             return false;
 
-        if (Inst_SEManager.consecutiveSE == null)
+        if (instance.consecutiveSE == null)
             return false;
 
         foreach (SEType consecutiveType
-                 in Inst_SEManager.consecutiveSE)
+                 in instance.consecutiveSE)
         {
             if (consecutiveType == type)
                 return true;
@@ -366,7 +366,7 @@ public class SEController : MonoBehaviour
     /// </summary>
     public static void PlaySE(SEType type)
     {
-        if (Inst_SEManager == null)
+        if (instance == null)
         {
             Debug.LogWarning("SEManagerが存在しません");
             return;
@@ -376,7 +376,7 @@ public class SEController : MonoBehaviour
         if (IsMuteSE(type))
             return;
 
-        SEController manager = Inst_SEManager;
+        SEController manager = instance;
 
         // ロード済みか確認
         if (!manager.seDictionary.TryGetValue(
@@ -447,7 +447,7 @@ public class SEController : MonoBehaviour
     /// </summary>
     private static float GetClipVolume(SEType type)
     {
-        SEController manager = Inst_SEManager;
+        SEController manager = instance;
 
         if (manager == null || manager.readCSVAudio == null)
         {
@@ -470,7 +470,7 @@ public class SEController : MonoBehaviour
         AudioClip clip,
         SEType type)
     {
-        SEController manager = Inst_SEManager;
+        SEController manager = instance;
 
         manager.RemoveSourceFromQueue(source);
 
@@ -517,13 +517,13 @@ public class SEController : MonoBehaviour
     /// </summary>
     public static void StopAllSE()
     {
-        if (Inst_SEManager == null)
+        if (instance == null)
         {
             Debug.LogWarning("SEManagerが存在しません");
             return;
         }
 
-        SEController manager = Inst_SEManager;
+        SEController manager = instance;
 
         foreach (AudioSource source in manager.audioSources)
         {
@@ -545,7 +545,7 @@ public class SEController : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (Inst_SEManager != this)
+        if (instance != this)
             return;
 
         // 再生中の音声を停止
@@ -575,6 +575,6 @@ public class SEController : MonoBehaviour
         loadingSE.Clear();
         pendingPlayCounts.Clear();
 
-        Inst_SEManager = null;
+        instance = null;
     }
 }
