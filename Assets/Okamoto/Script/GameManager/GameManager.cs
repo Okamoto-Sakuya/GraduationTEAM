@@ -18,6 +18,15 @@ public class GameManager : MonoBehaviour
     public float maxSanity = 100f;
     public float currentSanity = 100f;
 
+    [Tooltip("SAN値が減るほど画面を赤くする演出を使う(SanityScreenEffectを自動で追加)")]
+    public bool useSanityScreenEffect = true;
+
+    [Tooltip("画面にSAN値を表示するテキスト(未設定なら自動で作る)")]
+    public TMP_Text sanityText;
+
+    [Tooltip("{0}=現在のSAN値、{1}=最大値")]
+    public string sanityTextFormat = "SAN {0:F0}/{1:F0}";
+
     [Header("スコア")]
     public int score = 0;
 
@@ -60,6 +69,13 @@ public class GameManager : MonoBehaviour
 
         Instance = this;
 
+        // SAN値が減るほど画面が赤くなる演出(付けていなければ自動で追加)
+        if (useSanityScreenEffect &&
+            GetComponent<SanityScreenEffect>() == null)
+        {
+            gameObject.AddComponent<SanityScreenEffect>();
+        }
+
         // リトライ後に止まったままにならないようにする
         Time.timeScale = 1f;
 
@@ -71,12 +87,33 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
-        if (scoreText == null && autoCreateScoreHud)
+        if (autoCreateScoreHud)
         {
-            CreateDefaultScoreHud();
+            if (scoreText == null)
+            {
+                scoreText = CreateHudText(
+                    "ScoreText",
+                    new Vector2(1f, 1f),
+                    new Vector2(-40f, -30f),
+                    TextAlignmentOptions.TopRight,
+                    64f
+                );
+            }
+
+            if (sanityText == null)
+            {
+                sanityText = CreateHudText(
+                    "SanityText",
+                    new Vector2(0f, 1f),
+                    new Vector2(40f, -30f),
+                    TextAlignmentOptions.TopLeft,
+                    48f
+                );
+            }
         }
 
         UpdateScoreUI();
+        UpdateSanityUI();
     }
 
     private void OnDestroy()
@@ -101,9 +138,23 @@ public class GameManager : MonoBehaviour
             maxSanity
         );
 
+        UpdateSanityUI();
+
         if (currentSanity <= 0f)
         {
-            GameOver("SAN値が0になった");
+            GameOver("SAN値が0になった", "SANITY DEPLETED");
+        }
+    }
+
+    private void UpdateSanityUI()
+    {
+        if (sanityText != null)
+        {
+            sanityText.text = string.Format(
+                sanityTextFormat,
+                currentSanity,
+                maxSanity
+            );
         }
     }
 
@@ -158,10 +209,10 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        GameOver("すべての四肢が欠損した");
+        GameOver("すべての四肢が欠損した", "ALL LIMBS LOST");
     }
 
-    private void GameOver(string reason)
+    private void GameOver(string reason, string reasonEnglish)
     {
         if (isGameOver)
         {
@@ -170,9 +221,22 @@ public class GameManager : MonoBehaviour
 
         isGameOver = true;
 
-        Debug.Log($"Game Over: {reason}");
+        // 原因の確認用に、SAN値と各四肢の体力もログに出す
+        string limbInfo = "";
 
-        ShowGameOverUI(reason);
+        foreach (LimbController limb in limbs)
+        {
+            if (limb != null)
+            {
+                limbInfo += $" [{limb.name} HP {limb.CurrentHP}/{limb.MaxHP}]";
+            }
+        }
+
+        Debug.Log(
+            $"Game Over: {reason} / SAN {currentSanity:F0}/{maxSanity:F0} /{limbInfo}"
+        );
+
+        ShowGameOverUI(reason, reasonEnglish);
 
         if (pauseOnGameOver)
         {
@@ -190,43 +254,56 @@ public class GameManager : MonoBehaviour
 
     // ===== スコア表示(プレイ中) =====
 
-    // スコア表示を用意していない場合の簡易表示(画面右上)
-    private void CreateDefaultScoreHud()
+    private Canvas hudCanvas;
+
+    // 表示を用意していない場合の簡易表示(スコア・SAN値)を作る
+    private TMP_Text CreateHudText(
+        string objectName,
+        Vector2 anchor,
+        Vector2 position,
+        TextAlignmentOptions alignment,
+        float fontSize)
     {
-        GameObject canvasObject = new GameObject("HudCanvas");
+        if (hudCanvas == null)
+        {
+            GameObject canvasObject = new GameObject("HudCanvas");
 
-        Canvas canvas = canvasObject.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 100;
+            hudCanvas = canvasObject.AddComponent<Canvas>();
+            hudCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            hudCanvas.sortingOrder = 100;
 
-        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
+            CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+        }
 
-        GameObject textObject = new GameObject("ScoreText");
-        textObject.transform.SetParent(canvasObject.transform, false);
+        GameObject textObject = new GameObject(objectName);
+        textObject.transform.SetParent(hudCanvas.transform, false);
 
         TextMeshProUGUI label = textObject.AddComponent<TextMeshProUGUI>();
-        label.fontSize = 64f;
-        label.alignment = TextAlignmentOptions.TopRight;
+        label.fontSize = fontSize;
+        label.alignment = alignment;
         label.color = Color.white;
         label.raycastTarget = false;
 
         RectTransform rect = label.rectTransform;
-        rect.anchorMin = new Vector2(1f, 1f);
-        rect.anchorMax = new Vector2(1f, 1f);
-        rect.pivot = new Vector2(1f, 1f);
+        rect.anchorMin = anchor;
+        rect.anchorMax = anchor;
+        rect.pivot = anchor;
         rect.sizeDelta = new Vector2(800f, 100f);
-        rect.anchoredPosition = new Vector2(-40f, -30f);
+        rect.anchoredPosition = position;
 
-        scoreText = label;
+        return label;
     }
 
     // ===== ゲームオーバーUI =====
 
-    private void ShowGameOverUI(string reason)
+    private void ShowGameOverUI(string reason, string reasonEnglish)
     {
-        if (gameOverPanel == null)
+        // 自動で作ったUIは日本語が表示されない場合があるので、理由は英語にする
+        bool usingDefaultUI = gameOverPanel == null;
+
+        if (usingDefaultUI)
         {
             CreateDefaultGameOverUI();
         }
@@ -238,7 +315,7 @@ public class GameManager : MonoBehaviour
 
         if (gameOverReasonText != null)
         {
-            gameOverReasonText.text = reason;
+            gameOverReasonText.text = usingDefaultUI ? reasonEnglish : reason;
         }
 
         gameOverPanel.SetActive(true);
@@ -282,8 +359,11 @@ public class GameManager : MonoBehaviour
 
         CreateText(background.transform, "GAME OVER", 140, new Vector2(0f, 160f));
 
+        gameOverReasonText = CreateText(
+            background.transform, "", 56, new Vector2(0f, 70f));
+
         gameOverScoreText = CreateText(
-            background.transform, "", 64, new Vector2(0f, 20f));
+            background.transform, "", 64, new Vector2(0f, -10f));
 
         // リトライボタン
         GameObject buttonObject = new GameObject("RetryButton");

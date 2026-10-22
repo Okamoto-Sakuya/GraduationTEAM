@@ -259,6 +259,9 @@ MonoBehaviour:
   lineManager: {fileID: 1358811988}
   maxSanity: 100
   currentSanity: 100
+  useSanityScreenEffect: 1
+  sanityText: {fileID: 0}
+  sanityTextFormat: SAN {0:F0}/{1:F0}
   score: 0
   scoreText: {fileID: 0}
   scoreTextFormat: '{0:D8}'
@@ -932,6 +935,7 @@ MonoBehaviour:
   lowHpRatio: 0.3
   barBackColor: {r: 0.05, g: 0.05, b: 0.05, a: 0.85}
   barSortingOrder: 20
+  hideWhenDestroyed: 1
   destroyEffectPrefab: {fileID: 0}
   onLimbDestroyed:
     m_PersistentCalls:
@@ -1063,6 +1067,7 @@ MonoBehaviour:
   lowHpRatio: 0.3
   barBackColor: {r: 0.05, g: 0.05, b: 0.05, a: 0.85}
   barSortingOrder: 20
+  hideWhenDestroyed: 1
   destroyEffectPrefab: {fileID: 0}
   onLimbDestroyed:
     m_PersistentCalls:
@@ -1456,6 +1461,79 @@ MonoBehaviour:
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []
+--- !u!1 &753643517
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 753643519}
+  - component: {fileID: 753643518}
+  m_Layer: 0
+  m_Name: SanityScreenEffect
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &753643518
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 753643517}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: db55f55708a384444be37f9d7bdf27d8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SanityScreenEffect
+  tintColor: {r: 0.85, g: 0.05, b: 0.05, a: 0.53333336}
+  maxAlpha: 0.2
+  vignette: 0
+  intensityBySanityLoss:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0.056411587
+      outSlope: 0.056411587
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 2.6192932
+      value: 0.14775848
+      inSlope: 0.056411587
+      outSlope: 0.056411587
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  smoothSpeed: 0.5
+  sortingOrder: 10
+--- !u!4 &753643519
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 753643517}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.31615, y: -0.29347, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &754070443
 GameObject:
   m_ObjectHideFlags: 0
@@ -2955,6 +3033,8 @@ MonoBehaviour:
   maxLineGauge: 2000
   lineCostPerMeter: 100
   lineSelectDistance: 0.25
+  endReachTolerance: 0.3
+  startSelectDistance: 0.6
   minLineLength: 0.1
   basicLineCrossSamples: 30
   lineMaterial: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
@@ -2962,6 +3042,7 @@ MonoBehaviour:
   basicLineColor: {r: 1, g: 1, b: 1, a: 1}
   createdLineColor: {r: 1, g: 1, b: 1, a: 1}
   previewLineColor: {r: 1, g: 1, b: 1, a: 1}
+  invalidPreviewColor: {r: 1, g: 0.35, b: 0.3, a: 1}
   forbiddenRadius: 0.5
   forbiddenFillColor: {r: 0.35, g: 0.1, b: 0.1, a: 0.45}
   forbiddenBorderColor: {r: 0.9, g: 0.45, b: 0.45, a: 1}
@@ -3105,6 +3186,7 @@ MonoBehaviour:
   lowHpRatio: 0.3
   barBackColor: {r: 0.05, g: 0.05, b: 0.05, a: 0.85}
   barSortingOrder: 20
+  hideWhenDestroyed: 1
   destroyEffectPrefab: {fileID: 0}
   onLimbDestroyed:
     m_PersistentCalls:
@@ -4116,7 +4198,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1572932347}
   m_Layer: 0
-  m_Name: Player
+  m_Name: Playerlimb
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -4256,6 +4338,7 @@ MonoBehaviour:
   lowHpRatio: 0.3
   barBackColor: {r: 0.05, g: 0.05, b: 0.05, a: 0.85}
   barSortingOrder: 20
+  hideWhenDestroyed: 1
   destroyEffectPrefab: {fileID: 0}
   onLimbDestroyed:
     m_PersistentCalls:
@@ -4867,3 +4950,4 @@ SceneRoots:
   - {fileID: 518294655}
   - {fileID: 897869270}
   - {fileID: 1437292073}
+  - {fileID: 753643519}

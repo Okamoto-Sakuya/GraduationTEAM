@@ -33,6 +33,8 @@ public class LimbController : MonoBehaviour
     [SerializeField] private int barSortingOrder = 20;
 
     [Header("破壊時の設定")]
+    [Tooltip("欠損したら、四肢の画像(子オブジェクトを含む)を非表示にする")]
+    [SerializeField] private bool hideWhenDestroyed = true;
     [SerializeField] private GameObject destroyEffectPrefab;
     [SerializeField] private UnityEvent onLimbDestroyed;
 
@@ -61,6 +63,11 @@ public class LimbController : MonoBehaviour
 
         CreateHpBar();
         UpdateHpBar();
+
+        if (IsDestroyed)
+        {
+            HideVisuals();
+        }
     }
 
     private void LateUpdate()
@@ -133,6 +140,7 @@ public class LimbController : MonoBehaviour
         IsDestroyed = true;
 
         UpdateHpBar();
+        HideVisuals();
 
         Debug.Log($"{gameObject.name} が破壊されました。");
         OnDestroyed?.Invoke(this);
@@ -147,6 +155,34 @@ public class LimbController : MonoBehaviour
         }
 
         onLimbDestroyed?.Invoke();
+    }
+
+    // 欠損した四肢の見た目を消す。
+    // オブジェクト自体は残すので、位置や経路の判定には影響しない。
+    // 基本線(BasicLine)は消さない。
+    private void HideVisuals()
+    {
+        if (!hideWhenDestroyed)
+        {
+            return;
+        }
+
+        foreach (Renderer r in GetComponentsInChildren<Renderer>(true))
+        {
+            if (r.GetComponent<BasicLine>() != null)
+            {
+                continue;
+            }
+
+            r.enabled = false;
+        }
+
+        // UIの画像・文字(Canvas上に置いている場合)
+        foreach (UnityEngine.UI.Graphic g in
+            GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+        {
+            g.enabled = false;
+        }
     }
 
     // ===== 体力バー =====

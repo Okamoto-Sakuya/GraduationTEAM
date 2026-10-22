@@ -37,8 +37,17 @@ public class LineManager : MonoBehaviour
     [SerializeField]
     private float lineCostPerMeter = 100f;
 
+    [Tooltip("右クリックで造線を消すときに、線を選べる距離")]
     [SerializeField]
     private float lineSelectDistance = 0.25f;
+
+    [Tooltip("引いている線の先が、基本線にこの距離まで近づいたら、基本線に届いたとみなす")]
+    [SerializeField]
+    private float endReachTolerance = 0.3f;
+
+    [Tooltip("造線を引き始めるとき、基本線からこの距離以内をクリックすれば始点にできる")]
+    [SerializeField]
+    private float startSelectDistance = 0.6f;
 
     [SerializeField]
     private float minLineLength = 0.1f;
@@ -62,6 +71,10 @@ public class LineManager : MonoBehaviour
 
     [SerializeField]
     private Color previewLineColor = Color.white;
+
+    [Tooltip("引いている線が確定できないとき(基本線に届かない、交差している、ゲージ不足など)の色")]
+    [SerializeField]
+    private Color invalidPreviewColor = new Color(1f, 0.35f, 0.3f, 1f);
 
     [Header("開始禁止範囲(造線の始点・終点の周囲)")]
     [Tooltip("この半径の中には、新しい造線の始点を置けない")]
@@ -204,16 +217,21 @@ public class LineManager : MonoBehaviour
             }
         }
 
-        // 左クリック開始
+        // 左ボタンを押したところから、造線を引き始める
         if (Input.GetMouseButtonDown(0))
         {
-            HandleLeftClick();
+            TryBeginDraw();
         }
 
-        // 描画中の点線更新
+        // 押している間は点線を更新し、離したところで造線を確定する
         if (isDrawing)
         {
             UpdatePreviewLine();
+
+            if (Input.GetMouseButtonUp(0))
+            {
+                CompleteDraw();
+            }
         }
     }
 
@@ -316,87 +334,212 @@ public class LineManager : MonoBehaviour
         );
     }
 
-    // 左クリック処理
-    private void HandleLeftClick()
+    // 左ボタンを押したとき: 基本線の近くなら、そこを始点にして引き始める
+    private void TryBeginDraw()
     {
         Vector2 mousePosition = GetMouseWorldPosition();
 
-        // まだ始点がない場合
-        if (!isDrawing)
-        {
-            BasicLine line = GetNearestBasicLine(mousePosition);
+        BasicLine line = GetNearestBasicLine(mousePosition, startSelectDistance);
 
-            if (line == null)
-            {
-                return;
-            }
-
-            // 既存の造線の始点・終点の禁止範囲内には始点を置けない
-            if (IsInForbiddenZone(line.GetClosestPoint(mousePosition)))
-            {
-                Debug.Log("開始禁止範囲内です。");
-                return;
-            }
-
-            StartDrawing(line, mousePosition);
-
-            return;
-        }
-
-        // 描画中なら終点を探す
-        BasicLine endLine = GetNearestBasicLine(mousePosition);
-
-        if (endLine == null)
+        if (line == null)
         {
             return;
         }
+
+        // 既存の造線の始点・終点の禁止範囲内には始点を置けない
+        if (IsInForbiddenZone(line.GetClosestPoint(mousePosition)))
+        {
+            Debug.Log("開始禁止範囲内です。");
+            return;
+        }
+
+        StartDrawing(line, mousePosition);
+    }
+
+    // 左ボタンを離したとき: 造線を引けるなら確定、引けないならキャンセル
+    private void CompleteDraw()
+    {
+        Vector2 mousePosition = GetMouseWorldPosition();
+
+        if (EvaluateEnd(
+            mousePosition,
+            out Vector2 endPosition,
+            out bool reached,
+            out string reason))
+        {
+            float length = Vector2.Distance(startPosition, endPosition);
+
+            CreateCreatedLine(
+                startPosition,
+                endPosition,
+                length * lineCostPerMeter
+            );
+
+            FinishDrawing();
+        }
+        else
+        {
+            Debug.Log(reason);
+
+            CancelDrawing();
+        }
+    }
+
+    // 始点からマウスの方向へ線を伸ばす。
+    //  ・マウスがまだ基本線に届いていない間は、マウスの位置まで線が伸びる
+    //  ・マウスが最初の基本線に届く(または超える)と、その基本線の上で止まり、終点になる
+    //    (マウスは基本線の上になくてよい。奥まで動かしてもよい)
+    // end: 線の先の位置 / reached: 基本線に届いたか
+    // 戻り値: 今ここで離したら、造線を確定できるか
+    private bool EvaluateEnd(
+        Vector2 mouse,
+        out Vector2 end,
+        out bool reached,
+        out string reason)
+    {
+        end = mouse;
+        reached = false;
+        reason = null;
+
+        Vector2 direction = mouse - startPosition;
+        float mouseDistance = direction.magnitude;
+
+        if (mouseDistance < 0.0001f)
+        {
+            reason = "線が短すぎます。";
+            return false;
+        }
+
+        direction /= mouseDistance;
+
+        BasicLine hitLine = FindFirstBasicLineHit(
+            startPosition,
+            direction,
+            out Vector2 hitPoint
+        );
+
+        if (hitLine == null)
+        {
+            reason = "その方向に、つなげる基本線がありません。";
+            return false;
+        }
+
+        float hitDistance = Vector2.Distance(startPosition, hitPoint);
+
+        // まだ基本線に届いていない: マウスの位置まで線を伸ばす
+        if (mouseDistance < hitDistance - endReachTolerance)
+        {
+            reason = "基本線に届いていません。";
+            return false;
+        }
+
+        end = hitPoint;
+        reached = true;
 
         // 同じ基本線への接続は不可
-        if (endLine == selectedStartLine)
+        if (hitLine == selectedStartLine)
         {
-            return;
+            reason = "同じ基本線にはつなげられません。";
+            return false;
         }
 
-        Vector2 endPosition =
-            endLine.GetClosestPoint(mousePosition);
-
-        // 線の長さを確認
-        float length = Vector2.Distance(
-            startPosition,
-            endPosition
-        );
+        float length = Vector2.Distance(startPosition, end);
 
         if (length < minLineLength)
         {
-            return;
+            reason = "線が短すぎます。";
+            return false;
+        }
+
+        // 終点が、自分の始点の禁止範囲に重なる(近すぎる)場合は作成できない
+        if (length < forbiddenRadius)
+        {
+            reason = "始点に近すぎます(開始禁止範囲)。";
+            return false;
+        }
+
+        // 終点も、既存の造線の始点・終点の禁止範囲内には置けない
+        if (IsInForbiddenZone(end))
+        {
+            reason = "終点が開始禁止範囲内です。";
+            return false;
         }
 
         // 既存の線を横切る場合は作成できない
-        if (CrossesExistingLines(startPosition, endPosition, endLine))
+        if (CrossesExistingLines(startPosition, end, hitLine))
         {
-            Debug.Log("基本線または既存の造線を横切っています。");
-            return;
+            reason = "基本線または既存の造線を横切っています。";
+            return false;
         }
-
-        // 必要なゲージ
-        float cost = length * lineCostPerMeter;
 
         // ゲージ不足
-        if (currentLineGauge < cost)
+        if (currentLineGauge < length * lineCostPerMeter)
         {
-            Debug.Log("造線ゲージが足りません。");
-            return;
+            reason = "造線ゲージが足りません。";
+            return false;
         }
 
-        // 造線を確定
-        CreateCreatedLine(
-            startPosition,
-            endPosition,
-            cost
-        );
+        return true;
+    }
 
-        // 描画終了
-        FinishDrawing();
+    // origin から direction へ伸ばした線が、最初に触れる基本線とその位置
+    // (始点の基本線も含める。手前に触れた線がなければnull)
+    private BasicLine FindFirstBasicLineHit(
+        Vector2 origin,
+        Vector2 direction,
+        out Vector2 hitPoint)
+    {
+        BasicLine hitLine = null;
+        float nearest = float.MaxValue;
+
+        // 始点のすぐそばは、始点の基本線自身なので除外する
+        const float minDistance = 0.02f;
+
+        foreach (BasicLine line in basicLines)
+        {
+            if (line == null || !line.isActive)
+            {
+                continue;
+            }
+
+            List<Vector2> poly = line.GetPolyline(basicLineCrossSamples);
+
+            for (int i = 0; i < poly.Count - 1; i++)
+            {
+                Vector2 a = poly[i];
+                Vector2 e = poly[i + 1] - a;
+
+                float denominator = Cross(direction, e);
+
+                // 平行
+                if (Mathf.Abs(denominator) < 0.000001f)
+                {
+                    continue;
+                }
+
+                Vector2 ap = a - origin;
+
+                float t = Cross(ap, e) / denominator;
+                float u = Cross(ap, direction) / denominator;
+
+                if (t > minDistance && u >= 0f && u <= 1f && t < nearest)
+                {
+                    nearest = t;
+                    hitLine = line;
+                }
+            }
+        }
+
+        hitPoint = hitLine != null
+            ? origin + direction * nearest
+            : origin;
+
+        return hitLine;
+    }
+
+    private static float Cross(Vector2 a, Vector2 b)
+    {
+        return a.x * b.y - a.y * b.x;
     }
 
     // 描画開始
@@ -425,19 +568,26 @@ public class LineManager : MonoBehaviour
     {
         Vector2 mousePosition = GetMouseWorldPosition();
 
+        bool valid = EvaluateEnd(
+            mousePosition,
+            out Vector2 endPosition,
+            out bool reached,
+            out string reason
+        );
+
+        // 基本線に届くまではマウスの位置まで伸び、届いたら基本線の上で止まる
         previewLine.SetPosition(0, startPosition);
-        previewLine.SetPosition(1, mousePosition);
+        previewLine.SetPosition(1, endPosition);
 
-        // 消費予定量: 終点にできる基本線の近くなら、その位置までの長さで計算
-        Vector2 endPosition = mousePosition;
+        // 基本線に届いたのに確定できないときだけ、色を変える
+        Color color = (reached && !valid)
+            ? invalidPreviewColor
+            : previewLineColor;
 
-        BasicLine endLine = GetNearestBasicLine(mousePosition);
+        previewLine.startColor = color;
+        previewLine.endColor = color;
 
-        if (endLine != null && endLine != selectedStartLine)
-        {
-            endPosition = endLine.GetClosestPoint(mousePosition);
-        }
-
+        // 消費予定量(ゲージ表示用): 伸ばした長さに応じて増える
         float newCost =
             Vector2.Distance(startPosition, endPosition) * lineCostPerMeter;
 
@@ -786,12 +936,12 @@ public class LineManager : MonoBehaviour
         return dashedMaterial;
     }
 
-    // 最も近い基本線を取得
-    private BasicLine GetNearestBasicLine(Vector2 position)
+    // 最も近い基本線を取得(maxDistance以内)
+    private BasicLine GetNearestBasicLine(Vector2 position, float maxDistance)
     {
         BasicLine nearestLine = null;
 
-        float nearestDistance = lineSelectDistance;
+        float nearestDistance = maxDistance;
 
         foreach (BasicLine line in basicLines)
         {
