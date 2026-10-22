@@ -47,11 +47,32 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NodeController
   moveSpeed: 2
   spawnBasicLine: {fileID: 0}
-  connectionDistance: 0.2
-  createdLineEnterDistance: 0.15
-  endpointDistance: 0.1
-  limbArrivalDistance: 0.2
-  stopIfNoNextLine: 1
+  destroyOnDeadEnd: 1
+  spawnGauge: 100
+  gaugeSpeed: 10
+  benignSpawnChance: 0.5
+  malignantStats:
+  - damage: 5
+    sanity: 3
+    score: 500
+  - damage: 7
+    sanity: 5
+    score: 350
+  - damage: 10
+    sanity: 8
+    score: 200
+  - damage: 15
+    sanity: 10
+    score: 50
+  benignScores: e8030000dc050000d0070000b80b0000
+  benignSprites: []
+  malignantSprites: []
+  benignColor: {r: 0.3, g: 0.6, b: 1, a: 1}
+  malignantColor: {r: 1, g: 0.3, b: 0.3, a: 1}
+  fallbackSize: 0.5
+  spriteSortingOrder: 12
+  ringRadius: 0.4
+  ringWidth: 0.06
 --- !u!212 &1128095527507080609
 SpriteRenderer:
   serializedVersion: 2
