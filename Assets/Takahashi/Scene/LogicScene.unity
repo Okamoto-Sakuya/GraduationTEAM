@@ -119,6 +119,104 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &183445543
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 183445545}
+  - component: {fileID: 183445544}
+  m_Layer: 0
+  m_Name: LogicModeScreen
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &183445544
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 183445543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c2f39e954c024254abd84b09a84770a3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LogicModeScreen
+  centerSprite: {fileID: 21300000, guid: d90cd432ed07b874f9e7e9f09ecc67ec, type: 3}
+  centerSize: {x: 820, y: 820}
+  centerOffset: {x: 0, y: 0}
+  preserveAspect: 1
+  circleCenter: {x: 0, y: 20}
+  circleRadius: 285
+  armAngle: 43.588364
+  legAngle: -67
+  arcSegments: 96
+  uiFont: {fileID: 0}
+  useStreamingAssets: 1
+  paramsCsvName: logic_params.csv
+  nodeTableCsvName: node_table.csv
+  problemsCsvName: logic_problems.csv
+  paramsCsv: {fileID: 4900000, guid: e9178894c740d9a4da4d37470f8afb8c, type: 3}
+  nodeTableCsv: {fileID: 4900000, guid: 826d941a0f3403244bf2bd1cfeed09e8, type: 3}
+  problemsCsv: {fileID: 4900000, guid: 6ebc57b78ff8010408f3e9523d6df175, type: 3}
+  limbMaxHp: 25
+  maxSan: 40
+  maxLineGauge: 2000
+  armLostGaugePenalty: 500
+  costPerMeter: 100
+  pixelsPerMeter: 100
+  vanishMode: 0
+  vanishSeconds: 7
+  warnBeforeSeconds: 2
+  warnBeforeCount: 1
+  blinkSpeed: 1.5
+  vanishAlpha: 0.3
+  routePhaseSeconds: 60
+  nodeStartGauge: 100
+  gaugePerSecond: 10
+  goodScore: e8030000dc050000d0070000b80b0000
+  badScore: f40100005e010000c800000032000000
+  badDamage:
+  - 5
+  - 7
+  - 10
+  - 15
+  badSan:
+  - 3
+  - 5
+  - 8
+  - 10
+  scoreDigits: 8
+  snapRadius: 22
+  forbiddenRadius: 45
+  minLineLength: 30
+  nodeSpeed: 160
+  problemCount: 3
+  nodesPerProblem: 5
+  spawnInterval: 1.5
+  previewRevealInterval: 0.4
+  badRate: 0.4
+--- !u!4 &183445545
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 183445543}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &203844586
 GameObject:
   m_ObjectHideFlags: 0
@@ -421,3 +519,4 @@ SceneRoots:
   - {fileID: 961739753}
   - {fileID: 203844589}
   - {fileID: 282972027}
+  - {fileID: 183445545}

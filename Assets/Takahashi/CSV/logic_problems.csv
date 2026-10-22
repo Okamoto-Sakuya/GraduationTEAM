@@ -1,0 +1,15 @@
+﻿problem,order,line,kind,gauge,time,memo
+# line: TopLeft/TopRight/MiddleLeft/MiddleRight/BottomLeft/BottomRight（左上/右上/左中/右中/左下/右下 でも可）
+# kind: Good/Bad（青/赤 でも可）  gauge: 出現時ゲージ(空欄=100)  time: 実行開始から何秒後(空欄=順番×spawnInterval)
+1,1,TopLeft,Good,,,まずは青を誘導する練習
+1,2,TopRight,Bad,,,赤は別の部位へ逃がす
+1,3,BottomLeft,Good,,,
+2,1,MiddleLeft,Bad,,0,
+2,2,MiddleRight,Bad,,0,同時に2個
+2,3,TopLeft,Good,60,2,
+2,4,BottomRight,Good,,3,
+3,1,左上,赤,30,,もうすぐ良性に変わる赤
+3,2,右上,青,,,
+3,3,左下,赤,,,
+3,4,右下,青,,,
+3,5,右中,赤,,,
