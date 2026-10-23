@@ -155,9 +155,10 @@ MonoBehaviour:
   circleCenter: {x: 0, y: 20}
   circleRadius: 285
   armAngle: 43.588364
-  legAngle: -67
+  legAngle: -50.71222
   arcSegments: 96
   uiFont: {fileID: 0}
+  spawnMode: 2
   useStreamingAssets: 1
   paramsCsvName: logic_params.csv
   nodeTableCsvName: node_table.csv
