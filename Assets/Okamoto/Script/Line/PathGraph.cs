@@ -5,6 +5,11 @@ public class Junction
 {
     public float s;          // 線上の位置(始点からの距離)
     public PathVertex v;
+
+    // 四肢の吸着範囲に入ったとき、四肢の頂点にまとめるか。
+    // 造線の端がつながる位置はfalse(四肢の近くに造線をつないでも、
+    // 手前でノードが回収されないようにする)
+    public bool snapToLimb = true;
 }
 
 public class PathVertex
@@ -92,13 +97,13 @@ public class PathLine
         return bestS;
     }
 
-    public void AddJunction(float s, float tol)
+    public void AddJunction(float s, float tol, bool snapToLimb = true)
     {
         foreach (var j in junctions)
         {
             if (Mathf.Abs(j.s - s) <= tol) return;
         }
-        junctions.Add(new Junction { s = s });
+        junctions.Add(new Junction { s = s, snapToLimb = snapToLimb });
     }
 }
 
@@ -264,11 +269,15 @@ public class PathGraph : MonoBehaviour
         foreach (var l in list)
         {
             l.junctions.Clear();
-            l.AddJunction(0f, tolerance);
+            l.AddJunction(0f, tolerance, !l.isCreated);
             // 終端は必ず分岐点にする(短い線で始点と間引かれないように直接追加)
             if (l.Length > 0.001f)
             {
-                l.junctions.Add(new Junction { s = l.Length });
+                l.junctions.Add(new Junction
+                {
+                    s = l.Length,
+                    snapToLimb = !l.isCreated
+                });
             }
         }
 
@@ -282,7 +291,8 @@ public class PathGraph : MonoBehaviour
                 {
                     if (b == a) continue;
                     float s = b.Project(end, out float d);
-                    if (d <= tolerance) b.AddJunction(s, tolerance);
+                    // 造線の端がつながる位置は、四肢には吸着させない
+                    if (d <= tolerance) b.AddJunction(s, tolerance, !a.isCreated);
                 }
             }
         }
@@ -323,9 +333,11 @@ public class PathGraph : MonoBehaviour
             {
                 var j = l.junctions[i];
                 Vector2 p = l.PointAt(j.s);
+                bool snap = j.snapToLimb;
+
                 var v = vertices.Find(x =>
                     (x.pos - p).sqrMagnitude <=
-                    (x.limb != null ? snapSq : tolSq));
+                    ((x.limb != null && snap) ? snapSq : tolSq));
                 if (v == null)
                 {
                     v = new PathVertex { pos = p };
