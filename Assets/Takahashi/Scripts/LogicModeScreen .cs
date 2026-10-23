@@ -100,8 +100,13 @@ public class LogicModeScreen : MonoBehaviour
     [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
     public List<HierarchyOverride> hierarchyOverrides = new List<HierarchyOverride>();
 
+    [Header("クリア記録（キャラセレクトに反映）")]
+    public bool markClearedOnClear = true;               // true = ステージクリア時に FogStageController.MarkCleared を呼ぶ
+    public string clearCharacter = "Daughter";           // どのキャラのステージか（FogStageController と同じ名前）
+    public int clearStageNumber = 1;                     // 何ステージ目か（例：2 なら Stage2 クリア）
+
     [Header("デバッグ")]
-    public bool debugKeys = true;                        // true = P キーで即ゲームオーバー（リリース前に外す）
+    public bool debugKeys = true;                        // true = P キーで即ゲームオーバー / O キーで即クリア（リリース前に外す）
 
     [Header("リザルト画面（クリア / ゲームオーバー）")]
     public ResultScreen resultScreen;                    // 空欄ならシーンから探し、無ければ自動で追加（イラスト等は ResultScreen 側で設定）
@@ -356,12 +361,32 @@ public class LogicModeScreen : MonoBehaviour
 
         EnsureEventSystem();
         BuildScreen(RuntimeCanvasName);
+
+        // ヘルプ：シーンに HelpWindow が無ければ自動で追加（「？」ボタンが出る）
+        if (FindObjectOfType<HelpWindow>() == null) gameObject.AddComponent<HelpWindow>();
         StartCoroutine(GameLoop());
     }
 
     void Update()
     {
         if (!Application.isPlaying) return;
+
+        // ヘルプを開いている間は操作を受け付けない（ゲームは HelpWindow 側で一時停止）
+        if (HelpWindow.IsOpen)
+        {
+            if (drawing) CancelDrawing();
+            return;
+        }
+
+        // デバッグ：O キーで即クリア（クリア記録の確認用）
+        if (debugKeys && DebugClearPressed() &&
+            CurrentPhase != Phase.GameOver && CurrentPhase != Phase.Clear)
+        {
+            StopAllCoroutines();
+            if (drawing) CancelDrawing();
+            StageClear();
+            return;
+        }
 
         // デバッグ：P キーで即ゲームオーバー
         if (debugKeys && DebugGameOverPressed() &&
@@ -935,8 +960,7 @@ public class LogicModeScreen : MonoBehaviour
             yield return new WaitForSeconds(0.8f);
         }
 
-        CurrentPhase = Phase.Clear;
-        ShowResult(true);
+        StageClear();
     }
 
     List<ProblemNode> GenerateProblem()
@@ -1506,6 +1530,22 @@ public class LogicModeScreen : MonoBehaviour
         ShowResult(false);
     }
 
+    /// <summary>ステージクリア：クリアを記録してリザルト画面を出す</summary>
+    void StageClear()
+    {
+        CurrentPhase = Phase.Clear;
+        SetRouteInteractable(false);
+
+        // キャラセレクトシーンに反映（例：Daughter の Stage2 クリア）
+        if (markClearedOnClear)
+        {
+            FogStageController.MarkCleared(clearCharacter, clearStageNumber);
+            Debug.Log($"[クリア記録] {clearCharacter} の Stage{clearStageNumber} をクリア済みにしました");
+        }
+
+        ShowResult(true);
+    }
+
     /// <summary>リザルト画面（ResultScreen）を表示。未設定ならシーンから探し、無ければ自動で追加</summary>
     void ShowResult(bool clear)
     {
@@ -1699,12 +1739,14 @@ public class LogicModeScreen : MonoBehaviour
     static bool LeftUp()    => Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame;
     static bool RightDown() => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
     static bool DebugGameOverPressed() => Keyboard.current != null && Keyboard.current.pKey.wasPressedThisFrame;
+    static bool DebugClearPressed() => Keyboard.current != null && Keyboard.current.oKey.wasPressedThisFrame;
 #else
     static Vector2 MouseScreen() => Input.mousePosition;
     static bool LeftDown() => Input.GetMouseButtonDown(0);
     static bool LeftUp() => Input.GetMouseButtonUp(0);
     static bool RightDown() => Input.GetMouseButtonDown(1);
     static bool DebugGameOverPressed() => Input.GetKeyDown(KeyCode.P);
+    static bool DebugClearPressed() => Input.GetKeyDown(KeyCode.O);
 #endif
 
     static bool PointerOverUI() => EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
