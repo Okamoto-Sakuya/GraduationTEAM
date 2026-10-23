@@ -259,9 +259,9 @@ MonoBehaviour:
   lineGaugeFillSprite: {fileID: 0}
   dangerSprite: {fileID: 0}
   hierarchyOverrides: []
+  stageNumber: 1
   markClearedOnClear: 1
   clearCharacter: Daughter
-  clearStageNumber: 1
   debugKeys: 1
   resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
@@ -273,6 +273,14 @@ MonoBehaviour:
   paramsCsv: {fileID: 4900000, guid: e9178894c740d9a4da4d37470f8afb8c, type: 3}
   nodeTableCsv: {fileID: 4900000, guid: 826d941a0f3403244bf2bd1cfeed09e8, type: 3}
   problemsCsv: {fileID: 4900000, guid: 6ebc57b78ff8010408f3e9523d6df175, type: 3}
+  randomProblemCsvName: logic_randomproblem_master.csv
+  randomNodeCsvName: logic_randomnode_master.csv
+  randomSideCsvName: logic_randomside_master.csv
+  randomLineCsvName: logic_randomline_master.csv
+  randomProblemCsv: {fileID: 4900000, guid: df927abdf37b2b840850c592c7862c17, type: 3}
+  randomNodeCsv: {fileID: 4900000, guid: 5518db02a6024ed4e8af09532d15e304, type: 3}
+  randomSideCsv: {fileID: 4900000, guid: a5a2769864f59ec46b1d91a217ab0d14, type: 3}
+  randomLineCsv: {fileID: 4900000, guid: f686c247454d58843aac7957802eb4d0, type: 3}
   limbMaxHp: 25
   killMiddleOnLegLost: 0
   maxSan: 40
@@ -553,7 +561,7 @@ MonoBehaviour:
       \u7D4C\u8DEF\u30D5\u30A7\u30FC\u30BA\uFF081\u5206\uFF09\uFF1A\u9020\u7DDA\u3092\u5F15\u304F\u3002\u25B6\u3067\u65E9\u3081\u306B\u5B9F\u884C\n\u2462
       \u5B9F\u884C\u30D5\u30A7\u30FC\u30BA\uFF1A\u30CE\u30FC\u30C9\u304C\u6D41\u308C\u308B\uFF08\u64CD\u4F5C\u4E0D\u53EF\uFF09\n\n\u6700\u5F8C\u306E\u554F\u984C\u307E\u3067\u90E8\u4F4D\u304C\u6B8B\u308C\u3070\u30AF\u30EA\u30A2\u3002"
   showHelpButton: 1
-  helpButtonPos: {x: 275.7, y: 495.1}
+  helpButtonPos: {x: -223.6, y: 503.9}
   helpButtonSize: 64
   helpButtonSprite: {fileID: 0}
   windowTitle: HELP
