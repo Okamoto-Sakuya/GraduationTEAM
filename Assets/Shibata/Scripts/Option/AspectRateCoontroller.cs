@@ -22,7 +22,18 @@ public class AspectRateCoontroller : MonoBehaviour
         instance = this;
         DontDestroyOnLoad(gameObject);
 
-        Screen.SetResolution((int)startAspectRate.x, (int)startAspectRate.y, FullScreenMode.Windowed);
+        currentWidth = (int)startAspectRate.x;
+        currentHeight = (int)startAspectRate.y;
+
+        Screen.SetResolution(currentWidth, currentHeight, FullScreenMode.Windowed);
+    }
+
+    void Update()
+    {
+        if(Input.GetKeyDown(KeyCode.A))
+        {
+            Debug.Log("W" + currentWidth + "*H" + currentHeight);
+        }
     }
 
     //============================================================
@@ -31,7 +42,10 @@ public class AspectRateCoontroller : MonoBehaviour
 
     public void SetAspectRate(int width, int height)
     {
-        Screen.SetResolution(width, height, FullScreenMode.Windowed);
+        //Screen.SetResolution(width, height, FullScreenMode.Windowed);
+
+        currentWidth = width;
+        currentHeight = height;
     }
 
     public void SetFullScreenMode(bool b)
