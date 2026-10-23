@@ -154,9 +154,28 @@ MonoBehaviour:
   preserveAspect: 1
   circleCenter: {x: 0, y: 20}
   circleRadius: 285
-  armAngle: 43.568325
+  armAngle: 42.8
   legAngle: -50.71222
   arcSegments: 96
+  backgroundSprite: {fileID: 0}
+  armSprite: {fileID: 0}
+  legSprite: {fileID: 0}
+  limbIconSize: {x: 78, y: 78}
+  hpBarFrameSprite: {fileID: 0}
+  hpBarFillSprite: {fileID: 0}
+  nodeGoodSprite: {fileID: 0}
+  nodeBadSprite: {fileID: 0}
+  nodeRingSprite: {fileID: 0}
+  nodeSize: 60
+  hardnessSprites:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  executeSprite: {fileID: 0}
+  lineGaugeFrameSprite: {fileID: 0}
+  lineGaugeFillSprite: {fileID: 0}
+  dangerSprite: {fileID: 0}
+  hierarchyOverrides: []
   uiFont: {fileID: 0}
   spawnMode: 2
   useStreamingAssets: 1

@@ -40,6 +40,9 @@ using UnityEngine.InputSystem.UI;
 ///   流れ先も欠損していれば、さらに時計回りに次の部位へ
 /// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_problems.csv) / 確率出現
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
+/// 画像の差し替え
+///   ① Inspector の「画像差し替え」欄に入れる
+///   ② ヒエラルキーの LogicModePreview 以下で Image を直接変更（自動記録され、作り直し・再生後も残る）
 ///
 /// 造線の操作（経路フェーズのみ）
 ///   基本線の上で左ドラッグ → 始点から伸ばした直線が最初に触れた別の基本線が終点
@@ -63,6 +66,39 @@ public class LogicModeScreen : MonoBehaviour
     [Range(0.1f, 89.9f)] public float armAngle = 36f;    // 右腕の角度（度。右=0、上が正）。左腕は左右反転した位置
     [Range(-89.9f, -0.1f)] public float legAngle = -67f; // 右足の角度（度。下がマイナス）。左足は左右反転した位置
     public int arcSegments = 96;                         // 円1周あたりの分割数（多いほど滑らか。円弧の当たり判定もこの細かさ）
+
+    [Header("画像差し替え（空欄なら仮の図形のまま。画像は Texture Type を Sprite (2D and UI) に）")]
+    public Sprite backgroundSprite;                      // 背景（画面全体 1920×1080 に引き伸ばし）
+    public Sprite armSprite;                             // 腕の回収点（今は ▼）
+    public Sprite legSprite;                             // 足の回収点（今は ▲）
+    public Vector2 limbIconSize = new Vector2(78, 78);   // 回収点の画像サイズ（px）
+    public Sprite hpBarFrameSprite;                      // 部位の体力ゲージの枠
+    public Sprite hpBarFillSprite;                       // 部位の体力ゲージの中身（入れると緑→赤の色変化はしない）
+    public Sprite nodeGoodSprite;                        // 良性ノード本体（今は青い丸）
+    public Sprite nodeBadSprite;                         // 悪性ノード本体（今は赤い丸）
+    public Sprite nodeRingSprite;                        // ノードの周りのゲージリング（良性/悪性の色が乗る）
+    public float nodeSize = 60f;                         // ノードの大きさ（px）
+    public Sprite[] hardnessSprites = new Sprite[3];     // 硬さ 1/2/3 ボタン（入れるとその丸の表示は消える。選択中以外は暗く表示）
+    public Sprite executeSprite;                         // 実行ボタン（入れると ▶ の表示は消える）
+    public Sprite lineGaugeFrameSprite;                  // 造線ゲージの枠
+    public Sprite lineGaugeFillSprite;                   // 造線ゲージの中身
+    public Sprite dangerSprite;                          // 危険演出の赤枠（中心が透明・外周が不透明な白い画像。色は dangerColor が乗る）
+
+    /// <summary>ヒエラルキー上で変更した Image・表示状態の記録（1オブジェクト1件）</summary>
+    [System.Serializable]
+    public class HierarchyOverride
+    {
+        public string path;              // Canvas からのパス（同名が並ぶ場合は 名前#番号）
+        public bool overrideSprite;
+        public Sprite sprite;
+        public bool overrideColor;
+        public Color color = Color.white;
+        public bool overrideActive;
+        public bool active = true;
+    }
+
+    [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
+    public List<HierarchyOverride> hierarchyOverrides = new List<HierarchyOverride>();
 
     [Header("フォント（未設定ならビルトインフォント）")]
     public Font uiFont;                                  // UI の文字に使うフォント。日本語が化ける場合はここに日本語フォントを設定
@@ -481,7 +517,15 @@ public class LogicModeScreen : MonoBehaviour
 
         root = UIShapes.CreateRect(canvasGo.transform, "GameScreen", Vector2.zero, new Vector2(1920, 1080));
         root.gameObject.AddComponent<RectMask2D>();
-        UIShapes.CreateImage(root, "Background", Vector2.zero, new Vector2(1920, 1080), UIShapes.White, Color.black);
+        UIShapes.CreateImage(root, "Background", Vector2.zero, new Vector2(1920, 1080),
+                             backgroundSprite != null ? backgroundSprite : UIShapes.White,
+                             backgroundSprite != null ? Color.white : Color.black);
+
+        // ノードの見た目（ProtoNode が参照）
+        ProtoNode.GoodSprite = nodeGoodSprite;
+        ProtoNode.BadSprite = nodeBadSprite;
+        ProtoNode.RingSprite = nodeRingSprite;
+        ProtoNode.DefaultSize = nodeSize;
 
         centerImage = UIShapes.CreateImage(root, "CenterImage", centerOffset, centerSize, centerSprite, Color.white);
         centerImage.preserveAspect = preserveAspect;
@@ -494,7 +538,7 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         // 危険演出（人体図の上、線・ノード・UI の下）
-        dangerVignette = UIShapes.CreateImage(root, "DangerVignette", Vector2.zero, new Vector2(1920, 1080), GetVignetteSprite(), dangerColor);
+        dangerVignette = UIShapes.CreateImage(root, "DangerVignette", Vector2.zero, new Vector2(1920, 1080), dangerSprite != null ? dangerSprite : GetVignetteSprite(), dangerColor);
         dangerVignette.raycastTarget = false;
         dangerLevel = 0f;
         dangerFlash = 0f;
@@ -509,7 +553,83 @@ public class LogicModeScreen : MonoBehaviour
         BuildLimbs();
         BuildLines();
         BuildUI();
+
+        ApplyHierarchyOverrides(canvasGo.transform);
     }
+
+    // ======================= ヒエラルキー変更の記録・反映 =======================
+
+    /// <summary>Canvas からのパス。同じ親の下に同名が並ぶ場合は 名前#番号（2個目以降）</summary>
+    public static string PathOf(Transform t, Transform canvas)
+    {
+        var parts = new List<string>();
+        while (t != null && t != canvas)
+        {
+            var p = t.parent;
+            int idx = 0;
+            if (p != null)
+                for (int i = 0; i < t.GetSiblingIndex(); i++)
+                    if (p.GetChild(i).name == t.name) idx++;
+            parts.Add(idx == 0 ? t.name : t.name + "#" + idx);
+            t = p;
+        }
+        parts.Reverse();
+        return string.Join("/", parts);
+    }
+
+    void ApplyHierarchyOverrides(Transform canvas)
+    {
+        if (hierarchyOverrides == null || hierarchyOverrides.Count == 0) return;
+        var map = new Dictionary<string, HierarchyOverride>();
+        foreach (var o in hierarchyOverrides)
+            if (o != null && !string.IsNullOrEmpty(o.path)) map[o.path] = o;
+
+        foreach (var t in canvas.GetComponentsInChildren<Transform>(true))
+        {
+            if (!map.TryGetValue(PathOf(t, canvas), out var o)) continue;
+            var img = t.GetComponent<Image>();
+            if (img != null)
+            {
+                if (o.overrideSprite) img.sprite = o.sprite;
+                if (o.overrideColor) img.color = o.color;
+            }
+            if (o.overrideActive) t.gameObject.SetActive(o.active);
+        }
+    }
+
+#if UNITY_EDITOR
+    /// <summary>プレビュー画面上の t の変更を記録（エディタの自動記録から呼ばれる）</summary>
+    public void RecordHierarchyChange(Transform t, bool sprite, bool color, bool active)
+    {
+        var canvas = transform.Find(PreviewCanvasName);
+        if (canvas == null || t == null || t == canvas || !t.IsChildOf(canvas)) return;
+
+        string path = PathOf(t, canvas);
+        var o = hierarchyOverrides.Find(x => x != null && x.path == path);
+        if (o == null) { o = new HierarchyOverride { path = path }; hierarchyOverrides.Add(o); }
+
+        var img = t.GetComponent<Image>();
+        if (sprite && img != null)
+        {
+            // コードで作った仮の図形は保存できないので、アセットの画像（または空）のときだけ記録
+            if (img.sprite == null || UnityEditor.AssetDatabase.Contains(img.sprite))
+            {
+                o.overrideSprite = true;
+                o.sprite = img.sprite;
+            }
+        }
+        if (color && img != null)
+        {
+            o.overrideColor = true;
+            o.color = img.color;
+        }
+        if (active)
+        {
+            o.overrideActive = true;
+            o.active = t.gameObject.activeSelf;
+        }
+    }
+#endif
 
     void BuildLimbs()
     {
@@ -525,13 +645,26 @@ public class LogicModeScreen : MonoBehaviour
         var limb = new Limb { name = name, pos = pos, isArm = isArm, hp = limbMaxHp };
         limb.root = UIShapes.CreateRect(limbLayer, name, pos, new Vector2(80, 80));
 
-        Sprite tri = isArm ? UIShapes.TriDown : UIShapes.TriUp;
-        UIShapes.CreateImage(limb.root, "Outline", Vector2.zero, new Vector2(78, 78), tri, LimbOutline);
-        UIShapes.CreateImage(limb.root, "Fill", Vector2.zero, new Vector2(62, 62), tri, LimbFill);
+        Sprite icon = isArm ? armSprite : legSprite;
+        if (icon != null)
+        {
+            var img = UIShapes.CreateImage(limb.root, "Icon", Vector2.zero, limbIconSize, icon, Color.white);
+            img.preserveAspect = true;
+        }
+        else
+        {
+            Sprite tri = isArm ? UIShapes.TriDown : UIShapes.TriUp;
+            UIShapes.CreateImage(limb.root, "Outline", Vector2.zero, new Vector2(78, 78), tri, LimbOutline);
+            UIShapes.CreateImage(limb.root, "Fill", Vector2.zero, new Vector2(62, 62), tri, LimbFill);
+        }
 
         Vector2 barPos = new Vector2(0, isArm ? 52 : -52);
-        UIShapes.CreateImage(limb.root, "HpBg", barPos, new Vector2(74, 10), UIShapes.White, new Color(0, 0, 0, 0.7f));
-        limb.hpFill = UIShapes.CreateImage(limb.root, "HpFill", barPos, new Vector2(70, 6), UIShapes.White, new Color(0.3f, 0.9f, 0.4f));
+        UIShapes.CreateImage(limb.root, "HpBg", barPos, new Vector2(74, 10),
+                             hpBarFrameSprite != null ? hpBarFrameSprite : UIShapes.White,
+                             hpBarFrameSprite != null ? Color.white : new Color(0, 0, 0, 0.7f));
+        limb.hpFill = UIShapes.CreateImage(limb.root, "HpFill", barPos, new Vector2(70, 6),
+                                           hpBarFillSprite != null ? hpBarFillSprite : UIShapes.White,
+                                           hpBarFillSprite != null ? Color.white : new Color(0.3f, 0.9f, 0.4f));
         limb.hpFill.type = Image.Type.Filled;
         limb.hpFill.fillMethod = Image.FillMethod.Horizontal;
 
@@ -649,10 +782,20 @@ public class LogicModeScreen : MonoBehaviour
         {
             int hardness = i + 1;
             var btn = CreateButton("Hardness" + hardness, new Vector2(-110 + i * 110, 512), new Vector2(100, 38), BtnOff);
-            for (int d = 0; d < hardness; d++)
+            Sprite hs = HardnessSprite(i);
+            if (hs != null)
             {
-                float x = (d - (hardness - 1) * 0.5f) * 22f;
-                UIShapes.CreateImage(btn.transform, "Dot", new Vector2(x, 0), new Vector2(16, 16), UIShapes.Circle, Color.white);
+                var bimg = (Image)btn.targetGraphic;
+                bimg.sprite = hs;
+                bimg.preserveAspect = true;
+            }
+            else
+            {
+                for (int d = 0; d < hardness; d++)
+                {
+                    float x = (d - (hardness - 1) * 0.5f) * 22f;
+                    UIShapes.CreateImage(btn.transform, "Dot", new Vector2(x, 0), new Vector2(16, 16), UIShapes.Circle, Color.white);
+                }
             }
             btn.onClick.AddListener(() => SelectHardness(hardness));
             hardnessButtons.Add(btn);
@@ -660,16 +803,32 @@ public class LogicModeScreen : MonoBehaviour
 
         // ② 実行ボタン
         executeButton = CreateButton("Execute", new Vector2(0, 466), new Vector2(70, 38), BtnOff);
-        UIShapes.CreateImage(executeButton.transform, "Play", new Vector2(2, 0), new Vector2(24, 24), UIShapes.TriRight, new Color(0.45f, 0.9f, 0.5f));
+        if (executeSprite != null)
+        {
+            var eimg = (Image)executeButton.targetGraphic;
+            eimg.sprite = executeSprite;
+            eimg.color = Color.white;
+            eimg.preserveAspect = true;
+        }
+        else
+        {
+            UIShapes.CreateImage(executeButton.transform, "Play", new Vector2(2, 0), new Vector2(24, 24), UIShapes.TriRight, new Color(0.45f, 0.9f, 0.5f));
+        }
         executeButton.onClick.AddListener(() => { if (CurrentPhase == Phase.Route) executeRequested = true; });
 
         // 下：造線ゲージ
         Vector2 barPos = new Vector2(0, -505);
         Vector2 barSize = new Vector2(1000, 38);
-        UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), UIShapes.White, new Color(0.35f, 0.65f, 0.9f));
-        UIShapes.CreateImage(uiLayer, "GaugeBg", barPos, barSize, UIShapes.White, new Color(0.08f, 0.1f, 0.14f));
+        if (lineGaugeFrameSprite != null)
+            UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), lineGaugeFrameSprite, Color.white);
+        else
+        {
+            UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), UIShapes.White, new Color(0.35f, 0.65f, 0.9f));
+            UIShapes.CreateImage(uiLayer, "GaugeBg", barPos, barSize, UIShapes.White, new Color(0.08f, 0.1f, 0.14f));
+        }
         gaugePreviewFill = CreateFill("GaugePreview", barPos, barSize, new Color(1f, 0.6f, 0.2f), Image.OriginHorizontal.Left);
         gaugeFill = CreateFill("GaugeFill", barPos, barSize, Color.white, Image.OriginHorizontal.Left);
+        if (lineGaugeFillSprite != null) gaugeFill.sprite = lineGaugeFillSprite;
         gaugeLostFill = CreateFill("GaugeLost", barPos, barSize, new Color(0.45f, 0.05f, 0.05f), Image.OriginHorizontal.Right);
         gaugeText = UIShapes.CreateText(uiLayer, "GaugeText", "", font, 26, new Color(0.1f, 0.1f, 0.1f), TextAnchor.MiddleCenter,
                                         barPos, barSize, new Vector2(0.5f, 0.5f));
@@ -1273,7 +1432,7 @@ public class LogicModeScreen : MonoBehaviour
     {
         limb.hp = Mathf.Max(0f, limb.hp - dmg);
         limb.hpFill.fillAmount = limb.hp / limbMaxHp;
-        limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limbMaxHp);
+        if (hpBarFillSprite == null) limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limbMaxHp);
         dangerFlash = Mathf.Max(dangerFlash, damageFlash);   // ダメージで一瞬赤くなる
         if (limb.hp <= 0f) LoseLimb(limb);
     }
@@ -1347,8 +1506,16 @@ public class LogicModeScreen : MonoBehaviour
     {
         SelectedHardness = h;
         for (int i = 0; i < hardnessButtons.Count; i++)
-            ((Image)hardnessButtons[i].targetGraphic).color = (i + 1 == h) ? BtnOn : BtnOff;
+        {
+            bool on = i + 1 == h;
+            ((Image)hardnessButtons[i].targetGraphic).color = HardnessSprite(i) != null
+                ? (on ? Color.white : new Color(0.5f, 0.5f, 0.5f))   // 画像あり：選択中以外は暗く
+                : (on ? BtnOn : BtnOff);
+        }
     }
+
+    Sprite HardnessSprite(int i) =>
+        hardnessSprites != null && i < hardnessSprites.Length ? hardnessSprites[i] : null;
 
     void SetRouteInteractable(bool on)
     {
@@ -1553,6 +1720,62 @@ namespace LogicModeEditorInternal
     ///   橙の丸     : 腕の位置（左右どちらを動かしても左右対称に反映）
     ///   緑の丸     : 足の位置（同上）
     /// </summary>
+    /// <summary>
+    /// プレビュー画面（LogicModePreview）上の変更を検知して LogicModeScreen に記録する。
+    /// 対象：Image の Source Image（m_Sprite）・Color（m_Color）、GameObject の表示ON/OFF（m_IsActive）
+    /// </summary>
+    [InitializeOnLoad]
+    static class LogicModeHierarchyRecorder
+    {
+        static LogicModeHierarchyRecorder()
+        {
+            Undo.postprocessModifications += OnModifications;
+        }
+
+        static UndoPropertyModification[] OnModifications(UndoPropertyModification[] mods)
+        {
+            if (Application.isPlaying) return mods;   // 再生中の変更は Unity の仕様で残らないので記録しない
+
+            foreach (var m in mods)
+            {
+                var pm = m.currentValue ?? m.previousValue;
+                if (pm == null || pm.target == null) continue;
+
+                string prop = pm.propertyPath;
+                bool sprite = prop == "m_Sprite";
+                bool color = prop.StartsWith("m_Color");
+                bool active = prop == "m_IsActive";
+                if (!sprite && !color && !active) continue;
+                if ((sprite || color) && !(pm.target is Image)) continue;
+
+                Transform t = pm.target is Component c ? c.transform
+                            : pm.target is GameObject g ? g.transform : null;
+                var screen = FindScreen(t);
+                if (screen == null) continue;
+
+                // 値が反映された後に読み取る
+                EditorApplication.delayCall += () =>
+                {
+                    if (screen == null || t == null) return;
+                    Undo.RecordObject(screen, "ヒエラルキーの変更を記録");
+                    screen.RecordHierarchyChange(t, sprite, color, active);
+                    EditorUtility.SetDirty(screen);
+                };
+            }
+            return mods;
+        }
+
+        static LogicModeScreen FindScreen(Transform t)
+        {
+            for (var p = t; p != null; p = p.parent)
+            {
+                var s = p.GetComponent<LogicModeScreen>();
+                if (s != null) return s;
+            }
+            return null;
+        }
+    }
+
     [CustomEditor(typeof(LogicModeScreen))]
     public class LogicModeScreenEditor : Editor
     {
@@ -1571,6 +1794,22 @@ namespace LogicModeEditorInternal
                     ((LogicModeScreen)target).RebuildPreview();
             }
             EditorGUILayout.HelpBox("シーンビューのハンドルで円の中心・半径・腕／足の位置をドラッグできます。", MessageType.Info);
+
+            EditorGUILayout.Space();
+            var s = (LogicModeScreen)target;
+            EditorGUILayout.HelpBox(
+                "ヒエラルキーの LogicModePreview 以下で Image の Source Image / Color、オブジェクトの表示ON/OFFを変えると自動で記録され、作り直しても・再生しても残ります。\n" +
+                $"記録数: {s.hierarchyOverrides.Count}", MessageType.Info);
+            using (new EditorGUI.DisabledScope(Application.isPlaying || s.hierarchyOverrides.Count == 0))
+            {
+                if (GUILayout.Button("ヒエラルキーの変更をすべて元に戻す"))
+                {
+                    Undo.RecordObject(s, "ヒエラルキーの変更をクリア");
+                    s.hierarchyOverrides.Clear();
+                    EditorUtility.SetDirty(s);
+                    s.RebuildPreview();
+                }
+            }
         }
 
         void OnSceneGUI()
