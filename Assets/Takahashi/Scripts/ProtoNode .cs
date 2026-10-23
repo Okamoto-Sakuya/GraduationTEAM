@@ -15,6 +15,12 @@ public class ProtoNode : MonoBehaviour
     public static readonly Color GoodColor = new Color(0.0f, 0.69f, 0.94f);
     public static readonly Color BadColor = new Color(0.78f, 0.0f, 0.0f);
 
+    // 画像差し替え（LogicModeScreen の Inspector から設定。null なら仮の丸・輪）
+    public static Sprite GoodSprite;
+    public static Sprite BadSprite;
+    public static Sprite RingSprite;
+    public static float DefaultSize = 60f;
+
     public Kind CurrentKind { get; private set; }
     public Kind SpawnKind { get; private set; }
     public float Value { get; private set; }   // 0〜100
@@ -30,16 +36,18 @@ public class ProtoNode : MonoBehaviour
     /// <summary>消滅準備の点滅・消滅判定中の半透明に使用（0〜1）</summary>
     public void SetAlpha(float a) => group.alpha = a;
 
-    public static ProtoNode Create(Transform parent, Kind kind, float startValue, Font font, float size = 60f)
+    public static ProtoNode Create(Transform parent, Kind kind, float startValue, Font font, float size = -1f)
     {
+        if (size <= 0f) size = DefaultSize;
+        Sprite ringSprite = RingSprite != null ? RingSprite : UIShapes.Ring;
         var rt = UIShapes.CreateRect(parent, "Node_" + kind, Vector2.zero, new Vector2(size, size));
         var n = rt.gameObject.AddComponent<ProtoNode>();
         n.group = rt.gameObject.AddComponent<CanvasGroup>();
         n.group.blocksRaycasts = false;
 
-        UIShapes.CreateImage(rt, "RingBg", Vector2.zero, new Vector2(size, size), UIShapes.Ring, new Color(1, 1, 1, 0.15f));
+        UIShapes.CreateImage(rt, "RingBg", Vector2.zero, new Vector2(size, size), ringSprite, new Color(1, 1, 1, 0.15f));
 
-        n.ring = UIShapes.CreateImage(rt, "Ring", Vector2.zero, new Vector2(size, size), UIShapes.Ring, Color.white);
+        n.ring = UIShapes.CreateImage(rt, "Ring", Vector2.zero, new Vector2(size, size), ringSprite, Color.white);
         n.ring.type = Image.Type.Filled;
         n.ring.fillMethod = Image.FillMethod.Radial360;
         n.ring.fillOrigin = (int)Image.Origin360.Top;
@@ -99,7 +107,20 @@ public class ProtoNode : MonoBehaviour
     void Refresh()
     {
         Color c = CurrentKind == Kind.Good ? GoodColor : BadColor;
-        body.color = c;
+
+        // 本体：画像があればその画像（色はそのまま）、無ければ白い丸に色を乗せる
+        Sprite s = CurrentKind == Kind.Good ? GoodSprite : BadSprite;
+        if (s != null)
+        {
+            body.sprite = s;
+            body.preserveAspect = true;
+            body.color = Color.white;
+        }
+        else
+        {
+            body.sprite = UIShapes.Circle;
+            body.color = c;
+        }
         ring.color = Color.Lerp(c, Color.white, 0.35f);
         ring.fillAmount = Value / 100f;
     }
