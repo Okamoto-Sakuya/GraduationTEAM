@@ -259,6 +259,9 @@ MonoBehaviour:
   lineGaugeFillSprite: {fileID: 0}
   dangerSprite: {fileID: 0}
   hierarchyOverrides: []
+  markClearedOnClear: 1
+  clearCharacter: Daughter
+  clearStageNumber: 1
   debugKeys: 1
   resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
@@ -488,6 +491,103 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &725278391
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 725278393}
+  - component: {fileID: 725278392}
+  m_Layer: 0
+  m_Name: HelpWindow
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &725278392
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 725278391}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cfedc67d685afa04e817b134c432c674, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HelpWindow
+  pages:
+  - title: "\u30B2\u30FC\u30E0\u306E\u76EE\u7684"
+    image: {fileID: 21300000, guid: 16f58bcb0cc56cb48978edd99be25dd4, type: 3}
+    imageResource: Help/help_01_overview
+    text: "\u7DDA\u3092\u4F1D\u3063\u3066\u6D41\u308C\u3066\u304F\u308B\u30CE\u30FC\u30C9\u3092\u3001\u56DB\u80A2\u306E\u56DE\u53CE\u70B9\uFF08\u25B2\u25BC\uFF09\u3078\u6B63\u3057\u304F\u5C0E\u304F\u30D1\u30BA\u30EB\u30B2\u30FC\u30E0\u3067\u3059\u3002\n\n\u30FB\u9752\u3044\u30CE\u30FC\u30C9\u3092\u56DE\u53CE
+      \u2192 \u30B9\u30B3\u30A2\n\u30FB\u8D64\u3044\u30CE\u30FC\u30C9\u3092\u56DE\u53CE
+      \u2192 \u90E8\u4F4D\u304C\u50B7\u3064\u304D\u3001SAN\u5024\u3082\u6E1B\u308B\n\n\u5C0E\u304D\u65B9\u3092\u8AA4\u308B\u3068\u90E8\u4F4D\u304C\u6B20\u640D\u3057\u307E\u3059\u3002\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u3092\u5B88\u308A\u306A\u304C\u3089\u9AD8\u5F97\u70B9\u3092\u76EE\u6307\u305D\u3046\u3002"
+  - title: "\u4ED5\u69D8\uFF08\u30CE\u30FC\u30C9\u3068\u4F53\u529B\uFF09"
+    image: {fileID: 21300000, guid: 16bdfc3f63ed9ca4e8302c89e30d3fe3, type: 3}
+    imageResource: Help/help_02_rules
+    text: "\u30FB\u30CE\u30FC\u30C9\u306F\u753B\u9762\u5916\u306E\u57FA\u672C\u7DDA\u304B\u3089\u73FE\u308C\u3001\u56DE\u53CE\u70B9\u306B\u5C4A\u304F\u3068\u56DE\u53CE\u3055\u308C\u308B\n\u30FB\u6642\u9593\u3067
+      \u9752\u21D4\u8D64 \u306B\u5909\u5316\u3002\u5468\u308A\u306E\u30EA\u30F3\u30B0\u304C\u5909\u5316\u307E\u3067\u306E\u6B8B\u308A\n\u30FB\u9752\u306F\u65E9\u304F\u3001\u8D64\u306F\u6642\u9593\u3092\u304B\u3051\u3066\u5165\u308C\u308B\u307B\u3069\u9AD8\u5F97\u70B9\n\u30FB\u4F53\u529B\u304C0\u306E\u90E8\u4F4D\u306F\u6B20\u640D\u3002\u8155\u3092\u5931\u3046\u3068\u9020\u7DDA\u30B2\u30FC\u30B8\u306E\u4E0A\u9650\u304C\u6E1B\u308B\n\u30FB4\u90E8\u4F4D\u3059\u3079\u3066\u5931\u3046\u3068\u30B2\u30FC\u30E0\u30AA\u30FC\u30D0\u30FC"
+  - title: "\u9020\u7DDA\u306E\u5F15\u304D\u65B9"
+    image: {fileID: 21300000, guid: 152007b31b0e7a541a1d210a4bd2de19, type: 3}
+    imageResource: Help/help_03_drawing
+    text: "\u57FA\u672C\u7DDA\u306E\u4E0A\u304B\u3089\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u3001\u5225\u306E\u57FA\u672C\u7DDA\u307E\u3067\u4F38\u3070\u3059\u3068\u300C\u9020\u7DDA\u300D\u3092\u5F15\u3051\u307E\u3059\u3002\n\n\u30FB\u767D\u3044\u70B9\u7DDA\u306A\u3089\u3001\u96E2\u3059\u3068\u78BA\u5B9A\n\u30FB\u8D64\u3044\u70B9\u7DDA\u306F\u307E\u3060\u5F15\u3051\u306A\u3044\n\u30FB\u307B\u304B\u306E\u7DDA\u306F\u307E\u305F\u3052\u306A\u3044\n\u30FB\u7AEF\u306E\u8D64\u3044\u5186\u304B\u3089\u306F\u5F15\u3051\u306A\u3044\n\u30FB\u53F3\u30AF\u30EA\u30C3\u30AF\u3067\u6D88\u3059\uFF08\u30B2\u30FC\u30B8\u306F\u623B\u308B\uFF09"
+  - title: "\u786C\u3055\u3068\u9020\u7DDA\u30B2\u30FC\u30B8"
+    image: {fileID: 21300000, guid: 676d475d9edb9d94bbd562285ae2705f, type: 3}
+    imageResource: Help/help_04_hardness
+    text: "\u4E0A\u306E \u25CF \u30DC\u30BF\u30F3\u3067\u3001\u9020\u7DDA\u306E\u300C\u786C\u3055\u300D\u3092\u9078\u3073\u307E\u3059\u3002\n\n\u30FB\u786C\u3055\uFF1D\u30CE\u30FC\u30C9\u304C\u901A\u308C\u308B\u56DE\u6570\uFF081\u301C3\u56DE\uFF09\n\u30FB\u9020\u7DDA\u306E\u771F\u3093\u4E2D\u306E\u6570\u5B57\uFF1D\u6B8B\u308A\u306E\u56DE\u6570\n\u30FB\u6B8B\u308A1\u56DE\u3067\u70B9\u6EC5\u3057\u30010\u3067\u6D88\u3048\u308B\n\u30FB\u3069\u306E\u786C\u3055\u3082\u6D88\u8CBB\u30B2\u30FC\u30B8\u306F\u540C\u3058\n\u4E0B\u306E\u9020\u7DDA\u30B2\u30FC\u30B8\u304C\u6B8B\u91CF\u3002\u30AA\u30EC\u30F3\u30B8\u90E8\u5206\u306F\u3053\u308C\u304B\u3089\u4F7F\u3046\u91CF\u3067\u3059\u3002"
+  - title: "\u30E9\u30C3\u30B7\u30E5\u30E2\u30FC\u30C9"
+    image: {fileID: 0}
+    imageResource: 
+    text: "\u7D76\u3048\u9593\u306A\u304F\u6D41\u308C\u3066\u304F\u308B\u30CE\u30FC\u30C9\u3092\u3001\u30EA\u30A2\u30EB\u30BF\u30A4\u30E0\u3067\u3055\u3070\u304D\u5207\u308B\u30E2\u30FC\u30C9\u3067\u3059\u3002\n\n\u30FB\u30CE\u30FC\u30C9\u306F\u6B62\u307E\u3089\u305A\u306B\u6D41\u308C\u7D9A\u3051\u308B\u3002\u7D20\u65E9\u304F\u9020\u7DDA\u3092\u5F15\u3044\u3066\u9053\u3092\u4F5C\u308D\u3046\n\u30FB\u6642\u9593\u304C\u305F\u3064\u307B\u3069\u30EC\u30D9\u30EB\u304C\u4E0A\u304C\u308A\u3001\u30CE\u30FC\u30C9\u306E\u51FA\u73FE\u304C\u901F\u304F\u306A\u308B\n\u30FB\u6C7A\u3081\u3089\u308C\u305F\u6642\u9593\u3092\u8010\u3048\u304D\u308B\u3068\u30B9\u30C6\u30FC\u30B8\u30AF\u30EA\u30A2\n\u30FB4\u3064\u306E\u90E8\u4F4D\u306E\u4F53\u529B\u304C\u3059\u3079\u3066
+      0 \u306B\u306A\u308B\u3068\u30B2\u30FC\u30E0\u30AA\u30FC\u30D0\u30FC"
+  - title: "\u30ED\u30B8\u30C3\u30AF\u30E2\u30FC\u30C9"
+    image: {fileID: 21300000, guid: 4140b35fdbc0a4c4f8045c488d2e2984, type: 3}
+    imageResource: Help/help_06_logic
+    text: "\u7528\u610F\u3055\u308C\u305F\u554F\u984C\u3092\u898B\u3066\u3001\u9053\u3092\u8003\u3048\u308B\u30E2\u30FC\u30C9\u3067\u3059\u3002\n\n\u2460
+      \u554F\u984C\u6E96\u5099\uFF1A\u6765\u308B\u30CE\u30FC\u30C9\u3068\u9806\u756A\u3092\u78BA\u8A8D\n\u2461
+      \u7D4C\u8DEF\u30D5\u30A7\u30FC\u30BA\uFF081\u5206\uFF09\uFF1A\u9020\u7DDA\u3092\u5F15\u304F\u3002\u25B6\u3067\u65E9\u3081\u306B\u5B9F\u884C\n\u2462
+      \u5B9F\u884C\u30D5\u30A7\u30FC\u30BA\uFF1A\u30CE\u30FC\u30C9\u304C\u6D41\u308C\u308B\uFF08\u64CD\u4F5C\u4E0D\u53EF\uFF09\n\n\u6700\u5F8C\u306E\u554F\u984C\u307E\u3067\u90E8\u4F4D\u304C\u6B8B\u308C\u3070\u30AF\u30EA\u30A2\u3002"
+  showHelpButton: 1
+  helpButtonPos: {x: 275.7, y: 495.1}
+  helpButtonSize: 64
+  helpButtonSprite: {fileID: 0}
+  windowTitle: HELP
+  windowSize: {x: 1920, y: 1080}
+  pauseWhileOpen: 1
+  openOnStart: 0
+  closeOnOutsideClick: 1
+  windowSprite: {fileID: 0}
+  font: {fileID: 0}
+  accentColor: {r: 0.55, g: 0.85, b: 1, a: 1}
+  windowColor: {r: 0.04, g: 0.07, b: 0.13, a: 0.97}
+  dimColor: {r: 0, g: 0, b: 0, a: 0.65}
+  titleFontSize: 44
+  textFontSize: 30
+  sortingOrder: 90
+  toggleWithKey: 1
+  settingsVersion: 2
+  previewOpen: 0
+  previewPage: 0
+--- !u!4 &725278393
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 725278391}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &961739749
 GameObject:
   m_ObjectHideFlags: 0
@@ -634,3 +734,4 @@ SceneRoots:
   - {fileID: 282972027}
   - {fileID: 183445545}
   - {fileID: 24437206}
+  - {fileID: 725278393}
