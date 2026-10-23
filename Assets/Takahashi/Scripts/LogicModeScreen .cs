@@ -7,6 +7,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using UnityEngine.Serialization;
 #if NEW_INPUT_ONLY
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
@@ -38,7 +39,7 @@ using UnityEngine.InputSystem.UI;
 ///   右腕欠損 → 右腕に届いたノードは円の右側を下って右足へ
 ///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
 ///   流れ先も欠損していれば、さらに時計回りに次の部位へ
-/// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_problems.csv) / 確率出現
+/// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_problems.csv) / 確率出現(logic_random*_master.csv)
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
 /// 画像の差し替え
 ///   ① Inspector の「画像差し替え」欄に入れる
@@ -100,10 +101,13 @@ public class LogicModeScreen : MonoBehaviour
     [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
     public List<HierarchyOverride> hierarchyOverrides = new List<HierarchyOverride>();
 
+    [Header("ステージ")]
+    [FormerlySerializedAs("clearStageNumber")]
+    public int stageNumber = 1;                          // 何ステージ目か。確率出現の問題構成（randomproblem の stage）とクリア記録の両方に使う
+
     [Header("クリア記録（キャラセレクトに反映）")]
     public bool markClearedOnClear = true;               // true = ステージクリア時に FogStageController.MarkCleared を呼ぶ
     public string clearCharacter = "Daughter";           // どのキャラのステージか（FogStageController と同じ名前）
-    public int clearStageNumber = 1;                     // 何ステージ目か（例：2 なら Stage2 クリア）
 
     [Header("デバッグ")]
     public bool debugKeys = true;                        // true = P キーで即ゲームオーバー / O キーで即クリア（リリース前に外す）
@@ -118,11 +122,11 @@ public class LogicModeScreen : MonoBehaviour
     {
         Auto,     // 問題CSVがあれば指定出現、無ければ確率出現
         Fixed,    // 指定出現：logic_problems.csv の通りに出す
-        Random    // 確率出現：ランダム（今は nodesPerProblem / badRate を使用）
+        Random    // 確率出現：logic_random*_master.csv で抽選（無ければ nodesPerProblem / badRate で単純ランダム）
     }
 
     [Header("出現モード")]
-    public SpawnMode spawnMode = SpawnMode.Auto;         // 指定出現 / 確率出現の切り替え
+    public SpawnMode spawnMode = SpawnMode.Random;       // 指定出現 / 確率出現の切り替え（初期値は確率出現＝新しいマスター CSV）
 
     [Header("CSV（StreamingAssets優先 → TextAsset → どちらも無ければInspectorの値）")]
     public bool useStreamingAssets = true;               // true = StreamingAssets フォルダの CSV を最優先で読む（ビルド後も差し替え可）
@@ -132,6 +136,16 @@ public class LogicModeScreen : MonoBehaviour
     public TextAsset paramsCsv;                          // StreamingAssets に無いときに使う参照数値 CSV
     public TextAsset nodeTableCsv;                       // StreamingAssets に無いときに使うノード表 CSV
     public TextAsset problemsCsv;                        // StreamingAssets に無いときに使う問題 CSV
+
+    [Header("確率出現のマスター CSV（StreamingAssets 優先 → TextAsset）")]
+    public string randomProblemCsvName = "logic_randomproblem_master.csv";   // ステージの問題構成（stage, problem, nodegroup, nodecount）
+    public string randomNodeCsvName = "logic_randomnode_master.csv";         // グループごとのノード（id, nodegroup, nodetype）
+    public string randomSideCsvName = "logic_randomside_master.csv";         // 左右の確率（count, same, opposite）
+    public string randomLineCsvName = "logic_randomline_master.csv";         // 基本線の確率（count, sameline, differentline）
+    public TextAsset randomProblemCsv;
+    public TextAsset randomNodeCsv;
+    public TextAsset randomSideCsv;
+    public TextAsset randomLineCsv;
 
     [Header("参照数値：体力・SAN")]
     public float limbMaxHp = 25f;                        // 四肢それぞれの最大体力。0 になるとその部位は欠損
@@ -175,11 +189,11 @@ public class LogicModeScreen : MonoBehaviour
     public float forbiddenRadius = 45f;                  // 既存の造線の両端からこの距離（px）以内では新しい造線を始められない
     public float minLineLength = 30f;                    // 造線の最短長（px）。これより短いと確定できない
 
-    [Header("ノード移動・問題（確率出現用）")]
+    [Header("ノード移動・問題（確率出現のマスターが無いときの単純ランダム用）")]
     public float nodeSpeed = 160f;                       // ノードの移動速度（px/秒）
-    public int problemCount = 3;                         // 確率出現時の問題数（指定出現では問題 CSV の問題数を使用）
+    public int problemCount = 3;                         // 単純ランダム時の問題数（指定出現・マスター使用時は CSV の問題数）
     public int nodesPerProblem = 5;                      // 確率出現時、1問あたりのノード数
-    public float spawnInterval = 1.5f;                   // ノードの出現間隔（秒）。確率出現時、または CSV で time 未指定のとき
+    public float spawnInterval = 1.5f;                   // ノードの出現間隔（秒）。確率出現、または指定出現で time 未指定のとき
     public float previewRevealInterval = 0.4f;           // 問題準備フェーズで、出題ノードを1つずつ見せる間隔（秒）
     [Range(0f, 1f)] public float badRate = 0.4f;         // 確率出現時に悪性ノードになる確率（0〜1）
 
@@ -273,7 +287,10 @@ public class LogicModeScreen : MonoBehaviour
         public GameObject forbiddenGroup;
     }
 
-    struct ProblemNode { public int line; public ProtoNode.Kind kind; public float gauge; public float time; }
+    struct ProblemNode { public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order; }   // order 0 = 並び順で番号を振る
+
+    LogicRandomSpawner randomSpawner;                       // 確率出現のマスター（読めたときだけ）
+    List<LogicRandomSpawner.ProblemDef> stageProblems;       // このステージの問題（確率出現）
 
     List<List<CsvProblemNode>> csvProblems;
     bool useFixedSpawn;   // 実際に指定出現で動いているか（spawnMode と CSV の有無から決定）
@@ -507,7 +524,35 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         if (useFixedSpawn) problemCount = csvProblems.Count;   // 問題数はCSVに合わせる
-        Debug.Log(useFixedSpawn ? "[出現] 指定出現（問題CSV）" : $"[出現] 確率出現（{problemCount}問）");
+
+        // 確率出現のマスター
+        stageProblems = null;
+        if (!useFixedSpawn)
+        {
+            randomSpawner = LogicRandomSpawner.Load(
+                LogicCsvLoader.LoadText(randomProblemCsv, randomProblemCsvName, useStreamingAssets),
+                LogicCsvLoader.LoadText(randomNodeCsv, randomNodeCsvName, useStreamingAssets),
+                LogicCsvLoader.LoadText(randomSideCsv, randomSideCsvName, useStreamingAssets),
+                LogicCsvLoader.LoadText(randomLineCsv, randomLineCsvName, useStreamingAssets));
+            if (randomSpawner != null)
+            {
+                stageProblems = randomSpawner.ProblemsOf(stageNumber);
+                if (stageProblems.Count > 0)
+                {
+                    problemCount = stageProblems.Count;
+                    randomSpawner.BeginStage();
+                }
+                else
+                {
+                    Debug.LogWarning($"[確率出現] randomproblem にステージ{stageNumber} の問題がありません → 単純ランダムで出します");
+                    stageProblems = null;
+                }
+            }
+        }
+
+        Debug.Log(useFixedSpawn ? "[出現] 指定出現（問題CSV）"
+                : stageProblems != null ? $"[出現] 確率出現（マスター使用・ステージ{stageNumber}・{problemCount}問）"
+                : $"[出現] 確率出現（マスター無し・単純ランダム・{problemCount}問）");
     }
 
     /// <summary>CSVの line 列 → 基本線。英名・日本語どちらでも可</summary>
@@ -921,7 +966,7 @@ public class LogicModeScreen : MonoBehaviour
                 if (!line.alive) continue;
                 int k = perLine[problem[i].line]++;
                 var n = ProtoNode.Create(nodeLayer, problem[i].kind, problem[i].gauge, font);
-                n.SetOrder(i + 1);
+                n.SetOrder(problem[i].order > 0 ? problem[i].order : i + 1);
                 n.Rect.anchoredPosition = line.Sample(45f + k * 64f);
                 previews.Add(n);
                 yield return new WaitForSeconds(previewRevealInterval);
@@ -988,7 +1033,31 @@ public class LogicModeScreen : MonoBehaviour
             return System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(list, n => n.time));
         }
 
-        // 確率出現（今はランダム。円弧からは出現しない）
+        // 確率出現（マスターあり）：サイド → 基本線 の順に抽選。円弧からは出現しない
+        if (stageProblems != null && problemIndex < stageProblems.Count)
+        {
+            var leftLines = new List<int>();
+            var rightLines = new List<int>();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var l = lines[i];
+                if (!l.alive || !l.spawnable) continue;
+                if (l.name.EndsWith("Left")) leftLines.Add(i);
+                else if (l.name.EndsWith("Right")) rightLines.Add(i);
+            }
+            foreach (var sp in randomSpawner.Generate(stageProblems[problemIndex], leftLines, rightLines, spawnInterval))
+                list.Add(new ProblemNode
+                {
+                    line = sp.line,
+                    kind = sp.bad ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
+                    gauge = nodeStartGauge,
+                    time = sp.time,
+                    order = sp.order
+                });
+            return list;
+        }
+
+        // 確率出現（マスター無し）：単純ランダム。円弧からは出現しない
         var alive = new List<int>();
         for (int i = 0; i < lines.Count; i++) if (lines[i].alive && lines[i].spawnable) alive.Add(i);
         for (int i = 0; i < nodesPerProblem && alive.Count > 0; i++)
@@ -1539,8 +1608,8 @@ public class LogicModeScreen : MonoBehaviour
         // キャラセレクトシーンに反映（例：Daughter の Stage2 クリア）
         if (markClearedOnClear)
         {
-            FogStageController.MarkCleared(clearCharacter, clearStageNumber);
-            Debug.Log($"[クリア記録] {clearCharacter} の Stage{clearStageNumber} をクリア済みにしました");
+            FogStageController.MarkCleared(clearCharacter, stageNumber);
+            Debug.Log($"[クリア記録] {clearCharacter} の Stage{stageNumber} をクリア済みにしました");
         }
 
         ShowResult(true);

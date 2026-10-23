@@ -20,13 +20,10 @@ previewRevealInterval,0.4,問題準備でノードを1個ずつ見せる間隔(�
 nodeStartGauge,100,出現時ノードゲージ
 gaugePerSecond,10,秒間ゲージ増減量
 nodeSpeed,160,ノードの移動速度(px/秒)
-spawnInterval,1.5,問題CSVでtime空欄のときの出現間隔(秒)
+spawnInterval,1.5,ノードの出現間隔(秒)。確率出現と、指定出現でtime空欄のとき
 # 造線操作
 snapRadius,22,基本線をクリックできる距離(px)
 forbiddenRadius,45,開始禁止範囲の半径(px)
 minLineLength,30,造線の最短長さ(px)
 # 表示
 scoreDigits,8,スコアの桁数
-# 問題CSVが無いときのランダム出題
-nodesPerProblem,5,1問あたりのノード数
-badRate,0.4,悪性の割合(0〜1)
