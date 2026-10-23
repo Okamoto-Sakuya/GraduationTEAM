@@ -8,7 +8,8 @@ public class OptionButton : MonoBehaviour
 
     public void AspectRate_A()
     {
-        AspectRateCoontroller.instance.SetAspectRate(1920, 1080);
+        AspectRateCoontroller.instance.SetAspectRate(2560, 1440);
+        Debug.Log("AspectRate_A");
     }
 
     public void AspectRate_B()
@@ -18,8 +19,11 @@ public class OptionButton : MonoBehaviour
 
     public void AspectRate_C()
     {
-        AspectRateCoontroller.instance.SetAspectRate(1920, 1080);
+        AspectRateCoontroller.instance.SetAspectRate(1280, 720);
     }
 
-
+    public void Enter()
+    {
+        AspectRateCoontroller.instance.Enter();
+    }
 }
