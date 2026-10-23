@@ -307,6 +307,11 @@ public class NodeController : MonoBehaviour
             }
         }
 
+        Debug.Log(
+            $"{name}: {limb.name} ‚É‰ñû‚³‚ê‚Ü‚µ‚½" +
+            $"({(isMalignant ? "ˆ««" : "—Ç«")} Lv{Level})",
+            this);
+
         OnCollected?.Invoke(this, limb);
         Destroy(gameObject);
     }

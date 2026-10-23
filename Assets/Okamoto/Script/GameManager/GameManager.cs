@@ -138,12 +138,9 @@ public class GameManager : MonoBehaviour
             maxSanity
         );
 
+        // SAN値が0になってもゲームオーバーにはならない
+        // (ゲームオーバーは、すべての四肢の体力が0になったときだけ)
         UpdateSanityUI();
-
-        if (currentSanity <= 0f)
-        {
-            GameOver("SAN値が0になった", "SANITY DEPLETED");
-        }
     }
 
     private void UpdateSanityUI()

@@ -373,7 +373,7 @@ Transform:
   m_GameObject: {fileID: 249308383}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 3.5, y: 0, z: 0}
+  m_LocalPosition: {x: 2.5, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -480,7 +480,7 @@ Transform:
   m_GameObject: {fileID: 368263689}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -3.5, y: 0, z: 0}
+  m_LocalPosition: {x: -2.5, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2043,8 +2043,8 @@ MonoBehaviour:
   startPoint: {fileID: 1483472853}
   endPoint: {fileID: 934423396}
   isActive: 1
-  curveAmount: 1
-  curveSegments: 10
+  curveAmount: 2
+  curveSegments: 20
   lineWidth: 0.05
   lineColor: {r: 1, g: 1, b: 1, a: 1}
   lineMaterial: {fileID: 0}
@@ -2693,8 +2693,8 @@ MonoBehaviour:
   startPoint: {fileID: 204478285}
   endPoint: {fileID: 1860933479}
   isActive: 1
-  curveAmount: 3
-  curveSegments: 30
+  curveAmount: 1
+  curveSegments: 10
   lineWidth: 0.05
   lineColor: {r: 1, g: 1, b: 1, a: 1}
   lineMaterial: {fileID: 0}
@@ -3316,8 +3316,8 @@ MonoBehaviour:
   startPoint: {fileID: 26506747}
   endPoint: {fileID: 1750385391}
   isActive: 1
-  curveAmount: 1
-  curveSegments: 10
+  curveAmount: 2
+  curveSegments: 20
   lineWidth: 0.05
   lineColor: {r: 1, g: 1, b: 1, a: 1}
   lineMaterial: {fileID: 0}
@@ -4491,8 +4491,8 @@ MonoBehaviour:
   startPoint: {fileID: 1815186636}
   endPoint: {fileID: 2109419983}
   isActive: 1
-  curveAmount: 3
-  curveSegments: 30
+  curveAmount: 1
+  curveSegments: 10
   lineWidth: 0.05
   lineColor: {r: 1, g: 1, b: 1, a: 1}
   lineMaterial: {fileID: 0}
