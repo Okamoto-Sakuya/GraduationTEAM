@@ -1,0 +1,25 @@
+{
+    "dockPosition": 1,
+    "containerId": "",
+    "displayed": false,
+    "id": "",
+    "index": -1,
+    "contents": "",
+    "floating": false,
+    "collapsed": false,
+    "snapOffset": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "snapOffsetDelta": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "snapCorner": 0,
+    "layout": 4,
+    "size": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "sizeOverridden": false
+}
