@@ -13,6 +13,7 @@ public class ScenarioPlayer : MonoBehaviour
     [SerializeField] private ScenarioCsvLoader loader;
     [SerializeField] private TMP_Text speakerText;
     [SerializeField] private TMP_Text messageText;
+    [SerializeField] private ScenarioButtonManager buttonManager;
 
     [Header("開始設定")]
     [SerializeField] private int startId = 1;
@@ -66,6 +67,10 @@ public class ScenarioPlayer : MonoBehaviour
 
     private void Update()
     {
+        // UIが非表示の間は、クリックで文章を進めない
+        if (buttonManager != null && !buttonManager.IsUIVisible)
+            return;
+
         // 左クリックされた瞬間だけ判定
         if (!Input.GetMouseButtonDown(0))
             return;
