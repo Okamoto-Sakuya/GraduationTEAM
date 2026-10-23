@@ -154,7 +154,7 @@ MonoBehaviour:
   preserveAspect: 1
   circleCenter: {x: 0, y: 20}
   circleRadius: 285
-  armAngle: 43.588364
+  armAngle: 43.568325
   legAngle: -50.71222
   arcSegments: 96
   uiFont: {fileID: 0}
@@ -167,6 +167,7 @@ MonoBehaviour:
   nodeTableCsv: {fileID: 4900000, guid: 826d941a0f3403244bf2bd1cfeed09e8, type: 3}
   problemsCsv: {fileID: 4900000, guid: 6ebc57b78ff8010408f3e9523d6df175, type: 3}
   limbMaxHp: 25
+  killMiddleOnLegLost: 0
   maxSan: 40
   maxLineGauge: 2000
   armLostGaugePenalty: 500
@@ -184,7 +185,7 @@ MonoBehaviour:
   goodScore: e8030000dc050000d0070000b80b0000
   badScore: f40100005e010000c800000032000000
   badDamage:
-  - 5
+  - 10
   - 7
   - 10
   - 15
@@ -194,6 +195,13 @@ MonoBehaviour:
   - 8
   - 10
   scoreDigits: 8
+  dangerColor: {r: 0.6886792, g: 0, b: 0, a: 0.85}
+  lostLimbDanger: 0.25
+  damageFlash: 0.35
+  dangerFadeSpeed: 1.5
+  flashDecay: 2
+  dangerStartScale: 2.2
+  previewDanger: 0
   snapRadius: 22
   forbiddenRadius: 45
   minLineLength: 30
@@ -202,7 +210,7 @@ MonoBehaviour:
   nodesPerProblem: 5
   spawnInterval: 1.5
   previewRevealInterval: 0.4
-  badRate: 0.4
+  badRate: 0.5
 --- !u!4 &183445545
 Transform:
   m_ObjectHideFlags: 0

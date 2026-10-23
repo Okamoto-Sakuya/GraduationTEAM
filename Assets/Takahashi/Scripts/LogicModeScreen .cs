@@ -35,7 +35,11 @@ using UnityEngine.InputSystem.UI;
 /// 欠損時
 ///   左腕欠損 → 上の円弧が完成し、左腕に届いたノードは頭上を回って右腕へ
 ///   右足欠損 → 下の円弧が完成し、右足に届いたノードは股下を回って左足へ
+///   右腕欠損 → 右腕に届いたノードは円の右側を下って右足へ
+///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
+///   流れ先も欠損していれば、さらに時計回りに次の部位へ
 /// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_problems.csv) / 確率出現
+/// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
 ///
 /// 造線の操作（経路フェーズのみ）
 ///   基本線の上で左ドラッグ → 始点から伸ばした直線が最初に触れた別の基本線が終点
@@ -84,6 +88,7 @@ public class LogicModeScreen : MonoBehaviour
 
     [Header("参照数値：体力・SAN")]
     public float limbMaxHp = 25f;                        // 四肢それぞれの最大体力。0 になるとその部位は欠損
+    public bool killMiddleOnLegLost = false;             // true = 足が欠損したら同じ側の中間線（と円の右半分/左半分）を消す（旧仕様）
     public float maxSan = 40f;                           // 正気度の最大値。悪性ノード回収で減る（現状、0 になっても効果なし）
 
     [Header("参照数値：造線")]
@@ -108,6 +113,15 @@ public class LogicModeScreen : MonoBehaviour
     public float[] badDamage = { 5, 7, 10, 15 };         // 悪性ノード回収時に、その部位が受けるダメージ（Lv1〜4）
     public float[] badSan = { 3, 5, 8, 10 };             // 悪性ノード回収時の SAN 減少量（Lv1〜4）
     public int scoreDigits = 8;                          // スコアの表示桁数（ゼロ埋め）。この桁の最大値で頭打ち
+
+    [Header("危険演出（画面の外周から内側へ赤くなる）")]
+    public Color dangerColor = new Color(0.85f, 0f, 0f, 0.85f); // 赤さの色。α が最大時の濃さ
+    [Range(0f, 1f)] public float lostLimbDanger = 0.25f;       // 部位が1か所欠損するごとに加算される赤さ（SAN分と合計、最大1）
+    [Range(0f, 1f)] public float damageFlash = 0.35f;          // ダメージを受けた瞬間に一時的に強まる量（欠損時はこの2倍）
+    public float dangerFadeSpeed = 1.5f;                       // 赤さが目標値へ追従する速さ（/秒）
+    public float flashDecay = 2f;                              // 一時的な強まりが引く速さ（/秒）
+    [Range(1f, 4f)] public float dangerStartScale = 2.2f;      // 赤さ0のときの赤枠の大きさ（画面比）。大きいほど赤が外から入ってくる距離が長い
+    [Range(0f, 1f)] public float previewDanger = 0f;           // 非再生中のプレビュー用。見た目の確認・調整に使う
 
     [Header("造線の操作")]
     public float snapRadius = 22f;                       // 基本線をクリックできる距離（px）。終点判定の伸ばし分にも使用
@@ -273,6 +287,11 @@ public class LogicModeScreen : MonoBehaviour
     readonly List<Image> dashPool = new List<Image>();
     Image startMarker;
 
+    // 危険演出
+    Image dangerVignette;
+    float dangerLevel, dangerFlash;
+    static Sprite vignetteSprite;
+
     float san, currentMaxLineGauge, lineGauge, timeLeft;
     int problemIndex;
     bool executeRequested;
@@ -307,6 +326,7 @@ public class LogicModeScreen : MonoBehaviour
 
         UpdateDrawnVisuals();
         UpdateStatus();
+        UpdateDanger(Time.unscaledDeltaTime);   // ゲームオーバー中（timeScale=0）も動かす
 
         if ((CurrentPhase == Phase.GameOver || CurrentPhase == Phase.Clear) && RestartPressed())
         {
@@ -358,6 +378,8 @@ public class LogicModeScreen : MonoBehaviour
 
         BuildScreen(PreviewCanvasName);
         UpdateStatus();
+        dangerLevel = previewDanger;   // Inspector のスライダーで見た目を確認
+        ApplyDanger();
 
         var canvas = transform.Find(PreviewCanvasName);
         if (canvas != null)
@@ -471,6 +493,13 @@ public class LogicModeScreen : MonoBehaviour
                                 new Color(0.4f, 0.32f, 0.2f), TextAnchor.MiddleCenter, Vector2.zero, centerSize, new Vector2(0.5f, 0.5f));
         }
 
+        // 危険演出（人体図の上、線・ノード・UI の下）
+        dangerVignette = UIShapes.CreateImage(root, "DangerVignette", Vector2.zero, new Vector2(1920, 1080), GetVignetteSprite(), dangerColor);
+        dangerVignette.raycastTarget = false;
+        dangerLevel = 0f;
+        dangerFlash = 0f;
+        ApplyDanger();
+
         lineLayer = UIShapes.CreateRect(root, "Lines", Vector2.zero, new Vector2(1920, 1080));
         drawnLayer = UIShapes.CreateRect(root, "DrawnLines", Vector2.zero, new Vector2(1920, 1080));
         limbLayer = UIShapes.CreateRect(root, "Limbs", Vector2.zero, new Vector2(1920, 1080));
@@ -544,6 +573,13 @@ public class LogicModeScreen : MonoBehaviour
         arcUR.spawnable = false;
         arcUR.next = middleRight;
         arcUR.nextDist = middleRight.cum[1];                    // 0° の点
+
+        // 欠損時の流れ先（時計回りで次の部位へ）
+        //   右腕欠損 → 右上の円弧 → 右中間の円弧 → 右足
+        //   左足欠損 → 左下の円弧 → 左中間の円弧 → 左腕
+        //   左腕・右足は欠損時に上下の円弧を追加（LoseLimb）
+        rightArm.overflow = arcUR;
+        leftLeg.overflow = arcLL;
     }
 
     BasicLine MakeLine(string name, Limb target, List<Vector2> pts, int visibleSegments = -1)
@@ -1238,6 +1274,7 @@ public class LogicModeScreen : MonoBehaviour
         limb.hp = Mathf.Max(0f, limb.hp - dmg);
         limb.hpFill.fillAmount = limb.hp / limbMaxHp;
         limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limbMaxHp);
+        dangerFlash = Mathf.Max(dangerFlash, damageFlash);   // ダメージで一瞬赤くなる
         if (limb.hp <= 0f) LoseLimb(limb);
     }
 
@@ -1245,6 +1282,7 @@ public class LogicModeScreen : MonoBehaviour
     {
         limb.lost = true;
         limb.root.gameObject.SetActive(false);
+        dangerFlash = Mathf.Min(1f, Mathf.Max(dangerFlash, damageFlash * 2f));   // 欠損は強めに脈打つ
 
         if (limb.isArm)
         {
@@ -1257,7 +1295,8 @@ public class LogicModeScreen : MonoBehaviour
         }
         else
         {
-            KillLine(limb == leftLeg ? "MiddleLeft" : "MiddleRight");
+            if (killMiddleOnLegLost)
+                KillLine(limb == leftLeg ? "MiddleLeft" : "MiddleRight");
 
             // 右足欠損 → 下の円弧が完成。右足 → 股下 → 左足（時計回り）
             if (limb == rightLeg)
@@ -1355,6 +1394,71 @@ public class LogicModeScreen : MonoBehaviour
             $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}  {phase}  [{(useFixedSpawn ? "指定出現" : "確率出現")}]\n" +
             $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
             (CurrentPhase == Phase.Route ? "基本線をドラッグで造線 / 右クリックで削除" : "");
+    }
+
+    // ======================= 危険演出 =======================
+
+    /// <summary>赤さの目標値（0〜1）= SAN の減り具合 ＋ 欠損数 × lostLimbDanger</summary>
+    float DangerTarget()
+    {
+        float sanPart = maxSan > 0f ? 1f - Mathf.Clamp01(san / maxSan) : 0f;
+        int lost = 0;
+        foreach (var l in limbs) if (l.lost) lost++;
+        return Mathf.Clamp01(sanPart + lost * lostLimbDanger);
+    }
+
+    void UpdateDanger(float dt)
+    {
+        if (dangerVignette == null) return;
+        dangerLevel = Mathf.MoveTowards(dangerLevel, DangerTarget(), dangerFadeSpeed * dt);
+        dangerFlash = Mathf.MoveTowards(dangerFlash, 0f, flashDecay * dt);
+        ApplyDanger();
+    }
+
+    /// <summary>
+    /// 赤枠の見た目を反映。
+    /// 赤さが小さいときは赤枠を画面より大きくして（外周が画面外に出る）薄く、
+    /// 赤さが増えるほど画面サイズまで縮めて濃くする → 外から内へ赤が入ってくる
+    /// </summary>
+    void ApplyDanger()
+    {
+        if (dangerVignette == null) return;
+        float v = Mathf.Clamp01(dangerLevel + dangerFlash);
+        dangerVignette.enabled = v > 0.001f;
+        dangerVignette.rectTransform.sizeDelta = new Vector2(1920, 1080) * Mathf.Lerp(dangerStartScale, 1f, v);
+        var c = dangerColor;
+        c.a = dangerColor.a * Mathf.Clamp01(v * 1.5f);
+        dangerVignette.color = c;
+    }
+
+    /// <summary>中心が透明・外周ほど不透明な白のビネット画像（色は Image.color で付ける）</summary>
+    static Sprite GetVignetteSprite()
+    {
+        if (vignetteSprite != null) return vignetteSprite;
+        const int W = 256, H = 144;
+        var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
+        {
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+            hideFlags = HideFlags.DontSave
+        };
+        var px = new Color32[W * H];
+        for (int y = 0; y < H; y++)
+        {
+            for (int x = 0; x < W; x++)
+            {
+                float u = (x + 0.5f) / W * 2f - 1f;
+                float v = (y + 0.5f) / H * 2f - 1f;
+                float r = Mathf.Sqrt(u * u + v * v) / 1.41421f;           // 中心 0 〜 四隅 1
+                float a = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.25f, 0.95f, r));
+                px[y * W + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        }
+        tex.SetPixels32(px);
+        tex.Apply();
+        vignetteSprite = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0.5f, 0.5f));
+        vignetteSprite.hideFlags = HideFlags.DontSave;
+        return vignetteSprite;
     }
 
     IEnumerator Pop(RectTransform rt)
