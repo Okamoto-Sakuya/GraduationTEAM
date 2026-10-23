@@ -100,6 +100,12 @@ public class LogicModeScreen : MonoBehaviour
     [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
     public List<HierarchyOverride> hierarchyOverrides = new List<HierarchyOverride>();
 
+    [Header("デバッグ")]
+    public bool debugKeys = true;                        // true = P キーで即ゲームオーバー（リリース前に外す）
+
+    [Header("リザルト画面（クリア / ゲームオーバー）")]
+    public ResultScreen resultScreen;                    // 空欄ならシーンから探し、無ければ自動で追加（イラスト等は ResultScreen 側で設定）
+
     [Header("フォント（未設定ならビルトインフォント）")]
     public Font uiFont;                                  // UI の文字に使うフォント。日本語が化ける場合はここに日本語フォントを設定
 
@@ -303,7 +309,7 @@ public class LogicModeScreen : MonoBehaviour
     Font font;
     RectTransform root, lineLayer, drawnLayer, limbLayer, nodeLayer, uiLayer;
     Image centerImage;
-    Text scoreText, timerText, statusText, overlayText, gaugeText, hintText;
+    Text scoreText, timerText, statusText, gaugeText, hintText;
     Image gaugeFill, gaugePreviewFill, gaugeLostFill;
     readonly List<Button> hardnessButtons = new List<Button>();
     Button executeButton;
@@ -357,18 +363,22 @@ public class LogicModeScreen : MonoBehaviour
     {
         if (!Application.isPlaying) return;
 
+        // デバッグ：P キーで即ゲームオーバー
+        if (debugKeys && DebugGameOverPressed() &&
+            CurrentPhase != Phase.GameOver && CurrentPhase != Phase.Clear)
+        {
+            StopAllCoroutines();   // 進行中の問題・演出を止める
+            if (drawing) CancelDrawing();
+            GameOver();
+            return;
+        }
+
         if (CurrentPhase == Phase.Route) HandleDrawingInput();
         else if (drawing) CancelDrawing();
 
         UpdateDrawnVisuals();
         UpdateStatus();
         UpdateDanger(Time.unscaledDeltaTime);   // ゲームオーバー中（timeScale=0）も動かす
-
-        if ((CurrentPhase == Phase.GameOver || CurrentPhase == Phase.Clear) && RestartPressed())
-        {
-            Time.timeScale = 1f;
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-        }
     }
 
     // ======================= 編集用プレビュー（非再生中） =======================
@@ -841,10 +851,6 @@ public class LogicModeScreen : MonoBehaviour
                                        Vector2.zero, new Vector2(400, 30), new Vector2(0f, 0f));
         hintText.gameObject.AddComponent<Outline>().effectColor = Color.black;
 
-        overlayText = UIShapes.CreateText(uiLayer, "Overlay", "", font, 96, Color.white, TextAnchor.MiddleCenter,
-                                          Vector2.zero, new Vector2(1600, 300), new Vector2(0.5f, 0.5f));
-        overlayText.gameObject.AddComponent<Outline>().effectColor = Color.black;
-
         SelectHardness(1);
         SetRouteInteractable(false);
         UpdateGaugeUI(0f);
@@ -930,7 +936,7 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         CurrentPhase = Phase.Clear;
-        overlayText.text = "STAGE CLEAR\n<size=36>R でリスタート</size>";
+        ShowResult(true);
     }
 
     List<ProblemNode> GenerateProblem()
@@ -1496,8 +1502,25 @@ public class LogicModeScreen : MonoBehaviour
     {
         CurrentPhase = Phase.GameOver;
         SetRouteInteractable(false);
-        overlayText.text = "GAME OVER\n<size=36>R でリスタート</size>";
         Time.timeScale = 0f;
+        ShowResult(false);
+    }
+
+    /// <summary>リザルト画面（ResultScreen）を表示。未設定ならシーンから探し、無ければ自動で追加</summary>
+    void ShowResult(bool clear)
+    {
+        if (resultScreen == null) resultScreen = FindObjectOfType<ResultScreen>();
+        if (resultScreen == null) resultScreen = gameObject.AddComponent<ResultScreen>();
+
+        var parts = new List<ResultScreen.PartStatus>
+        {
+            new ResultScreen.PartStatus("左腕", !leftArm.lost),
+            new ResultScreen.PartStatus("右腕", !rightArm.lost),
+            new ResultScreen.PartStatus("左足", !leftLeg.lost),
+            new ResultScreen.PartStatus("右足", !rightLeg.lost),
+        };
+        if (clear) resultScreen.ShowClear(Score, scoreDigits, parts);
+        else resultScreen.ShowGameOver(Score, scoreDigits, parts);
     }
 
     // ======================= UI更新 =======================
@@ -1675,13 +1698,13 @@ public class LogicModeScreen : MonoBehaviour
     static bool LeftDown()  => Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
     static bool LeftUp()    => Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame;
     static bool RightDown() => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
-    static bool RestartPressed() => Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame;
+    static bool DebugGameOverPressed() => Keyboard.current != null && Keyboard.current.pKey.wasPressedThisFrame;
 #else
     static Vector2 MouseScreen() => Input.mousePosition;
     static bool LeftDown() => Input.GetMouseButtonDown(0);
     static bool LeftUp() => Input.GetMouseButtonUp(0);
     static bool RightDown() => Input.GetMouseButtonDown(1);
-    static bool RestartPressed() => Input.GetKeyDown(KeyCode.R);
+    static bool DebugGameOverPressed() => Input.GetKeyDown(KeyCode.P);
 #endif
 
     static bool PointerOverUI() => EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
