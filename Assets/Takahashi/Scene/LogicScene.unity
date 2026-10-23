@@ -119,6 +119,89 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &24437204
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 24437206}
+  - component: {fileID: 24437205}
+  m_Layer: 0
+  m_Name: Result
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &24437205
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 24437204}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ffc43a1e805c5e4fafcc52202e6f1a2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ResultScreen
+  previewMode: 0
+  previewScore: 12500
+  clearImage: {fileID: 21300000, guid: d90cd432ed07b874f9e7e9f09ecc67ec, type: 3}
+  gameOverImage: {fileID: 21300000, guid: e8f51ad061633fe4bbe37f1a703ed325, type: 3}
+  imagePos: {x: -470, y: 0}
+  imageSize: {x: 760, y: 1000}
+  clearTitle: STAGE CLEAR
+  gameOverTitle: GAME OVER
+  scoreLabel: SCORE
+  partsLabel: "\u6B8B\u3063\u305F\u90E8\u4F4D"
+  aliveText: "\u6B8B\u5B58"
+  lostText: "\u6B20\u640D"
+  nextButtonText: "\u6B21\u306E\u30B9\u30C6\u30FC\u30B8\u3078"
+  retryButtonText: "\u30EA\u30C8\u30E9\u30A4"
+  font: {fileID: 0}
+  clearColor: {r: 0.55, g: 0.85, b: 1, a: 1}
+  gameOverColor: {r: 0.9, g: 0.22, b: 0.2, a: 1}
+  backgroundColor: {r: 0, g: 0.016, b: 0.059, a: 1}
+  panelX: 430
+  fadeSeconds: 0.6
+  sortingOrder: 100
+  onNextStage:
+    m_PersistentCalls:
+      m_Calls:
+      - m_Target: {fileID: 11500000, guid: 7ffc43a1e805c5e4fafcc52202e6f1a2, type: 3}
+        m_TargetAssemblyTypeName: 
+        m_MethodName: 
+        m_Mode: 0
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: 
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+  onRetry:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!4 &24437206
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 24437204}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 814.9282, y: 576.2372, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &183445543
 GameObject:
   m_ObjectHideFlags: 0
@@ -176,6 +259,8 @@ MonoBehaviour:
   lineGaugeFillSprite: {fileID: 0}
   dangerSprite: {fileID: 0}
   hierarchyOverrides: []
+  debugKeys: 1
+  resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
   spawnMode: 2
   useStreamingAssets: 1
@@ -548,3 +633,4 @@ SceneRoots:
   - {fileID: 203844589}
   - {fileID: 282972027}
   - {fileID: 183445545}
+  - {fileID: 24437206}
