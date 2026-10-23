@@ -29,7 +29,13 @@ using UnityEngine.InputSystem.UI;
 ///   下     : 造線ゲージ
 ///
 /// フェーズ : 問題準備 → 経路(1分・造線を描く) → 実行(操作不可) → 次の問題 …
-/// ノードは円に入ると時計回りに進む（左：中間→左腕 / 右：中間→右足）
+/// ノードは円の上では常に時計回りに進む
+///   左中間 → 180° → 左腕 ／ 右中間 → 0° → 右足
+///   左下の円弧（左足 → 180°）は左中間に合流、右上の円弧（右腕 → 0°）は右中間に合流
+/// 欠損時
+///   左腕欠損 → 上の円弧が完成し、左腕に届いたノードは頭上を回って右腕へ
+///   右足欠損 → 下の円弧が完成し、右足に届いたノードは股下を回って左足へ
+/// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_problems.csv) / 確率出現
 ///
 /// 造線の操作（経路フェーズのみ）
 ///   基本線の上で左ドラッグ → 始点から伸ばした直線が最初に触れた別の基本線が終点
@@ -42,69 +48,79 @@ public class LogicModeScreen : MonoBehaviour
     // ======================= Inspector =======================
 
     [Header("中央の人体図（UI Image）")]
-    public Sprite centerSprite;
-    public Vector2 centerSize = new Vector2(820, 820);
-    public Vector2 centerOffset = new Vector2(0, 20);
-    public bool preserveAspect = true;
+    public Sprite centerSprite;                          // 中央に表示する人体図の画像。未設定なら仮の板＋文字を表示
+    public Vector2 centerSize = new Vector2(820, 820);   // 人体図の表示サイズ（px。画面は 1920×1080 基準）
+    public Vector2 centerOffset = new Vector2(0, 20);    // 画面中央からのずらし量（px。右・上が正）
+    public bool preserveAspect = true;                   // true = 画像の縦横比を保って centerSize 内に収める
 
     [Header("人体を囲む円（シーンビューでドラッグ編集可）")]
-    public Vector2 circleCenter = new Vector2(0, 20);   // 円の中心（centerOffset と揃えるのが基本）
-    public float circleRadius = 285f;
-    [Range(0.1f, 89.9f)] public float armAngle = 36f;  // 右腕の角度（度。右=0、上が正）。左腕は左右反転
-    [Range(-89.9f, -0.1f)] public float legAngle = -67f; // 右足の角度。左足は左右反転
-    public int arcSegments = 96;                         // 円1周あたりの分割数（多いほど滑らか）
+    public Vector2 circleCenter = new Vector2(0, 20);    // 円の中心（centerOffset と揃えるのが基本）
+    public float circleRadius = 285f;                    // 円の半径（px）。回収点（四肢の三角）はこの円の上に並ぶ
+    [Range(0.1f, 89.9f)] public float armAngle = 36f;    // 右腕の角度（度。右=0、上が正）。左腕は左右反転した位置
+    [Range(-89.9f, -0.1f)] public float legAngle = -67f; // 右足の角度（度。下がマイナス）。左足は左右反転した位置
+    public int arcSegments = 96;                         // 円1周あたりの分割数（多いほど滑らか。円弧の当たり判定もこの細かさ）
 
     [Header("フォント（未設定ならビルトインフォント）")]
-    public Font uiFont;
+    public Font uiFont;                                  // UI の文字に使うフォント。日本語が化ける場合はここに日本語フォントを設定
+
+    public enum SpawnMode
+    {
+        Auto,     // 問題CSVがあれば指定出現、無ければ確率出現
+        Fixed,    // 指定出現：logic_problems.csv の通りに出す
+        Random    // 確率出現：ランダム（今は nodesPerProblem / badRate を使用）
+    }
+
+    [Header("出現モード")]
+    public SpawnMode spawnMode = SpawnMode.Auto;         // 指定出現 / 確率出現の切り替え
 
     [Header("CSV（StreamingAssets優先 → TextAsset → どちらも無ければInspectorの値）")]
-    public bool useStreamingAssets = true;
-    public string paramsCsvName = "logic_params.csv";
-    public string nodeTableCsvName = "node_table.csv";
-    public string problemsCsvName = "logic_problems.csv";
-    public TextAsset paramsCsv;
-    public TextAsset nodeTableCsv;
-    public TextAsset problemsCsv;
+    public bool useStreamingAssets = true;               // true = StreamingAssets フォルダの CSV を最優先で読む（ビルド後も差し替え可）
+    public string paramsCsvName = "logic_params.csv";    // 参照数値の CSV ファイル名（StreamingAssets 内）。読めた値は下の Inspector 値を上書き
+    public string nodeTableCsvName = "node_table.csv";   // ノード表（スコア・ダメージ等の Lv 別テーブル）の CSV ファイル名
+    public string problemsCsvName = "logic_problems.csv";// 問題（指定出現のノードの並び）の CSV ファイル名
+    public TextAsset paramsCsv;                          // StreamingAssets に無いときに使う参照数値 CSV
+    public TextAsset nodeTableCsv;                       // StreamingAssets に無いときに使うノード表 CSV
+    public TextAsset problemsCsv;                        // StreamingAssets に無いときに使う問題 CSV
 
     [Header("参照数値：体力・SAN")]
-    public float limbMaxHp = 25f;
-    public float maxSan = 40f;
+    public float limbMaxHp = 25f;                        // 四肢それぞれの最大体力。0 になるとその部位は欠損
+    public float maxSan = 40f;                           // 正気度の最大値。悪性ノード回収で減る（現状、0 になっても効果なし）
 
     [Header("参照数値：造線")]
-    public float maxLineGauge = 2000f;
-    public float armLostGaugePenalty = 500f;
-    public float costPerMeter = 100f;
-    public float pixelsPerMeter = 100f;          // 1m を何pxとみなすか（仮）
-    public enum VanishMode { Count, Seconds }
-    public VanishMode vanishMode = VanishMode.Count;   // ロジックは回数（＝硬さ）
-    public float vanishSeconds = 7f;             // 秒間消滅（実行フェーズ中のみ進む）
-    public float warnBeforeSeconds = 2f;         // 消滅〇秒前で消滅準備
-    public int warnBeforeCount = 1;              // 残り〇回で消滅準備
-    public float blinkSpeed = 1.5f;              // 点滅速度（往復/秒）
-    [Range(0f, 1f)] public float vanishAlpha = 0.3f;
+    public float maxLineGauge = 2000f;                   // 造線ゲージの最大値（造線を引くと消費、消すと返却）
+    public float armLostGaugePenalty = 500f;             // 腕が1本欠損するごとに造線ゲージの上限が減る量
+    public float costPerMeter = 100f;                    // 造線 1m あたりのゲージ消費量
+    public float pixelsPerMeter = 100f;                  // 1m を何 px とみなすか（仮）。コスト = 長さ(px) ÷ これ × costPerMeter
+    public enum VanishMode { Count, Seconds }            // 造線の消え方：Count = ノード通過回数 / Seconds = 経過秒数
+    public VanishMode vanishMode = VanishMode.Count;     // ロジックは回数（＝硬さ。硬さ1/2/3 = 通れる回数）
+    public float vanishSeconds = 7f;                     // Seconds 時の造線の寿命（秒）。実行フェーズ中のみ減る
+    public float warnBeforeSeconds = 2f;                 // Seconds 時、残りこの秒数以下で点滅（消滅準備）
+    public int warnBeforeCount = 1;                      // Count 時、残り通過回数がこれ以下で点滅（消滅準備）
+    public float blinkSpeed = 1.5f;                      // 消滅準備の点滅速度（往復/秒）
+    [Range(0f, 1f)] public float vanishAlpha = 0.3f;     // 点滅の最低不透明度。消滅待ち（ノードが乗ったまま寿命切れ）の造線もこの濃さ
 
     [Header("参照数値：ノード・スコア")]
-    public float routePhaseSeconds = 60f;
-    public float nodeStartGauge = 100f;
-    public float gaugePerSecond = 10f;
-    public int[] goodScore = { 1000, 1500, 2000, 3000 };   // 良性 Lv1〜4
-    public int[] badScore = { 500, 350, 200, 50 };        // 悪性 Lv1〜4
-    public float[] badDamage = { 5, 7, 10, 15 };
-    public float[] badSan = { 3, 5, 8, 10 };
-    public int scoreDigits = 8;
+    public float routePhaseSeconds = 60f;                // 経路フェーズ（造線を描ける時間）の制限時間（秒）
+    public float nodeStartGauge = 100f;                  // ノード出現時のゲージ量（問題 CSV で gauge 未指定のときに使用）
+    public float gaugePerSecond = 10f;                   // ノードのゲージが 1 秒あたりに増減する量（0〜100 を往復、0 で良性⇔悪性が反転）
+    public int[] goodScore = { 1000, 1500, 2000, 3000 }; // 良性ノード回収時のスコア（Lv1〜4）
+    public int[] badScore = { 500, 350, 200, 50 };       // 悪性ノード回収時のスコア（Lv1〜4）
+    public float[] badDamage = { 5, 7, 10, 15 };         // 悪性ノード回収時に、その部位が受けるダメージ（Lv1〜4）
+    public float[] badSan = { 3, 5, 8, 10 };             // 悪性ノード回収時の SAN 減少量（Lv1〜4）
+    public int scoreDigits = 8;                          // スコアの表示桁数（ゼロ埋め）。この桁の最大値で頭打ち
 
     [Header("造線の操作")]
-    public float snapRadius = 22f;               // 基本線をクリックできる距離
-    public float forbiddenRadius = 45f;          // 始点・終点まわりの開始禁止範囲
-    public float minLineLength = 30f;
+    public float snapRadius = 22f;                       // 基本線をクリックできる距離（px）。終点判定の伸ばし分にも使用
+    public float forbiddenRadius = 45f;                  // 既存の造線の両端からこの距離（px）以内では新しい造線を始められない
+    public float minLineLength = 30f;                    // 造線の最短長（px）。これより短いと確定できない
 
-    [Header("ノード移動・問題（プロト用ランダム生成）")]
-    public float nodeSpeed = 160f;               // px/秒
-    public int problemCount = 3;
-    public int nodesPerProblem = 5;
-    public float spawnInterval = 1.5f;
-    public float previewRevealInterval = 0.4f;
-    [Range(0f, 1f)] public float badRate = 0.4f;
+    [Header("ノード移動・問題（確率出現用）")]
+    public float nodeSpeed = 160f;                       // ノードの移動速度（px/秒）
+    public int problemCount = 3;                         // 確率出現時の問題数（指定出現では問題 CSV の問題数を使用）
+    public int nodesPerProblem = 5;                      // 確率出現時、1問あたりのノード数
+    public float spawnInterval = 1.5f;                   // ノードの出現間隔（秒）。確率出現時、または CSV で time 未指定のとき
+    public float previewRevealInterval = 0.4f;           // 問題準備フェーズで、出題ノードを1つずつ見せる間隔（秒）
+    [Range(0f, 1f)] public float badRate = 0.4f;         // 確率出現時に悪性ノードになる確率（0〜1）
 
     // ======================= 公開状態 =======================
 
@@ -127,6 +143,7 @@ public class LogicModeScreen : MonoBehaviour
         public bool lost;
         public RectTransform root;
         public Image hpFill;
+        public BasicLine overflow;   // 欠損後、ここに届いたノードが流れる先（円弧）
     }
 
     class BasicLine
@@ -134,6 +151,9 @@ public class LogicModeScreen : MonoBehaviour
         public string name;
         public Limb target;
         public bool alive = true;
+        public bool spawnable = true;   // false = ノードの出現元にしない（円弧用）
+        public BasicLine next;          // 終点まで来たら合流する線（null なら回収点）
+        public float nextDist;          // 合流先の線上の位置
         public readonly List<Vector2> pts = new List<Vector2>();
         public readonly List<float> cum = new List<float>();
         public readonly List<Graphic> visuals = new List<Graphic>();
@@ -195,6 +215,7 @@ public class LogicModeScreen : MonoBehaviour
     struct ProblemNode { public int line; public ProtoNode.Kind kind; public float gauge; public float time; }
 
     List<List<CsvProblemNode>> csvProblems;
+    bool useFixedSpawn;   // 実際に指定出現で動いているか（spawnMode と CSV の有無から決定）
 
     class MovingNode
     {
@@ -380,10 +401,20 @@ public class LogicModeScreen : MonoBehaviour
         if (t != null)
         {
             csvProblems = LogicCsvLoader.LoadProblems(t);
-            if (csvProblems.Count > 0) problemCount = csvProblems.Count;
-            else csvProblems = null;
+            if (csvProblems.Count == 0) csvProblems = null;
         }
-        if (csvProblems == null) Debug.Log("[CSV] 問題CSVなし → ランダム出題");
+
+        // 出現モードの決定
+        useFixedSpawn = spawnMode == SpawnMode.Fixed ||
+                        (spawnMode == SpawnMode.Auto && csvProblems != null);
+        if (useFixedSpawn && csvProblems == null)
+        {
+            Debug.LogWarning("[CSV] 指定出現が選ばれていますが問題CSVがありません → 確率出現で動かします");
+            useFixedSpawn = false;
+        }
+
+        if (useFixedSpawn) problemCount = csvProblems.Count;   // 問題数はCSVに合わせる
+        Debug.Log(useFixedSpawn ? "[出現] 指定出現（問題CSV）" : $"[出現] 確率出現（{problemCount}問）");
     }
 
     /// <summary>CSVの line 列 → 基本線。英名・日本語どちらでも可</summary>
@@ -482,13 +513,7 @@ public class LogicModeScreen : MonoBehaviour
     void BuildLines()
     {
         float lArm = 180f - armAngle, lLeg = 180f - legAngle;   // 左側の角度
-        float rArm = armAngle, rLeg = legAngle;           // 右側の角度
-
-        // 円弧の描画。経路にならない半分は「跨げない障害物」
-        DrawCircleArc(lArm, 180f, "ArcLeft", false);
-        DrawCircleArc(180f, lLeg, "ArcLeft", true);    // 左下半分は障害物
-        DrawCircleArc(rArm, 0f, "ArcRight", true);    // 右上半分は障害物
-        DrawCircleArc(0f, rLeg, "ArcRight", false);
+        float rArm = armAngle, rLeg = legAngle;                 // 右側の角度
 
         MakeLine("TopLeft", leftArm, new List<Vector2> { new Vector2(-960, 540), leftArm.pos });
         MakeLine("TopRight", rightArm, new List<Vector2> { new Vector2(960, 540), rightArm.pos });
@@ -499,14 +524,29 @@ public class LogicModeScreen : MonoBehaviour
         //   左：180° → 左腕　／　右：0° → 右足
         var ml = new List<Vector2> { new Vector2(-960, circleCenter.y), CirclePt(180f) };
         AddArcPoints(ml, 180f, lArm);
-        MakeLine("MiddleLeft", leftArm, ml, 1);
+        var middleLeft = MakeLine("MiddleLeft", leftArm, ml);
 
         var mr = new List<Vector2> { new Vector2(960, circleCenter.y), CirclePt(0f) };
         AddArcPoints(mr, 0f, rLeg);
-        MakeLine("MiddleRight", rightLeg, mr, 1);
+        var middleRight = MakeLine("MiddleRight", rightLeg, mr);
+
+        // 円の残り（左下・右上）も基本線。時計回りに進んで中間線に合流
+        var lowLeft = new List<Vector2> { CirclePt(lLeg) };
+        AddArcPoints(lowLeft, lLeg, 180f);                      // 左足 → 180°
+        var arcLL = MakeLine("ArcLowerLeft", leftArm, lowLeft);
+        arcLL.spawnable = false;
+        arcLL.next = middleLeft;
+        arcLL.nextDist = middleLeft.cum[1];                     // 180° の点
+
+        var upRight = new List<Vector2> { CirclePt(rArm) };
+        AddArcPoints(upRight, rArm, 0f);                        // 右腕 → 0°
+        var arcUR = MakeLine("ArcUpperRight", rightLeg, upRight);
+        arcUR.spawnable = false;
+        arcUR.next = middleRight;
+        arcUR.nextDist = middleRight.cum[1];                    // 0° の点
     }
 
-    void MakeLine(string name, Limb target, List<Vector2> pts, int visibleSegments = -1)
+    BasicLine MakeLine(string name, Limb target, List<Vector2> pts, int visibleSegments = -1)
     {
         var l = new BasicLine { name = name, target = target };
         l.pts.AddRange(pts);
@@ -515,6 +555,17 @@ public class LogicModeScreen : MonoBehaviour
         for (int i = 0; i < segs; i++)
             l.visuals.Add(UIShapes.CreateLine(lineLayer, pts[i], pts[i + 1], LineThickness, LineColor, name));
         lines.Add(l);
+        return l;
+    }
+
+    /// <summary>欠損した部位 from から時計回りに to まで続く円弧の基本線を追加</summary>
+    void AddOverflowArc(Limb from, Limb to, float fromDeg, float toDeg, string name)
+    {
+        var pts = new List<Vector2> { CirclePt(fromDeg) };
+        AddArcPoints(pts, fromDeg, toDeg);
+        var l = MakeLine(name, to, pts);
+        l.spawnable = false;
+        from.overflow = l;
     }
 
     /// <summary>円周上の点（角度は度。右=0、反時計回りが正）</summary>
@@ -691,8 +742,8 @@ public class LogicModeScreen : MonoBehaviour
     {
         var list = new List<ProblemNode>();
 
-        // CSVの問題
-        if (csvProblems != null && problemIndex < csvProblems.Count)
+        // 指定出現
+        if (useFixedSpawn && problemIndex < csvProblems.Count)
         {
             int i = 0;
             foreach (var c in csvProblems[problemIndex])
@@ -712,9 +763,9 @@ public class LogicModeScreen : MonoBehaviour
             return System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(list, n => n.time));
         }
 
-        // CSVが無いときはランダム
+        // 確率出現（今はランダム。円弧からは出現しない）
         var alive = new List<int>();
-        for (int i = 0; i < lines.Count; i++) if (lines[i].alive) alive.Add(i);
+        for (int i = 0; i < lines.Count; i++) if (lines[i].alive && lines[i].spawnable) alive.Add(i);
         for (int i = 0; i < nodesPerProblem && alive.Count > 0; i++)
             list.Add(new ProblemNode
             {
@@ -1076,6 +1127,33 @@ public class LogicModeScreen : MonoBehaviour
             m.node.Rect.anchoredPosition = m.line.Sample(m.dist);
             if (m.dist >= m.line.length)
             {
+                // 円弧の終点 → 中間線に合流
+                if (m.line.next != null)
+                {
+                    var cur = m.line;
+                    if (!cur.next.alive)
+                    {
+                        // 合流先が消えている → 消滅（スコア・ダメージなし）
+                        Destroy(m.node.gameObject);
+                        moving.RemoveAt(i);
+                        continue;
+                    }
+                    m.line = cur.next;
+                    m.dist = cur.nextDist;
+                    m.node.Rect.anchoredPosition = m.line.Sample(m.dist);
+                    continue;
+                }
+
+                // 欠損部位に届いたら、完成した円弧へ乗り換えて時計回りに進む
+                var limb = m.line.target;
+                if (limb.lost && limb.overflow != null && limb.overflow.alive)
+                {
+                    m.line = limb.overflow;
+                    m.dist = 0f;
+                    m.node.Rect.anchoredPosition = m.line.Sample(0f);
+                    continue;
+                }
+
                 Collect(m);
                 Destroy(m.node.gameObject);
                 moving.RemoveAt(i);
@@ -1172,12 +1250,18 @@ public class LogicModeScreen : MonoBehaviour
         {
             currentMaxLineGauge = Mathf.Max(0f, currentMaxLineGauge - armLostGaugePenalty);
             lineGauge = Mathf.Min(lineGauge, currentMaxLineGauge);
-            // TODO: 左腕欠損時「頭部側の基本線が追加」
+
+            // 左腕欠損 → 上の円弧が完成。左腕 → 頭上 → 右腕（時計回り）
+            if (limb == leftArm)
+                AddOverflowArc(leftArm, rightArm, 180f - armAngle, armAngle, "TopArc");
         }
         else
         {
             KillLine(limb == leftLeg ? "MiddleLeft" : "MiddleRight");
-            // TODO: 右足欠損時「足側の基本線が追加」
+
+            // 右足欠損 → 下の円弧が完成。右足 → 股下 → 左足（時計回り）
+            if (limb == rightLeg)
+                AddOverflowArc(rightLeg, leftLeg, legAngle, -180f - legAngle, "BottomArc");
         }
 
         bool allLost = true;
@@ -1187,18 +1271,27 @@ public class LogicModeScreen : MonoBehaviour
 
     void KillLine(string name)
     {
-        foreach (var l in lines)
+        foreach (var l in lines.ToArray())
         {
             if (l.name != name) continue;
-            l.alive = false;
-            foreach (var v in l.visuals) v.gameObject.SetActive(false);
-            // 繋がっていた造線も消滅
-            for (int i = drawnLines.Count - 1; i >= 0; i--)
-            {
-                var d = drawnLines[i];
-                if (d.lineA == l || d.lineB == l) Vanish(d);
-            }
+            KillLine(l);
         }
+    }
+
+    void KillLine(BasicLine l)
+    {
+        if (!l.alive) return;
+        l.alive = false;
+        foreach (var v in l.visuals) v.gameObject.SetActive(false);
+        // 繋がっていた造線も消滅
+        for (int i = drawnLines.Count - 1; i >= 0; i--)
+        {
+            var d = drawnLines[i];
+            if (d.lineA == l || d.lineB == l) Vanish(d);
+        }
+        // この線に合流する円弧も消滅
+        foreach (var other in lines.ToArray())
+            if (other.next == l) KillLine(other);
     }
 
     void GameOver()
@@ -1259,7 +1352,7 @@ public class LogicModeScreen : MonoBehaviour
             _ => "ゲームオーバー",
         };
         statusText.text =
-            $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}  {phase}\n" +
+            $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}  {phase}  [{(useFixedSpawn ? "指定出現" : "確率出現")}]\n" +
             $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
             (CurrentPhase == Phase.Route ? "基本線をドラッグで造線 / 右クリックで削除" : "");
     }
@@ -1360,7 +1453,6 @@ namespace LogicModeEditorInternal
     public class LogicModeScreenEditor : Editor
     {
         static readonly Color CircleCol = new Color(0.3f, 0.9f, 1f, 0.9f);
-        static readonly Color ObstacleCol = new Color(1f, 0.35f, 0.3f, 0.9f);
         static readonly Color CenterCol = new Color(1f, 0.9f, 0.2f);
         static readonly Color ArmCol = new Color(1f, 0.6f, 0.2f);
         static readonly Color LegCol = new Color(0.4f, 1f, 0.5f);
@@ -1386,11 +1478,11 @@ namespace LogicModeEditorInternal
             Vector3 W(Vector2 p) => root.TransformPoint(p);
             Vector2 L(Vector3 w) => root.InverseTransformPoint(w);
 
-            // 円の表示（経路になる部分＝水色 / 跨げない部分＝赤 / 線なし＝薄い白）
+            // 円の表示（経路になる部分＝水色 / 線なし（欠損で完成する部分）＝薄い白）
             float lArm = 180f - s.armAngle, lLeg = 180f - s.legAngle;
             DrawArc(s, W, lArm, 180f, CircleCol);
-            DrawArc(s, W, 180f, lLeg, ObstacleCol);
-            DrawArc(s, W, s.armAngle, 0f, ObstacleCol);
+            DrawArc(s, W, 180f, lLeg, CircleCol);
+            DrawArc(s, W, s.armAngle, 0f, CircleCol);
             DrawArc(s, W, 0f, s.legAngle, CircleCol);
             DrawArc(s, W, s.armAngle, lArm, new Color(1f, 1f, 1f, 0.25f));
             DrawArc(s, W, s.legAngle, -180f - s.legAngle, new Color(1f, 1f, 1f, 0.25f));

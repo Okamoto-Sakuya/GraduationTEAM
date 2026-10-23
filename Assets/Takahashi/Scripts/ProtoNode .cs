@@ -3,25 +3,26 @@ using UnityEngine.UI;
 
 /// <summary>
 /// ノード（青＝良性 / 赤＝悪性）。
-/// ・ゲージ値 0〜100 を持ち、時間で減少 → 0で性質が反転し、今度は上昇
+/// ・ゲージ値 0〜100 を往復。減少 → 0で性質が反転して上昇 → 100で折り返して減少 → …（ずっと変化し続ける）
+///   例（良性出現）: 良性100→0 → 悪性0→100 → 悪性100→0 → 良性0→100 → 良性100→0 …
 /// ・レベルはゲージ値から 1(0-24) 2(25-49) 3(50-74) 4(75-100)
-/// ・周りのリングが残りゲージ（良性出現は反時計回り、悪性出現は時計回り）
+/// ・周りのリングが残りゲージ（良性出現は反時計回り、悪性出現は時計回り。反転しても向きは出現時のまま）
 /// </summary>
 public class ProtoNode : MonoBehaviour
 {
     public enum Kind { Good, Bad }
 
     public static readonly Color GoodColor = new Color(0.0f, 0.69f, 0.94f);
-    public static readonly Color BadColor  = new Color(0.78f, 0.0f, 0.0f);
+    public static readonly Color BadColor = new Color(0.78f, 0.0f, 0.0f);
 
     public Kind CurrentKind { get; private set; }
-    public Kind SpawnKind   { get; private set; }
-    public float Value      { get; private set; }   // 0〜100
+    public Kind SpawnKind { get; private set; }
+    public float Value { get; private set; }   // 0〜100
     public RectTransform Rect => (RectTransform)transform;
 
     public int Level => Value < 25f ? 1 : Value < 50f ? 2 : Value < 75f ? 3 : 4;
 
-    bool rising;          // 反転後は上昇
+    bool rising;          // true = 上昇中 / false = 減少中
     Image body, ring;
     Text orderLabel;
     CanvasGroup group;
@@ -62,22 +63,36 @@ public class ProtoNode : MonoBehaviour
     /// <summary>問題準備フェーズで「何番目に来るか」を表示。0で非表示</summary>
     public void SetOrder(int order) => orderLabel.text = order > 0 ? order.ToString() : "";
 
+    /// <summary>
+    /// ゲージ更新。0 と 100 の間を往復し、0 に届くたびに性質が反転する。
+    ///   減少 → 0 到達：性質反転、上昇に転じる
+    ///   上昇 → 100 到達：折り返して減少
+    /// </summary>
     public void TickGauge(float dt, float perSecond)
     {
+        float step = perSecond * dt;
+
         if (rising)
         {
-            Value = Mathf.Min(100f, Value + perSecond * dt);
+            Value += step;
+            if (Value >= 100f)
+            {
+                Value = 200f - Value;   // はみ出た分を減少側へ
+                rising = false;
+            }
         }
         else
         {
-            Value -= perSecond * dt;
+            Value -= step;
             if (Value <= 0f)
             {
-                Value = -Value;   // はみ出た分を上昇側へ
+                Value = -Value;         // はみ出た分を上昇側へ
                 CurrentKind = CurrentKind == Kind.Good ? Kind.Bad : Kind.Good;
                 rising = true;
             }
         }
+
+        Value = Mathf.Clamp(Value, 0f, 100f);   // 1フレームで大きく進んだ場合の保険
         Refresh();
     }
 
