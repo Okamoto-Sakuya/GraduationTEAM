@@ -265,14 +265,12 @@ MonoBehaviour:
   debugKeys: 1
   resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
-  spawnMode: 2
+  spawnMode: 1
   useStreamingAssets: 1
   paramsCsvName: logic_params.csv
   nodeTableCsvName: node_table.csv
-  problemsCsvName: logic_problems.csv
   paramsCsv: {fileID: 4900000, guid: e9178894c740d9a4da4d37470f8afb8c, type: 3}
   nodeTableCsv: {fileID: 4900000, guid: 826d941a0f3403244bf2bd1cfeed09e8, type: 3}
-  problemsCsv: {fileID: 4900000, guid: 6ebc57b78ff8010408f3e9523d6df175, type: 3}
   randomProblemCsvName: logic_randomproblem_master.csv
   randomNodeCsvName: logic_randomnode_master.csv
   randomSideCsvName: logic_randomside_master.csv
@@ -281,6 +279,10 @@ MonoBehaviour:
   randomNodeCsv: {fileID: 4900000, guid: 5518db02a6024ed4e8af09532d15e304, type: 3}
   randomSideCsv: {fileID: 4900000, guid: a5a2769864f59ec46b1d91a217ab0d14, type: 3}
   randomLineCsv: {fileID: 4900000, guid: f686c247454d58843aac7957802eb4d0, type: 3}
+  fixedProblemCsvName: logic_fixedproblem_master.csv
+  fixedNodeCsvName: logic_fixednode_master.csv
+  fixedProblemCsv: {fileID: 4900000, guid: de574d5419a563540ad9c805faf44af2, type: 3}
+  fixedNodeCsv: {fileID: 4900000, guid: 1d0bf7ec1540efa458699bb870e74094, type: 3}
   limbMaxHp: 25
   killMiddleOnLegLost: 0
   maxSan: 40
@@ -321,11 +323,8 @@ MonoBehaviour:
   forbiddenRadius: 45
   minLineLength: 30
   nodeSpeed: 160
-  problemCount: 3
-  nodesPerProblem: 5
   spawnInterval: 1.5
   previewRevealInterval: 0.4
-  badRate: 0.5
 --- !u!4 &183445545
 Transform:
   m_ObjectHideFlags: 0
