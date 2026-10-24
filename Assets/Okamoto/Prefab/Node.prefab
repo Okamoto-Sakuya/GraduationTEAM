@@ -73,6 +73,18 @@ MonoBehaviour:
   spriteSortingOrder: 12
   ringRadius: 0.4
   ringWidth: 0.06
+  showLevelBar: 1
+  levelBarWidth: 0.6
+  levelBarHeight: 0.07
+  levelBarGap: 0.12
+  levelBarColor: {r: 1, g: 0.95, b: 0.55, a: 1}
+  levelBarBlinkTime: 0.8
+  showScoreText: 1
+  showScoreOnMalignant: 0
+  scoreTextSize: 3
+  scoreTextGap: 0.2
+  scoreTextFormat: +{0:N0}
+  scoreTextColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!212 &1128095527507080609
 SpriteRenderer:
   serializedVersion: 2

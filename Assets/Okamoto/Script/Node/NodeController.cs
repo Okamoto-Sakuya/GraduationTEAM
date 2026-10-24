@@ -337,6 +337,23 @@ public class NodeController : MonoBehaviour
     public void StopMoving() { IsMoving = false; }
     public void ResumeMoving() { IsMoving = true; }
 
+    // 出現時の種類を指定する(スポナーから呼ぶ)。true=悪性、false=良性
+    public void SetNodeType(bool malignant)
+    {
+        isMalignant = malignant;
+
+        // 見た目を作り直す
+        shownLevel = -1;
+        RefreshVisual();
+        UpdateRing();
+    }
+
+    // 移動速度を指定する(スポナーから呼ぶ)
+    public void SetMoveSpeed(float speed)
+    {
+        moveSpeed = speed;
+    }
+
     // ===== 見た目 =====
 
     private void SetupVisual()
