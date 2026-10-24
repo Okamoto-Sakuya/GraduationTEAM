@@ -7,4 +7,11 @@ id,speaker,text,nextId,storyType
 6,B,bbbbbbbb,7,
 7,A,cccccccc,8,
 8,B,dddddddd,9,
-9,A,eeeeeeee,,stageEnd
+9,A,eeeeeeee,10,
+10,B,ffffffffff,11,
+11,A,gggggggg,12,
+12,B,hhhhhhhh,13,
+13,A,iiiiiiiiiiiiiii,14,
+14,B,jjjjjjjjjjj,15,
+15,A,kkkkkkkk,16,
+16,B,LLLLLLL,,stageEnd

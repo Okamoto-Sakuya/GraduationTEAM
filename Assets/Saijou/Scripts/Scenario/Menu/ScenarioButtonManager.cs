@@ -34,6 +34,11 @@ public class ScenarioButtonManager : MonoBehaviour
     // ScenarioUIが表示中かどうか（ScenarioPlayerなど外部から参照する用）
     public bool IsUIVisible => scenarioUI == null || scenarioUI.activeSelf;
 
+    // ログ・設定ウィンドウが開いているかどうか（ScenarioPlayerから参照する用）
+    public bool IsWindowOpen =>
+        (logWindow != null && logWindow.activeSelf) ||
+        (settingWindow != null && settingWindow.activeSelf);
+
     // 同一フレームでの「消した直後に出る／出した直後に消える」誤動作防止用
     private int hiddenFrame = -1;
     private int shownFrame = -1;
