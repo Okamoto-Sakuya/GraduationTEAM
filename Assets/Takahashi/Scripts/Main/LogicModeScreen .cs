@@ -39,7 +39,7 @@ using UnityEngine.InputSystem.UI;
 ///   右腕欠損 → 右腕に届いたノードは円の右側を下って右足へ
 ///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
 ///   流れ先も欠損していれば、さらに時計回りに次の部位へ
-/// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_problems.csv) / 確率出現(logic_random*_master.csv)
+/// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_fixed*_master.csv) / 確率出現(logic_random*_master.csv)
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
 /// 画像の差し替え
 ///   ① Inspector の「画像差し替え」欄に入れる
@@ -120,9 +120,9 @@ public class LogicModeScreen : MonoBehaviour
 
     public enum SpawnMode
     {
-        Auto,     // 問題CSVがあれば指定出現、無ければ確率出現
-        Fixed,    // 指定出現：logic_problems.csv の通りに出す
-        Random    // 確率出現：logic_random*_master.csv で抽選（無ければ nodesPerProblem / badRate で単純ランダム）
+        Auto,     // 指定出現のマスターにこのステージがあれば指定出現、無ければ確率出現
+        Fixed,    // 指定出現：logic_fixed*_master.csv の通りに出す
+        Random    // 確率出現：logic_random*_master.csv で抽選
     }
 
     [Header("出現モード")]
@@ -132,10 +132,8 @@ public class LogicModeScreen : MonoBehaviour
     public bool useStreamingAssets = true;               // true = StreamingAssets フォルダの CSV を最優先で読む（ビルド後も差し替え可）
     public string paramsCsvName = "logic_params.csv";    // 参照数値の CSV ファイル名（StreamingAssets 内）。読めた値は下の Inspector 値を上書き
     public string nodeTableCsvName = "node_table.csv";   // ノード表（スコア・ダメージ等の Lv 別テーブル）の CSV ファイル名
-    public string problemsCsvName = "logic_problems.csv";// 問題（指定出現のノードの並び）の CSV ファイル名
     public TextAsset paramsCsv;                          // StreamingAssets に無いときに使う参照数値 CSV
     public TextAsset nodeTableCsv;                       // StreamingAssets に無いときに使うノード表 CSV
-    public TextAsset problemsCsv;                        // StreamingAssets に無いときに使う問題 CSV
 
     [Header("確率出現のマスター CSV（StreamingAssets 優先 → TextAsset）")]
     public string randomProblemCsvName = "logic_randomproblem_master.csv";   // ステージの問題構成（stage, problem, nodegroup, nodecount）
@@ -146,6 +144,12 @@ public class LogicModeScreen : MonoBehaviour
     public TextAsset randomNodeCsv;
     public TextAsset randomSideCsv;
     public TextAsset randomLineCsv;
+
+    [Header("指定出現のマスター CSV（StreamingAssets 優先 → TextAsset）")]
+    public string fixedProblemCsvName = "logic_fixedproblem_master.csv";     // ステージの問題構成（stage, problem, nodecount）
+    public string fixedNodeCsvName = "logic_fixednode_master.csv";           // 問題ごとのノード（id, stage, problem, nodegroup, nodetype, nodeorder, nodeposition1〜）
+    public TextAsset fixedProblemCsv;
+    public TextAsset fixedNodeCsv;
 
     [Header("参照数値：体力・SAN")]
     public float limbMaxHp = 25f;                        // 四肢それぞれの最大体力。0 になるとその部位は欠損
@@ -189,13 +193,10 @@ public class LogicModeScreen : MonoBehaviour
     public float forbiddenRadius = 45f;                  // 既存の造線の両端からこの距離（px）以内では新しい造線を始められない
     public float minLineLength = 30f;                    // 造線の最短長（px）。これより短いと確定できない
 
-    [Header("ノード移動・問題（確率出現のマスターが無いときの単純ランダム用）")]
+    [Header("ノード移動・出現")]
     public float nodeSpeed = 160f;                       // ノードの移動速度（px/秒）
-    public int problemCount = 3;                         // 単純ランダム時の問題数（指定出現・マスター使用時は CSV の問題数）
-    public int nodesPerProblem = 5;                      // 確率出現時、1問あたりのノード数
-    public float spawnInterval = 1.5f;                   // ノードの出現間隔（秒）。確率出現、または指定出現で time 未指定のとき
+    public float spawnInterval = 1.5f;                   // ノードの出現間隔（秒）。同じ順番のノードは同時に出る
     public float previewRevealInterval = 0.4f;           // 問題準備フェーズで、出題ノードを1つずつ見せる間隔（秒）
-    [Range(0f, 1f)] public float badRate = 0.4f;         // 確率出現時に悪性ノードになる確率（0〜1）
 
     // ======================= 公開状態 =======================
 
@@ -287,13 +288,15 @@ public class LogicModeScreen : MonoBehaviour
         public GameObject forbiddenGroup;
     }
 
-    struct ProblemNode { public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order; }   // order 0 = 並び順で番号を振る
+    struct ProblemNode { public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order; }
 
     LogicRandomSpawner randomSpawner;                       // 確率出現のマスター（読めたときだけ）
+    LogicFixedSpawner fixedSpawner;                         // 指定出現のマスター（読めたときだけ）
+    List<LogicFixedSpawner.ProblemDef> fixedStageProblems;   // このステージの問題（指定出現）
     List<LogicRandomSpawner.ProblemDef> stageProblems;       // このステージの問題（確率出現）
 
-    List<List<CsvProblemNode>> csvProblems;
     bool useFixedSpawn;   // 実際に指定出現で動いているか（spawnMode と CSV の有無から決定）
+    int problemCount;     // このステージの問題数（CSV から決まる）
 
     class MovingNode
     {
@@ -339,7 +342,6 @@ public class LogicModeScreen : MonoBehaviour
     Limb leftArm, rightArm, leftLeg, rightLeg;
     readonly List<Limb> limbs = new List<Limb>();
     readonly List<BasicLine> lines = new List<BasicLine>();
-    readonly List<Vector2[]> obstacles = new List<Vector2[]>();   // 経路にならない円弧部分（跨げない）
     readonly List<DrawnLine> drawnLines = new List<DrawnLine>();
     readonly List<MovingNode> moving = new List<MovingNode>();
 
@@ -381,6 +383,9 @@ public class LogicModeScreen : MonoBehaviour
 
         // ヘルプ：シーンに HelpWindow が無ければ自動で追加（「？」ボタンが出る）
         if (FindObjectOfType<HelpWindow>() == null) gameObject.AddComponent<HelpWindow>();
+
+        // 問題が読めなかったら始めない（そのまま進むと 0 問で即クリア扱いになるため）
+        if (problemCount <= 0) return;
         StartCoroutine(GameLoop());
     }
 
@@ -492,7 +497,6 @@ public class LogicModeScreen : MonoBehaviour
         hardnessButtons.Clear();
         limbs.Clear();
         lines.Clear();
-        obstacles.Clear();
         drawnLines.Clear();
         moving.Clear();
         dashPool.Clear();
@@ -507,23 +511,30 @@ public class LogicModeScreen : MonoBehaviour
         t = LogicCsvLoader.LoadText(nodeTableCsv, nodeTableCsvName, useStreamingAssets);
         if (t != null) LogicCsvLoader.ApplyNodeTable(this, t);
 
-        t = LogicCsvLoader.LoadText(problemsCsv, problemsCsvName, useStreamingAssets);
-        if (t != null)
+        // --- 指定出現（Fixed / Auto のとき） ---
+        fixedStageProblems = null;
+        problemCount = 0;
+        if (spawnMode != SpawnMode.Random)
         {
-            csvProblems = LogicCsvLoader.LoadProblems(t);
-            if (csvProblems.Count == 0) csvProblems = null;
+            fixedSpawner = LogicFixedSpawner.Load(
+                LogicCsvLoader.LoadText(fixedProblemCsv, fixedProblemCsvName, useStreamingAssets),
+                LogicCsvLoader.LoadText(fixedNodeCsv, fixedNodeCsvName, useStreamingAssets));
+            if (fixedSpawner != null)
+            {
+                fixedStageProblems = fixedSpawner.ProblemsOf(stageNumber);
+                if (fixedStageProblems.Count == 0)
+                {
+                    if (spawnMode == SpawnMode.Fixed)
+                        Debug.LogWarning($"[指定出現] fixedproblem にステージ{stageNumber} の問題がありません → 確率出現で動かします");
+                    fixedStageProblems = null;
+                }
+            }
+            else if (spawnMode == SpawnMode.Fixed)
+                Debug.LogWarning("[指定出現] 指定出現の CSV が見つかりません → 確率出現で動かします");
         }
 
-        // 出現モードの決定
-        useFixedSpawn = spawnMode == SpawnMode.Fixed ||
-                        (spawnMode == SpawnMode.Auto && csvProblems != null);
-        if (useFixedSpawn && csvProblems == null)
-        {
-            Debug.LogWarning("[CSV] 指定出現が選ばれていますが問題CSVがありません → 確率出現で動かします");
-            useFixedSpawn = false;
-        }
-
-        if (useFixedSpawn) problemCount = csvProblems.Count;   // 問題数はCSVに合わせる
+        useFixedSpawn = fixedStageProblems != null;
+        if (useFixedSpawn) problemCount = fixedStageProblems.Count;
 
         // 確率出現のマスター
         stageProblems = null;
@@ -544,32 +555,22 @@ public class LogicModeScreen : MonoBehaviour
                 }
                 else
                 {
-                    Debug.LogWarning($"[確率出現] randomproblem にステージ{stageNumber} の問題がありません → 単純ランダムで出します");
+                    Debug.LogError($"[確率出現] randomproblem にステージ{stageNumber} の問題がありません");
                     stageProblems = null;
                 }
             }
         }
 
-        Debug.Log(useFixedSpawn ? "[出現] 指定出現（問題CSV）"
-                : stageProblems != null ? $"[出現] 確率出現（マスター使用・ステージ{stageNumber}・{problemCount}問）"
-                : $"[出現] 確率出現（マスター無し・単純ランダム・{problemCount}問）");
+        if (useFixedSpawn) Debug.Log($"[出現] 指定出現（ステージ{stageNumber}・{problemCount}問）");
+        else if (stageProblems != null) Debug.Log($"[出現] 確率出現（ステージ{stageNumber}・{problemCount}問）");
+        else Debug.LogError($"[出現] ステージ{stageNumber} の問題が CSV にありません。StreamingAssets の CSV と Stage Number を確認してください");
     }
 
-    /// <summary>CSVの line 列 → 基本線。英名・日本語どちらでも可</summary>
+    /// <summary>基本線の名前 → lines の番号（無ければ -1）</summary>
     int FindLineIndex(string name)
     {
-        string key = name.Trim();
-        switch (key)
-        {
-            case "左上": key = "TopLeft"; break;
-            case "右上": key = "TopRight"; break;
-            case "左中": case "左中間": key = "MiddleLeft"; break;
-            case "右中": case "右中間": key = "MiddleRight"; break;
-            case "左下": key = "BottomLeft"; break;
-            case "右下": key = "BottomRight"; break;
-        }
         for (int i = 0; i < lines.Count; i++)
-            if (string.Equals(lines[i].name, key, System.StringComparison.OrdinalIgnoreCase)) return i;
+            if (string.Equals(lines[i].name, name, System.StringComparison.OrdinalIgnoreCase)) return i;
         return -1;
     }
 
@@ -833,18 +834,6 @@ public class LogicModeScreen : MonoBehaviour
         for (int i = 1; i <= n; i++) list.Add(CirclePt(Mathf.Lerp(fromDeg, toDeg, (float)i / n)));
     }
 
-    void DrawCircleArc(float fromDeg, float toDeg, string name, bool obstacle)
-    {
-        int n = ArcSegCount(toDeg - fromDeg);
-        for (int i = 0; i < n; i++)
-        {
-            Vector2 p0 = CirclePt(Mathf.Lerp(fromDeg, toDeg, (float)i / n));
-            Vector2 p1 = CirclePt(Mathf.Lerp(fromDeg, toDeg, (float)(i + 1) / n));
-            UIShapes.CreateLine(lineLayer, p0, p1, LineThickness, LineColor, name);
-            if (obstacle) obstacles.Add(new[] { p0, p1 });
-        }
-    }
-
     void BuildUI()
     {
         // 右上：スコア
@@ -1012,28 +1001,28 @@ public class LogicModeScreen : MonoBehaviour
     {
         var list = new List<ProblemNode>();
 
-        // 指定出現
-        if (useFixedSpawn && problemIndex < csvProblems.Count)
+        // 指定出現（マスターあり）：問題ごとにグループを抽選し、nodeposition1 から順に出せる基本線を探す
+        if (fixedStageProblems != null && problemIndex < fixedStageProblems.Count)
         {
-            int i = 0;
-            foreach (var c in csvProblems[problemIndex])
+            System.Func<int, int> resolve = pos =>
             {
-                int li = FindLineIndex(c.line);
-                if (li < 0) { Debug.LogWarning($"[CSV:problems] 問題{c.problem} 不明な line: {c.line}"); continue; }
+                if (pos < 1 || pos >= LogicFixedSpawner.PositionLineNames.Length) return -1;
+                int li = FindLineIndex(LogicFixedSpawner.PositionLineNames[pos]);
+                return li >= 0 && lines[li].alive && lines[li].spawnable ? li : -1;
+            };
+            foreach (var sp in fixedSpawner.Generate(fixedStageProblems[problemIndex], resolve, spawnInterval))
                 list.Add(new ProblemNode
                 {
-                    line = li,
-                    kind = c.kind,
-                    gauge = c.gauge >= 0f ? c.gauge : nodeStartGauge,
-                    time = c.time >= 0f ? c.time : i * spawnInterval
+                    line = sp.line,
+                    kind = sp.bad ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
+                    gauge = nodeStartGauge,
+                    time = sp.time,
+                    order = sp.order
                 });
-                i++;
-            }
-            // 出現時刻順（同時刻なら order 順のまま）
-            return System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(list, n => n.time));
+            return list;
         }
 
-        // 確率出現（マスターあり）：サイド → 基本線 の順に抽選。円弧からは出現しない
+        // 確率出現：サイド → 基本線 の順に抽選。円弧からは出現しない
         if (stageProblems != null && problemIndex < stageProblems.Count)
         {
             var leftLines = new List<int>();
@@ -1057,17 +1046,6 @@ public class LogicModeScreen : MonoBehaviour
             return list;
         }
 
-        // 確率出現（マスター無し）：単純ランダム。円弧からは出現しない
-        var alive = new List<int>();
-        for (int i = 0; i < lines.Count; i++) if (lines[i].alive && lines[i].spawnable) alive.Add(i);
-        for (int i = 0; i < nodesPerProblem && alive.Count > 0; i++)
-            list.Add(new ProblemNode
-            {
-                line = alive[Random.Range(0, alive.Count)],
-                kind = Random.value < badRate ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
-                gauge = nodeStartGauge,
-                time = i * spawnInterval
-            });
         return list;
     }
 
@@ -1159,13 +1137,6 @@ public class LogicModeScreen : MonoBehaviour
                 bestAlong = along; hitKind = 1; hitLine = l;
                 hitLineDist = l.cum[i - 1] + (l.cum[i] - l.cum[i - 1]) * u;
             }
-        }
-        foreach (var o in obstacles)
-        {
-            if (!SegSeg(s, far, o[0], o[1], out float t, out _)) continue;
-            float along = t * reach;
-            if (along < ignoreNearStart || along >= bestAlong) continue;
-            bestAlong = along; hitKind = 2; hitLine = null;
         }
         foreach (var d in drawnLines)
         {
@@ -1689,8 +1660,17 @@ public class LogicModeScreen : MonoBehaviour
             Phase.Clear => "クリア",
             _ => "ゲームオーバー",
         };
+        // 再生中に問題が読めなかったとき
+        if (Application.isPlaying && problemCount <= 0)
+        {
+            statusText.text = $"ステージ{stageNumber} の問題が CSV にありません\nStreamingAssets の CSV と Stage Number を確認してください";
+            statusText.color = InvalidCol;
+            return;
+        }
+
+        string progress = problemCount > 0 ? $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}  " : "";
         statusText.text =
-            $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}  {phase}  [{(useFixedSpawn ? "指定出現" : "確率出現")}]\n" +
+            $"{progress}{phase}  [{(useFixedSpawn ? "指定出現" : "確率出現")}]\n" +
             $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
             (CurrentPhase == Phase.Route ? "基本線をドラッグで造線 / 右クリックで削除" : "");
     }
