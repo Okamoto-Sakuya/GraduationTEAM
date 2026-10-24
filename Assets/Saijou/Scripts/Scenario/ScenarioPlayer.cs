@@ -14,6 +14,7 @@ public class ScenarioPlayer : MonoBehaviour
     [SerializeField] private TMP_Text speakerText;
     [SerializeField] private TMP_Text messageText;
     [SerializeField] private ScenarioButtonManager buttonManager;
+    [SerializeField] private ScenarioLogView logView; 
 
     [Header("開始設定")]
     [SerializeField] private int startId = 1;
@@ -57,6 +58,10 @@ public class ScenarioPlayer : MonoBehaviour
 
     private void Start()
     {
+        // ストーリー切り替え時にログを消す(無くてもいいかも)
+        loader.Load();
+        if (logView != null) logView.Clear();
+
         // CSVを読み込む
         loader.Load();
 
@@ -69,6 +74,10 @@ public class ScenarioPlayer : MonoBehaviour
     {
         // UIが非表示の間は、クリックで文章を進めない
         if (buttonManager != null && !buttonManager.IsUIVisible)
+            return;
+
+        // ログ・設定ウィンドウが開いている間は進めない
+        if (buttonManager != null && buttonManager.IsWindowOpen)
             return;
 
         // 左クリックされた瞬間だけ判定
@@ -111,6 +120,10 @@ public class ScenarioPlayer : MonoBehaviour
 
         // セリフ本文を取得する
         currentMessage = data.Get("text");
+
+        // ログに追加する（同じidは自動で無視される）
+        if (logView != null)
+            logView.AddLog(id, data.Get("speaker"), currentMessage);
 
         // セリフ全体の色を設定する
         string color = data.Get("color");
