@@ -896,7 +896,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f68862820a73b90408fcfc03479e463e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ReadCSV_Audio
-  clipVolumesList: []
+  clipVolumesList:
+  - name: 
+    volume: 0
 --- !u!1 &1199780771
 GameObject:
   m_ObjectHideFlags: 0
