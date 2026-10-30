@@ -187,13 +187,16 @@ MonoBehaviour:
   lineGaugeFillSprite: {fileID: 0}
   dangerSprite: {fileID: 0}
   hierarchyOverrides: []
-  stageNumber: 1
+  stageNumber: 9
   markClearedOnClear: 1
   clearCharacter: Daughter
   debugKeys: 1
+  writeSpawnLog: 1
+  spawnLogToConsole: 1
+  spawnLogFolder: SpawnLogs
   resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
-  spawnMode: 1
+  spawnMode: 2
   useStreamingAssets: 1
   paramsCsvName: logic_params.csv
   nodeTableCsvName: node_table.csv
@@ -240,6 +243,17 @@ MonoBehaviour:
   - 8
   - 10
   scoreDigits: 8
+  limbMatchScoreRate: 1.5
+  limbMismatchSan: 5
+  fastSpeedRate: 2
+  heavyMinHardness: 2
+  heavyHardnessCost: 2
+  stopAfterSeconds: 2
+  stopSeconds: 2
+  rankScoreS: 60000
+  rankScoreA: 45000
+  rankScoreB: 30000
+  rankScoreC: 15000
   dangerColor: {r: 0.6886792, g: 0, b: 0, a: 0.85}
   lostLimbDanger: 0.25
   damageFlash: 0.35

@@ -40,6 +40,13 @@ using UnityEngine.InputSystem.UI;
 ///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
 ///   流れ先も欠損していれば、さらに時計回りに次の部位へ
 /// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_fixed*_master.csv) / 確率出現(logic_random*_master.csv)
+/// 特殊ノード（10/30 追加。nodetype）
+///   5 四肢対応 : ノードの上の札に部位名。良性を対応する部位へ → スコア×limbMatchScoreRate ／ 違う部位へ → SAN 減少。悪性は通常どおり（ダメージ＋SAN）
+///   6 足早     : 移動速度×fastSpeedRate
+///   7 重い     : 硬さ（残り回数）が heavyMinHardness 以上の造線しか通れず、通ると heavyHardnessCost 減る
+///   8 途中停止 : 移動開始から stopAfterSeconds 秒後に stopSeconds 秒止まる（ゲージは進む・他のノードは追い越せる）
+/// 出現ログ : 出たノードの種類・順番・位置・結果を Console と CSV（Excel 用、プロジェクト直下の SpawnLogs/）に出す（LogicSpawnLog）
+/// リザルト : 取得スコア / スコアランク(S〜D。rankScoreS〜C) / 取得ノード（良性・悪性 × Lv1〜4）
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
 /// 画像の差し替え
 ///   ① Inspector の「画像差し替え」欄に入れる
@@ -112,6 +119,11 @@ public class LogicModeScreen : MonoBehaviour
     [Header("デバッグ")]
     public bool debugKeys = true;                        // true = P キーで即ゲームオーバー / O キーで即クリア（リリース前に外す）
 
+    [Header("出現ログ（出たノードの種類・順番・結果）")]
+    public bool writeSpawnLog = true;                    // true = CSV（Excel 用）に書き出す。エディタはプロジェクト直下、ビルドは persistentDataPath の下
+    public bool spawnLogToConsole = true;                // true = Unity の Console にも 1 体ずつ出す
+    public string spawnLogFolder = "SpawnLogs";          // CSV を置くフォルダ名
+
     [Header("リザルト画面（クリア / ゲームオーバー）")]
     public ResultScreen resultScreen;                    // 空欄ならシーンから探し、無ければ自動で追加（イラスト等は ResultScreen 側で設定）
 
@@ -179,6 +191,21 @@ public class LogicModeScreen : MonoBehaviour
     public float[] badSan = { 3, 5, 8, 10 };             // 悪性ノード回収時の SAN 減少量（Lv1〜4）
     public int scoreDigits = 8;                          // スコアの表示桁数（ゼロ埋め）。この桁の最大値で頭打ち
 
+    [Header("参照数値：特殊ノード（10/30 追加・nodetype 5〜8）")]
+    public float limbMatchScoreRate = 1.5f;              // type5 四肢対応：良性を対応する部位に運んだときのスコア倍率
+    public float limbMismatchSan = 5f;                   // type5 四肢対応：良性を対応しない部位に運んだときの SAN 減少量
+    public float fastSpeedRate = 2f;                     // type6 足早：通常ノードに対する移動速度の倍率
+    public int heavyMinHardness = 2;                     // type7 重い：通れる造線の硬さ（残り通過回数）の下限
+    public int heavyHardnessCost = 2;                    // type7 重い：通ったときに減る硬さ
+    public float stopAfterSeconds = 2f;                  // type8 途中停止：移動開始から止まるまでの秒数
+    public float stopSeconds = 2f;                       // type8 途中停止：止まっている秒数（その間もゲージは進む）
+
+    [Header("参照数値：スコアランク（リザルト。この点以上でそのランク、どれも満たさなければ D）")]
+    public int rankScoreS = 60000;
+    public int rankScoreA = 45000;
+    public int rankScoreB = 30000;
+    public int rankScoreC = 15000;
+
     [Header("危険演出（画面の外周から内側へ赤くなる）")]
     public Color dangerColor = new Color(0.85f, 0f, 0f, 0.85f); // 赤さの色。α が最大時の濃さ
     [Range(0f, 1f)] public float lostLimbDanger = 0.25f;       // 部位が1か所欠損するごとに加算される赤さ（SAN分と合計、最大1）
@@ -213,6 +240,7 @@ public class LogicModeScreen : MonoBehaviour
     class Limb
     {
         public string name;
+        public string label;         // 表示名（左腕など）
         public Vector2 pos;
         public bool isArm;
         public float hp;
@@ -288,7 +316,15 @@ public class LogicModeScreen : MonoBehaviour
         public GameObject forbiddenGroup;
     }
 
-    struct ProblemNode { public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order; }
+    struct ProblemNode
+    {
+        public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order;
+        public int type;      // nodetype（1〜8）
+        public string limb;   // type5 の対応部位（Limb.name）
+    }
+
+    // nodetype
+    const int TypeLimb = 5, TypeFast = 6, TypeHeavy = 7, TypeStop = 8;
 
     LogicRandomSpawner randomSpawner;                       // 確率出現のマスター（読めたときだけ）
     LogicFixedSpawner fixedSpawner;                         // 指定出現のマスター（読めたときだけ）
@@ -306,6 +342,11 @@ public class LogicModeScreen : MonoBehaviour
         public DrawnLine onDrawn;
         public bool fromA;
         public float drawnPos;
+        public int type;          // nodetype（1〜8）
+        public Limb targetLimb;   // type5 の対応部位
+        public float elapsed;     // 移動開始からの秒数（type8 用）
+        public bool stopped;      // type8：停止中
+        public LogicSpawnLog.Record record;   // 出現ログの行
     }
 
     struct DrawEval
@@ -358,7 +399,10 @@ public class LogicModeScreen : MonoBehaviour
     float dangerLevel, dangerFlash;
     static Sprite vignetteSprite;
 
+    LogicSpawnLog spawnLog;   // 出現ログ（再生中のみ）
     float san, currentMaxLineGauge, lineGauge, timeLeft;
+    readonly int[] goodCollected = new int[4];   // 取得した良性ノードの数（Lv1〜4）… リザルト用
+    readonly int[] badCollected = new int[4];    // 取得した悪性ノードの数（Lv1〜4）
     int problemIndex;
     bool executeRequested;
 
@@ -386,8 +430,42 @@ public class LogicModeScreen : MonoBehaviour
 
         // 問題が読めなかったら始めない（そのまま進むと 0 問で即クリア扱いになるため）
         if (problemCount <= 0) return;
+
+        spawnLog = new LogicSpawnLog(stageNumber, useFixedSpawn ? "指定出現" : "確率出現", spawnLogFolder, spawnLogToConsole);
+        if (writeSpawnLog) Debug.Log($"[出現ログ] CSV の保存先：{spawnLog.FilePath}");
+
         StartCoroutine(GameLoop());
     }
+
+    void OnDestroy()
+    {
+        // 途中で再生を止めたときも、そこまでのログを残す
+        if (Application.isPlaying) SaveSpawnLog();
+    }
+
+    void SaveSpawnLog()
+    {
+        if (spawnLog != null && writeSpawnLog) spawnLog.Save();
+    }
+
+    void FinishSpawnLog(string result)
+    {
+        if (spawnLog == null) return;
+        spawnLog.Finish(result, Score);
+        SaveSpawnLog();
+    }
+
+    /// <summary>基本線の表示名（ログ用）</summary>
+    static string LineLabel(string name) => name switch
+    {
+        "TopLeft" => "左上",
+        "MiddleLeft" => "左中",
+        "BottomLeft" => "左下",
+        "TopRight" => "右上",
+        "MiddleRight" => "右中",
+        "BottomRight" => "右下",
+        _ => name,
+    };
 
     void Update()
     {
@@ -723,7 +801,7 @@ public class LogicModeScreen : MonoBehaviour
 
     Limb CreateLimb(string name, Vector2 pos, bool isArm)
     {
-        var limb = new Limb { name = name, pos = pos, isArm = isArm, hp = limbMaxHp };
+        var limb = new Limb { name = name, label = LimbLabel(name), pos = pos, isArm = isArm, hp = limbMaxHp };
         limb.root = UIShapes.CreateRect(limbLayer, name, pos, new Vector2(80, 80));
 
         Sprite icon = isArm ? armSprite : legSprite;
@@ -752,6 +830,27 @@ public class LogicModeScreen : MonoBehaviour
         limbs.Add(limb);
         return limb;
     }
+
+    static string LimbLabel(string name) => name switch
+    {
+        "LeftArm" => "左腕",
+        "RightArm" => "右腕",
+        "LeftLeg" => "左足",
+        "RightLeg" => "右足",
+        _ => name,
+    };
+
+    Limb FindLimb(string name) => limbs.Find(l => l.name == name);
+
+    /// <summary>特殊ノードの札の文字</summary>
+    string TagOf(int type, string limb) => type switch
+    {
+        TypeLimb => LimbLabel(limb),
+        TypeFast => "足早",
+        TypeHeavy => "重い",
+        TypeStop => "停止",
+        _ => "",
+    };
 
     void BuildLines()
     {
@@ -956,6 +1055,7 @@ public class LogicModeScreen : MonoBehaviour
                 int k = perLine[problem[i].line]++;
                 var n = ProtoNode.Create(nodeLayer, problem[i].kind, problem[i].gauge, font);
                 n.SetOrder(problem[i].order > 0 ? problem[i].order : i + 1);
+                n.SetTag(TagOf(problem[i].type, problem[i].limb));
                 n.Rect.anchoredPosition = line.Sample(45f + k * 64f);
                 previews.Add(n);
                 yield return new WaitForSeconds(previewRevealInterval);
@@ -991,6 +1091,7 @@ public class LogicModeScreen : MonoBehaviour
                 yield return null;
             }
             if (CurrentPhase == Phase.GameOver) yield break;
+            SaveSpawnLog();
             yield return new WaitForSeconds(0.8f);
         }
 
@@ -1017,8 +1118,11 @@ public class LogicModeScreen : MonoBehaviour
                     kind = sp.bad ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
                     gauge = nodeStartGauge,
                     time = sp.time,
-                    order = sp.order
+                    order = sp.order,
+                    type = sp.type,
+                    limb = sp.limb
                 });
+            ResolveLimbTargets(list);
             return list;
         }
 
@@ -1041,12 +1145,30 @@ public class LogicModeScreen : MonoBehaviour
                     kind = sp.bad ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
                     gauge = nodeStartGauge,
                     time = sp.time,
-                    order = sp.order
+                    order = sp.order,
+                    type = sp.type,
+                    limb = sp.limb
                 });
+            ResolveLimbTargets(list);
             return list;
         }
 
         return list;
+    }
+
+    /// <summary>type5 で部位が空欄のものに、残っている部位から 1 つ抽選して割り当てる（問題準備の表示と実行で同じ部位にするため）</summary>
+    void ResolveLimbTargets(List<ProblemNode> list)
+    {
+        var alive = limbs.FindAll(l => !l.lost);
+        if (alive.Count == 0) alive = limbs;
+        for (int i = 0; i < list.Count; i++)
+        {
+            var pn = list[i];
+            if (pn.type != TypeLimb) continue;
+            if (string.IsNullOrEmpty(pn.limb) || FindLimb(pn.limb) == null)
+                pn.limb = alive[Random.Range(0, alive.Count)].name;
+            list[i] = pn;
+        }
     }
 
     // ======================= 造線の描画 =======================
@@ -1341,10 +1463,25 @@ public class LogicModeScreen : MonoBehaviour
     void SpawnMoving(ProblemNode pn)
     {
         var line = lines[pn.line];
-        if (!line.alive) return;   // 消滅した基本線からは出現しない
+        var record = spawnLog?.Add(problemIndex + 1, pn.order, pn.time, pn.type, pn.kind == ProtoNode.Kind.Bad,
+                                   LineLabel(line.name), pn.type == TypeLimb ? LimbLabel(pn.limb) : "");
+        if (!line.alive)
+        {
+            spawnLog?.SetResult(record, "出現せず（基本線が消滅）");   // 消滅した基本線からは出現しない
+            return;
+        }
         var n = ProtoNode.Create(nodeLayer, pn.kind, pn.gauge, font);
         n.Rect.anchoredPosition = line.Sample(0f);
-        moving.Add(new MovingNode { node = n, line = line, dist = 0f });
+        n.SetTag(TagOf(pn.type, pn.limb));
+        moving.Add(new MovingNode
+        {
+            node = n,
+            line = line,
+            dist = 0f,
+            type = pn.type,
+            record = record,
+            targetLimb = pn.type == TypeLimb ? FindLimb(pn.limb) : null
+        });
     }
 
     void UpdateMoving(float dt)
@@ -1354,8 +1491,22 @@ public class LogicModeScreen : MonoBehaviour
         for (int i = moving.Count - 1; i >= 0; i--)
         {
             var m = moving[i];
-            m.node.TickGauge(dt, gaugePerSecond);
-            float step = nodeSpeed * dt;
+            m.node.TickGauge(dt, gaugePerSecond);   // 停止中もゲージは進む
+            m.elapsed += dt;
+
+            // type8 途中停止：stopAfterSeconds 秒後から stopSeconds 秒止まる（他のノードは追い越せる）
+            if (m.type == TypeStop)
+            {
+                bool stop = m.elapsed >= stopAfterSeconds && m.elapsed < stopAfterSeconds + stopSeconds;
+                if (stop != m.stopped)
+                {
+                    m.stopped = stop;
+                    m.node.SetTag(stop ? "停止中" : TagOf(TypeStop, null));
+                }
+                if (stop) continue;
+            }
+
+            float step = nodeSpeed * (m.type == TypeFast ? fastSpeedRate : 1f) * dt;
 
             // 造線の上
             if (m.onDrawn != null)
@@ -1380,7 +1531,7 @@ public class LogicModeScreen : MonoBehaviour
 
             // 基本線の上：通過区間に造線の端点があれば乗り換える
             float prev = m.dist, next = prev + step;
-            var j = FindJunction(m.line, prev, next, out bool atA);
+            var j = FindJunction(m.line, prev, next, m.type, out bool atA);
             if (j != null)
             {
                 EnterDrawn(m, j, atA);
@@ -1399,6 +1550,7 @@ public class LogicModeScreen : MonoBehaviour
                     if (!cur.next.alive)
                     {
                         // 合流先が消えている → 消滅（スコア・ダメージなし）
+                        spawnLog?.SetResult(m.record, "消滅（合流先の線なし）");
                         Destroy(m.node.gameObject);
                         moving.RemoveAt(i);
                         continue;
@@ -1432,7 +1584,7 @@ public class LogicModeScreen : MonoBehaviour
     /// 同じ位置に複数ある場合は、反対側の端点が中心に近い方を優先（中心の方向）。
     /// 消滅判定中（ノードが乗っている）の造線には移動できない。
     /// </summary>
-    DrawnLine FindJunction(BasicLine line, float prev, float next, out bool atA)
+    DrawnLine FindJunction(BasicLine line, float prev, float next, int nodeType, out bool atA)
     {
         DrawnLine best = null;
         float bestDist = float.MaxValue, bestCenter = float.MaxValue;
@@ -1441,6 +1593,7 @@ public class LogicModeScreen : MonoBehaviour
         {
             if (d.state == DrawnState.VanishPending) continue;
             if (!d.lineA.alive || !d.lineB.alive) continue;
+            if (!CanPass(d, nodeType)) continue;   // 重いノードは硬さが足りない造線を通れない
             for (int side = 0; side < 2; side++)
             {
                 bool isA = side == 0;
@@ -1456,6 +1609,9 @@ public class LogicModeScreen : MonoBehaviour
         return best;
     }
 
+    /// <summary>type7 重い：硬さ（残り通過回数）が heavyMinHardness 以上の造線だけ通れる。秒間消滅では選んだ硬さで判定</summary>
+    bool CanPass(DrawnLine d, int nodeType) => nodeType != TypeHeavy || d.remaining >= heavyMinHardness;
+
     void EnterDrawn(MovingNode m, DrawnLine d, bool atA)
     {
         m.onDrawn = d;
@@ -1464,7 +1620,7 @@ public class LogicModeScreen : MonoBehaviour
         d.occupants++;
         if (vanishMode == VanishMode.Count)
         {
-            d.remaining--;
+            d.remaining = Mathf.Max(0, d.remaining - (m.type == TypeHeavy ? Mathf.Max(1, heavyHardnessCost) : 1));
             if (d.remaining <= 0) d.state = DrawnState.VanishPending;   // 通り終わったら消える
             else RefreshDrawnState(d);
         }
@@ -1482,18 +1638,53 @@ public class LogicModeScreen : MonoBehaviour
     void Collect(MovingNode m)
     {
         var limb = m.line.target;
-        if (limb.lost) return;   // TODO: 欠損済み部位に届いた場合の仕様確認
+        if (limb.lost)   // TODO: 欠損済み部位に届いた場合の仕様確認
+        {
+            spawnLog?.SetResult(m.record, "欠損部位に到達");
+            return;
+        }
 
         int lv = m.node.Level - 1;
+        int scoreBefore = Score;
+        float sanBefore = san;
+        float damage = 0f;
         if (m.node.CurrentKind == ProtoNode.Kind.Good)
         {
-            AddScore(goodScore[lv]);
+            float rate = 1f;
+            if (m.type == TypeLimb && m.targetLimb != null)
+            {
+                if (m.targetLimb == limb) rate = limbMatchScoreRate;   // 対応する部位：スコア倍率
+                else
+                {
+                    san = Mathf.Max(0f, san - limbMismatchSan);         // 対応しない部位：SAN 減少
+                    dangerFlash = Mathf.Max(dangerFlash, damageFlash * 0.5f);
+                }
+            }
+            AddScore(Mathf.RoundToInt(goodScore[lv] * rate));
+            goodCollected[lv]++;
         }
         else
         {
+            // 悪性は四肢対応でも通常どおり（ダメージ＋SAN 減少）
             AddScore(badScore[lv]);
             san = Mathf.Max(0f, san - badSan[lv]);
-            Damage(limb, badDamage[lv]);
+            badCollected[lv]++;
+            damage = badDamage[lv];
+            Damage(limb, damage);
+        }
+
+        if (m.record != null)
+        {
+            var r = m.record;
+            r.collectLimb = limb.label;
+            r.collectKind = m.node.CurrentKind == ProtoNode.Kind.Good ? "良性" : "悪性";
+            r.collectLevel = lv + 1;
+            r.score = Score - scoreBefore;
+            r.damage = damage;
+            r.san = sanBefore - san;
+            string note = m.type == TypeLimb && m.node.CurrentKind == ProtoNode.Kind.Good && m.targetLimb != null
+                ? (m.targetLimb == limb ? "（対応部位）" : "（違う部位）") : "";
+            spawnLog?.SetResult(r, "回収" + note);
         }
         StartCoroutine(Pop(limb.root));
     }
@@ -1567,6 +1758,7 @@ public class LogicModeScreen : MonoBehaviour
         CurrentPhase = Phase.GameOver;
         SetRouteInteractable(false);
         Time.timeScale = 0f;
+        FinishSpawnLog("ゲームオーバー");
         ShowResult(false);
     }
 
@@ -1583,6 +1775,7 @@ public class LogicModeScreen : MonoBehaviour
             Debug.Log($"[クリア記録] {clearCharacter} の Stage{stageNumber} をクリア済みにしました");
         }
 
+        FinishSpawnLog("クリア");
         ShowResult(true);
     }
 
@@ -1592,15 +1785,18 @@ public class LogicModeScreen : MonoBehaviour
         if (resultScreen == null) resultScreen = FindObjectOfType<ResultScreen>();
         if (resultScreen == null) resultScreen = gameObject.AddComponent<ResultScreen>();
 
-        var parts = new List<ResultScreen.PartStatus>
+        // 10/30 仕様：取得スコア / スコアランク / 取得ノード（良性・悪性 × Lv1〜4）
+        var data = new ResultScreen.ResultData
         {
-            new ResultScreen.PartStatus("左腕", !leftArm.lost),
-            new ResultScreen.PartStatus("右腕", !rightArm.lost),
-            new ResultScreen.PartStatus("左足", !leftLeg.lost),
-            new ResultScreen.PartStatus("右足", !rightLeg.lost),
+            score = Score,
+            scoreDigits = scoreDigits,
+            rank = ResultScreen.RankOf(Score, rankScoreS, rankScoreA, rankScoreB, rankScoreC),
+            goodCounts = (int[])goodCollected.Clone(),
+            badCounts = (int[])badCollected.Clone(),
+            parts = null,   // 残った部位も出す場合は PartStatus のリストを入れる
         };
-        if (clear) resultScreen.ShowClear(Score, scoreDigits, parts);
-        else resultScreen.ShowGameOver(Score, scoreDigits, parts);
+        if (clear) resultScreen.ShowClear(data);
+        else resultScreen.ShowGameOver(data);
     }
 
     // ======================= UI更新 =======================
