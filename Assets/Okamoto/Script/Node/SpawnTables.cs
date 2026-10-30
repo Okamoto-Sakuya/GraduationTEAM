@@ -20,6 +20,8 @@ public class NodeRow
     public int id;
     public int group;        // どのノードグループか
     public int type;         // 1=良性 2=悪性 3=良性(2つ同時) 4=悪性(2つ同時)
+                             // 5=四肢対応(左腕) 6=四肢対応(左足) 7=四肢対応(右腕) 8=四肢対応(右足)
+                             // 9=足早ノード
 }
 
 // ステージの表の1行
@@ -220,7 +222,9 @@ public static class SpawnTableDefaults
 4,3,20,80
 5,4!,0,100";
 
-    // id, nodegroup, nodetype (1=良性 2=悪性 3=良性2つ 4=悪性2つ)
+    // id, nodegroup, nodetype
+    //  1=良性 2=悪性 3=良性2つ 4=悪性2つ
+    //  5=左腕 6=左足 7=右腕 8=右足(四肢対応)  9=足早
     public const string NodeGroup =
 @"1,1,1
 2,1,1
@@ -261,7 +265,32 @@ public static class SpawnTableDefaults
 37,3,4
 38,3,4
 39,3,4
-40,3,4";
+40,3,4
+41,1,5
+42,1,6
+43,1,7
+44,1,8
+45,1,9
+46,2,5
+47,2,6
+48,2,7
+49,2,8
+50,2,9
+51,3,5
+52,3,6
+53,3,7
+54,3,8
+55,3,9
+56,2,5
+57,2,6
+58,2,7
+59,2,8
+60,2,9
+61,3,5
+62,3,6
+63,3,7
+64,3,8
+65,3,9";
 
     // stage, time(100=10.0秒), level, nodegroup, rate, speed
     public const string Stage =
