@@ -17,7 +17,6 @@ public class OptionController : MonoBehaviour
 
     [Header("Option Settings")]
     [SerializeField] private Canvas opCanvas;
-    [SerializeField] private GameObject options;
     [SerializeField] private Mode mode;
     [SerializeField] private Vector3 defEndButton;
     [SerializeField] private Vector3 defCloseButton;
@@ -35,13 +34,6 @@ public class OptionController : MonoBehaviour
     [SerializeField] private Slider bgmSlider;
     [SerializeField] private Slider seSlider;
 
-    [Header("Scene UI")]
-    private GameObject SelectUI;
-    private GameObject mParent;
-    private GameObject bParent;
-    private GameObject sParent;
-
-    private bool selecting = false;
     private bool isMasterMute = false;
     private bool isBGMMute = false;
     private bool isSEMute = false;
@@ -90,8 +82,6 @@ public class OptionController : MonoBehaviour
 
         // 最初はオプションを閉じる
         opCanvas.gameObject.SetActive(false);
-
-        UpdateSceneOptionUI();
     }
 
     private void Update()
@@ -125,7 +115,6 @@ public class OptionController : MonoBehaviour
         Debug.Log("Scene Loaded : " + scene.name);
 
         isActive = false;
-        selecting = false;
         gameStop = false;
 
         if (opCanvas != null)
@@ -135,8 +124,6 @@ public class OptionController : MonoBehaviour
         {
             BGMController.PlayBGM(BGMController.BGMType.Title);
         }
-
-        UpdateSceneOptionUI();
     }
 
     //==================================================
@@ -155,15 +142,6 @@ public class OptionController : MonoBehaviour
             );
             return;
         }
-
-        options = opCanvas.transform.GetChild(1).gameObject;
-
-        if (options.transform.childCount > 3)
-            SelectUI = options.transform.GetChild(3).gameObject;
-
-        mParent = options.transform.GetChild(0).gameObject;
-        bParent = options.transform.GetChild(1).gameObject;
-        sParent = options.transform.GetChild(2).gameObject;
 
         // ミュートアイコンの初期位置・スケールを保存
         if (muteIcons != null && muteIcons.Length >= 3 &&
@@ -219,48 +197,6 @@ public class OptionController : MonoBehaviour
 
         // 初期値の設定時にイベントを呼び出さない
         slider.SetValueWithoutNotify(Mathf.Clamp01(volume));
-    }
-
-    //==================================================
-    // シーンごとのUI設定
-    //==================================================
-
-    private void UpdateSceneOptionUI()
-    {
-        if (options == null)
-            return;
-
-        if (options.transform.childCount <= 11)
-            return;
-
-        if (SceneManager.GetActiveScene().name != "MainTitle")
-        {
-            options.transform.GetChild(9).gameObject.SetActive(true);
-
-            options.transform.GetChild(10).localPosition =
-                defEndButton;
-
-            options.transform.GetChild(11).localPosition =
-                defCloseButton;
-        }
-        else
-        {
-            options.transform.GetChild(9).gameObject.SetActive(false);
-
-            options.transform.GetChild(10).localPosition =
-                new Vector3(
-                    defEndButton.x + 250,
-                    defEndButton.y,
-                    defEndButton.z
-                );
-
-            options.transform.GetChild(11).localPosition =
-                new Vector3(
-                    defCloseButton.x - 250,
-                    defCloseButton.y,
-                    defCloseButton.z
-                );
-        }
     }
 
     //==================================================
@@ -545,164 +481,5 @@ public class OptionController : MonoBehaviour
             // 開くたびに現在の音量をSliderへ同期
             UpdateVolumeSliders();
         }
-    }
-
-    //==================================================
-    // 既存のキーボード選択処理
-    //==================================================
-
-    private void ModeController()
-    {
-        if (SelectUI == null)
-            return;
-
-        switch (mode)
-        {
-            case Mode.MASTER:
-                if ((Input.GetKeyDown(KeyCode.W) ||
-                     Input.GetKeyDown(KeyCode.UpArrow)) && !selecting)
-                    mode = Mode.SE;
-
-                if ((Input.GetKeyDown(KeyCode.S) ||
-                     Input.GetKeyDown(KeyCode.DownArrow)) && !selecting)
-                    mode = Mode.BGM;
-
-                SelectUI.transform.localPosition = new Vector3(
-                    -600f, mParent.transform.localPosition.y, 0f
-                );
-
-                VolumeChanger(ref masterVolume);
-                break;
-
-            case Mode.BGM:
-                if ((Input.GetKeyDown(KeyCode.W) ||
-                     Input.GetKeyDown(KeyCode.UpArrow)) && !selecting)
-                    mode = Mode.MASTER;
-
-                if ((Input.GetKeyDown(KeyCode.S) ||
-                     Input.GetKeyDown(KeyCode.DownArrow)) && !selecting)
-                    mode = Mode.SE;
-
-                SelectUI.transform.localPosition = new Vector3(
-                    -600f, bParent.transform.localPosition.y, 0f
-                );
-
-                VolumeChanger(ref bgmVolume);
-                break;
-
-            case Mode.SE:
-                if ((Input.GetKeyDown(KeyCode.W) ||
-                     Input.GetKeyDown(KeyCode.UpArrow)) && !selecting)
-                    mode = Mode.BGM;
-
-                if ((Input.GetKeyDown(KeyCode.S) ||
-                     Input.GetKeyDown(KeyCode.DownArrow)) && !selecting)
-                    mode = Mode.MASTER;
-
-                SelectUI.transform.localPosition = new Vector3(
-                    -600f, sParent.transform.localPosition.y, 0f
-                );
-
-                VolumeChanger(ref seVolume);
-                break;
-        }
-
-        OnMoveSelectUI(mode);
-    }
-
-    private void VolumeChanger(ref float vol)
-    {
-        if (Input.GetKeyDown(KeyCode.Return) ||
-            Input.GetKeyDown(KeyCode.F))
-        {
-            selecting = true;
-        }
-
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            selecting = false;
-        }
-
-        if (selecting)
-        {
-            if (Input.GetKeyDown(KeyCode.A) ||
-                Input.GetKeyDown(KeyCode.LeftArrow))
-            {
-                vol -= 0.1f;
-            }
-
-            if (Input.GetKeyDown(KeyCode.D) ||
-                Input.GetKeyDown(KeyCode.RightArrow))
-            {
-                vol += 0.1f;
-            }
-
-            vol = Mathf.Clamp01(vol);
-
-            if (vol == masterVolume && vol > 0f)
-            {
-                saveMasterVol = vol;
-                isMasterMute = false;
-                RestoreMuteIcon(Mode.MASTER);
-            }
-            else if (vol == bgmVolume && vol > 0f)
-            {
-                saveBgmVol = vol;
-                isBGMMute = false;
-                RestoreMuteIcon(Mode.BGM);
-            }
-            else if (vol == seVolume && vol > 0f)
-            {
-                saveSeVol = vol;
-                isSEMute = false;
-                RestoreMuteIcon(Mode.SE);
-            }
-
-            UpdateVolumeSliders();
-        }
-    }
-
-    private void OnMoveSelectUI(Mode nowMode)
-    {
-        if (SelectUI == null)
-            return;
-
-        if (SelectUI.transform.childCount < 2)
-            return;
-
-        GameObject upArrow =
-            SelectUI.transform.GetChild(0).gameObject;
-
-        GameObject downArrow =
-            SelectUI.transform.GetChild(1).gameObject;
-
-        if (selecting)
-        {
-            upArrow.SetActive(false);
-            downArrow.SetActive(false);
-            return;
-        }
-
-        float baseY = 100f;
-        float frequency = 1f / 0.75f;
-
-        float sin = Mathf.Sin(
-            2f * Mathf.PI * frequency * Time.time
-        );
-
-        upArrow.transform.localPosition = new Vector3(
-            upArrow.transform.localPosition.x,
-            sin * 20f + baseY,
-            0f
-        );
-
-        downArrow.transform.localPosition = new Vector3(
-            downArrow.transform.localPosition.x,
-            -sin * 20f - baseY,
-            0f
-        );
-
-        upArrow.SetActive(nowMode != Mode.MASTER);
-        downArrow.SetActive(nowMode != Mode.SE);
     }
 }
