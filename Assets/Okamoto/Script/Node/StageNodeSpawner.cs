@@ -3,7 +3,7 @@ using UnityEngine;
 
 // 4つのシートに従ってノードを出現させる
 //  ステージの表   : 経過時間ごとの 出現グループ・出現頻度・スピード
-//  ノードグループ : グループの中から抽選して、ノードの種類(良性/悪性/2つ同時)を決める
+//  ノードグループ : グループの中から抽選して、ノードの種類(良性/悪性/2つ同時/四肢対応/足早)を決める
 //  左右の表       : 出現するサイドを抽選(同じサイドに偏らないようにする)
 //  基本線の表     : サイドの中で、出現する基本線を抽選(同じ基本線に偏らないようにする)
 public class StageNodeSpawner : MonoBehaviour
@@ -13,6 +13,14 @@ public class StageNodeSpawner : MonoBehaviour
         Left,
         Right
     }
+
+    // ノードの種類(ノードグループの表のnodetype)
+    //  1=良性 2=悪性 3=良性2つ 4=悪性2つ
+    private const int LeftArmType = 5;    // 四肢対応: 左腕
+    private const int LeftLegType = 6;    // 四肢対応: 左足
+    private const int RightArmType = 7;   // 四肢対応: 右腕
+    private const int RightLegType = 8;   // 四肢対応: 右足
+    private const int FastType = 9;       // 足早ノード(番号が違う場合はここを変える)
 
     [Header("ノード")]
     [SerializeField] private GameObject nodePrefab;
@@ -50,6 +58,18 @@ public class StageNodeSpawner : MonoBehaviour
 
     [Tooltip("画面上のノードがこの数以上なら、新しく出さない")]
     [SerializeField] private int maxNodeCount = 30;
+
+    [Header("特殊ノード")]
+    [Tooltip("足早ノードの速度倍率。現在のステージのノードスピードに掛ける")]
+    [SerializeField] private float fastSpeedMultiplier = 2f;
+
+    [Tooltip("動作確認用: 1?9にすると、表に関係なく、すべてそのtypeのノードを出す。0なら表のとおり")]
+    [Range(0, 9)]
+    [SerializeField] private int debugForceNodeType = 0;
+
+    [Tooltip("四肢対応ノード・足早ノードが、悪性で出現する確率(0?1)")]
+    [Range(0f, 1f)]
+    [SerializeField] private float specialMalignantChance = 0.5f;
 
     // 読み込んだデータ
     private List<CountRow> baselineRows;
@@ -190,6 +210,12 @@ public class StageNodeSpawner : MonoBehaviour
     {
         NodeRow picked = PickNodeRow(row.group);
 
+        // 動作確認用: typeを固定する
+        if (debugForceNodeType > 0)
+        {
+            picked = new NodeRow { id = 0, group = row.group, type = debugForceNodeType };
+        }
+
         if (picked == null)
         {
             Debug.LogWarning(
@@ -197,14 +223,42 @@ public class StageNodeSpawner : MonoBehaviour
             return;
         }
 
-        // 1,3=良性 / 2,4=悪性 / 3,4=2つ同時
-        bool malignant = picked.type == 2 || picked.type == 4;
+        bool limbNode = picked.type >= LeftArmType && picked.type <= RightLegType;
+        bool fastNode = picked.type == FastType;
+
+        // 四肢対応ノード・足早ノードは、確率で悪性になる
+        bool malignant =
+            picked.type == 2 ||
+            picked.type == 4 ||
+            ((limbNode || fastNode) && Random.value < specialMalignantChance);
+
         int count = (picked.type == 3 || picked.type == 4) ? 2 : 1;
+
+        // 足早ノード: ステージのノードスピードに倍率を掛ける
+        float speedMultiplier = fastNode ? fastSpeedMultiplier : 1f;
+
+        // 四肢対応ノード: typeで運ぶ先の四肢が決まる
+        bool hasTarget = false;
+        LimbController.LimbType targetType = LimbController.LimbType.RightArm;
+
+        if (limbNode)
+        {
+            hasTarget = TryGetTargetLimb(picked.type, out targetType);
+
+            if (!hasTarget)
+            {
+                return;
+            }
+        }
 
         if (CountAliveNodes() + count > maxNodeCount)
         {
             return;
         }
+
+        Debug.Log(
+            $"出現: type={picked.type} 悪性={malignant} " +
+            $"speed={row.speed * speedMultiplier}", this);
 
         BasicLine firstLine = null;
 
@@ -218,7 +272,14 @@ public class StageNodeSpawner : MonoBehaviour
                 break;
             }
 
-            SpawnNode(line, malignant, row.speed);
+            SpawnNode(
+                line,
+                malignant,
+                row.speed * speedMultiplier,
+                hasTarget,
+                targetType,
+                fastNode
+            );
 
             if (i == 0)
             {
@@ -369,7 +430,43 @@ public class StageNodeSpawner : MonoBehaviour
         return result;
     }
 
-    private void SpawnNode(BasicLine line, bool malignant, int speed)
+    // typeから、運ぶ先の四肢を決める。その四肢が壊れていたら出さない
+    private bool TryGetTargetLimb(int nodeType, out LimbController.LimbType type)
+    {
+        switch (nodeType)
+        {
+            case LeftArmType: type = LimbController.LimbType.LeftArm; break;
+            case LeftLegType: type = LimbController.LimbType.LeftLeg; break;
+            case RightArmType: type = LimbController.LimbType.RightArm; break;
+            case RightLegType: type = LimbController.LimbType.RightLeg; break;
+            default:
+                type = LimbController.LimbType.RightArm;
+                return false;
+        }
+
+        if (GameManager.Instance == null || GameManager.Instance.limbs == null)
+        {
+            return false;
+        }
+
+        foreach (LimbController limb in GameManager.Instance.limbs)
+        {
+            if (limb != null && limb.IsAlive && limb.Type == type)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void SpawnNode(
+        BasicLine line,
+        bool malignant,
+        float speed,
+        bool hasTarget,
+        LimbController.LimbType targetType,
+        bool fast)
     {
         if (nodePrefab == null)
         {
@@ -392,6 +489,17 @@ public class StageNodeSpawner : MonoBehaviour
 
         node.SetNodeType(malignant);
         node.SetMoveSpeed(speed * speedScale);
+
+        if (hasTarget)
+        {
+            node.SetTargetLimb(targetType);
+        }
+
+        if (fast)
+        {
+            node.SetFast();
+        }
+
         node.SetSpawnBasicLine(line);
     }
 

@@ -65,11 +65,35 @@ public class NodeController : MonoBehaviour
     [SerializeField] private float ringRadius = 0.4f;
     [SerializeField] private float ringWidth = 0.06f;
 
+    [Header("四肢対応ノード(type5?8)")]
+    [Tooltip("良性のノードを、対応する四肢に運んだときのスコア倍率")]
+    [SerializeField] private float limbMatchScoreMultiplier = 1.5f;
+
+    [Tooltip("対応しない四肢に運んだときの、SAN値の減少量(良性・悪性どちらも)")]
+    [SerializeField] private float wrongLimbSanityPenalty = 5f;
+
+    [Tooltip("四肢の名前の表示。LimbTypeの定義順(右腕・左腕・右足・左足)に合わせる")]
+    [SerializeField] private string[] limbLabels = { "右腕", "左腕", "右足", "左足" };
+
+    [Tooltip("日本語を表示できるフォント。未設定なら、読み込み済みのフォントから日本語が表示できるものを自動で探す")]
+    [SerializeField] private TMP_FontAsset limbLabelFont;
+
+    [Tooltip("フォントが見つからないときに使う表示。右腕・左腕・右足・左足の順")]
+    [SerializeField] private string[] limbLabelsFallback = { "R.ARM", "L.ARM", "R.LEG", "L.LEG" };
+
+    [SerializeField] private float limbLabelSize = 3f;
+    [SerializeField] private Color limbLabelColor = Color.white;
+
+    [Header("足早ノード(type9)の目印")]
+    [SerializeField] private string fastLabelText = ">>";
+    [SerializeField] private float fastLabelSize = 4f;
+    [SerializeField] private Color fastLabelColor = Color.yellow;
+
     [Header("レベル変化ゲージ(次に見た目が変わるまでの残り)")]
     [SerializeField] private bool showLevelBar = true;
-    [SerializeField] private float levelBarWidth = 0.6f;
+    [Tooltip("円の太さ")]
     [SerializeField] private float levelBarHeight = 0.07f;
-    [Tooltip("ノードの中心から、リングの外側へ離す距離")]
+    [Tooltip("ゲージリングの外側へ離す距離(円の半径 = ゲージリングの半径 + この値)")]
     [SerializeField] private float levelBarGap = 0.12f;
     [SerializeField] private Color levelBarColor = new Color(1f, 0.95f, 0.55f, 1f);
     [Tooltip("変化まで残りこの秒数を切ると点滅して知らせる")]
@@ -103,6 +127,10 @@ public class NodeController : MonoBehaviour
     private int dir = 1;
     private bool placed;
 
+    // 四肢対応ノード: 運ぶ先の四肢
+    private bool hasTargetLimb;
+    private LimbController.LimbType targetLimbType;
+
     // 良性/悪性とゲージ
     private float gauge;
     private bool isMalignant;
@@ -116,6 +144,8 @@ public class NodeController : MonoBehaviour
     private LineRenderer levelBarBack;
     private LineRenderer levelBarFill;
     private TextMeshPro scoreText;
+    private TextMeshPro limbLabel;
+    private TextMeshPro fastLabel;
     private int shownLevel = -1;
     private bool shownMalignant;
 
@@ -278,10 +308,24 @@ public class NodeController : MonoBehaviour
     }
 
     // 四肢に到達: スコア加算、悪性ならダメージとSAN値の減少
+    //  四肢対応ノード(type5?8)は、
+    //   ・良性で対応する四肢に運ぶと、スコアが倍率(初期値1.5倍)になる
+    //   ・対応しない四肢に運ぶと、SAN値が減る(悪性はダメージも受ける)
     private void Collect(LimbController limb)
     {
         int index = Level - 1;
         GameManager gm = GameManager.Instance;
+
+        // リザルトの「取得ノード」用に記録する(スコア加算でクリアになる場合に備えて、先に呼ぶ)
+        if (gm != null)
+        {
+            gm.RecordNodeCollected(isMalignant, Level);
+        }
+
+        bool correctLimb = hasTargetLimb && limb.Type == targetLimbType;
+        bool wrongLimb = hasTargetLimb && !correctLimb;
+
+        float sanityPenalty = wrongLimb ? wrongLimbSanityPenalty : 0f;
 
         if (isMalignant)
         {
@@ -293,7 +337,7 @@ public class NodeController : MonoBehaviour
             if (gm != null)
             {
                 gm.AddScore(stat.score);
-                gm.ReduceSanity(stat.sanity + overflow);
+                gm.ReduceSanity(stat.sanity + overflow + sanityPenalty);
                 gm.CheckGameOver();
             }
         }
@@ -301,15 +345,31 @@ public class NodeController : MonoBehaviour
         {
             int score = benignScores[Mathf.Clamp(index, 0, benignScores.Length - 1)];
 
+            if (correctLimb)
+            {
+                score = Mathf.RoundToInt(score * limbMatchScoreMultiplier);
+            }
+
+            Debug.Log(
+                $"{name}: 加算スコア {score} (倍率{(correctLimb ? limbMatchScoreMultiplier : 1f)})", this);
+
             if (gm != null)
             {
                 gm.AddScore(score);
+
+                if (sanityPenalty > 0f)
+                {
+                    gm.ReduceSanity(sanityPenalty);
+                }
             }
         }
 
         Debug.Log(
             $"{name}: {limb.name} に回収されました" +
-            $"({(isMalignant ? "悪性" : "良性")} Lv{Level})",
+            $"({(isMalignant ? "悪性" : "良性")} Lv{Level}" +
+            $"{(correctLimb ? "・対応する四肢" : wrongLimb ? "・対応しない四肢" : "")})" +
+            $" / ラベルの四肢={(hasTargetLimb ? targetLimbType.ToString() : "なし")}" +
+            $" / 到着した四肢のType={limb.Type}",
             this);
 
         OnCollected?.Invoke(this, limb);
@@ -346,6 +406,116 @@ public class NodeController : MonoBehaviour
         shownLevel = -1;
         RefreshVisual();
         UpdateRing();
+    }
+
+    // 四肢対応ノード: 運ぶ先の四肢を指定して、名前を表示する(スポナーから呼ぶ)
+    public void SetTargetLimb(LimbController.LimbType type)
+    {
+        hasTargetLimb = true;
+        targetLimbType = type;
+
+        if (limbLabel == null)
+        {
+            GameObject obj = new GameObject("LimbLabel");
+            obj.transform.SetParent(transform, false);
+            obj.transform.localPosition = new Vector3(
+                0f,
+                ringRadius + scoreTextGap + 0.4f,
+                0f
+            );
+
+            limbLabel = obj.AddComponent<TextMeshPro>();
+            limbLabel.alignment = TextAlignmentOptions.Center;
+            limbLabel.fontSize = limbLabelSize;
+            limbLabel.color = limbLabelColor;
+            limbLabel.enableWordWrapping = false;
+            limbLabel.sortingOrder = spriteSortingOrder + 3;
+            limbLabel.rectTransform.sizeDelta = new Vector2(3f, 0.6f);
+        }
+
+        int labelIndex = (int)type;
+
+        string text = (limbLabels != null && labelIndex < limbLabels.Length)
+            ? limbLabels[labelIndex]
+            : type.ToString();
+
+        // 表示できるフォントを用意する(指定 → 標準のフォント → 読み込み済みのフォント)
+        TMP_FontAsset font = limbLabelFont;
+
+        if (font == null)
+        {
+            TMP_FontAsset defaultFont = TMP_Settings.defaultFontAsset;
+
+            font = (defaultFont != null && defaultFont.HasCharacters(text))
+                ? defaultFont
+                : FindFontFor(text);
+        }
+
+        if (font != null)
+        {
+            limbLabel.font = font;
+        }
+        else
+        {
+            // 見つからないときは、英字の表示にする
+            text = (limbLabelsFallback != null && labelIndex < limbLabelsFallback.Length)
+                ? limbLabelsFallback[labelIndex]
+                : type.ToString();
+
+            Debug.LogWarning(
+                $"{name}: 「{text}」の日本語を表示できるフォントが見つかりません。" +
+                "Limb Label Font に、その文字を表示できるフォントを設定してください。",
+                this);
+        }
+
+        limbLabel.text = text;
+        limbLabel.gameObject.SetActive(true);
+
+        // 倍率が掛かったスコアに表示を更新する
+        UpdateScoreText();
+
+        Debug.Log($"{name}: 四肢対応ノード(運ぶ先: {text})", this);
+    }
+
+    // 足早ノード: 中央に目印を表示する(スポナーから呼ぶ)
+    public void SetFast()
+    {
+        if (fastLabel != null) return;
+
+        GameObject obj = new GameObject("FastLabel");
+        obj.transform.SetParent(transform, false);
+        obj.transform.localPosition = Vector3.zero;
+
+        fastLabel = obj.AddComponent<TextMeshPro>();
+        fastLabel.alignment = TextAlignmentOptions.Center;
+        fastLabel.fontSize = fastLabelSize;
+        fastLabel.color = fastLabelColor;
+        fastLabel.enableWordWrapping = false;
+        fastLabel.sortingOrder = spriteSortingOrder + 4;
+        fastLabel.rectTransform.sizeDelta = new Vector2(2f, 0.6f);
+        fastLabel.text = fastLabelText;
+    }
+
+    // 読み込み済みのTextMeshProのフォントから、textの文字をすべて表示できるものを探す
+    private static TMP_FontAsset cachedLabelFont;
+
+    private static TMP_FontAsset FindFontFor(string text)
+    {
+        if (cachedLabelFont != null && cachedLabelFont.HasCharacters(text))
+        {
+            return cachedLabelFont;
+        }
+
+        foreach (TMP_FontAsset font in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
+        {
+            if (font != null && font.HasCharacters(text))
+            {
+                cachedLabelFont = font;
+                return font;
+            }
+        }
+
+        return null;
     }
 
     // 移動速度を指定する(スポナーから呼ぶ)
@@ -554,6 +724,13 @@ public class NodeController : MonoBehaviour
 
         scoreText.gameObject.SetActive(true);
         scoreText.text = string.Format(scoreTextFormat, score);
+
+        // 四肢対応ノード(良性)は、対応する四肢に運ぶと倍率が掛かる。
+        // 数字は元の値のままにして、倍率を並べて表示する
+        if (!isMalignant && hasTargetLimb)
+        {
+            scoreText.text += $" <color=#FFE55C>×{limbMatchScoreMultiplier:0.##}</color>";
+        }
     }
 
     // ===== レベル変化ゲージ =====
@@ -593,10 +770,10 @@ public class NodeController : MonoBehaviour
     {
         if (!showLevelBar) return;
 
-        float y = -(ringRadius + levelBarGap);
+        float radius = ringRadius + levelBarGap;
 
-        levelBarBack = CreateRingLine("LevelBarBack", spriteSortingOrder + 1);
-        levelBarFill = CreateRingLine("LevelBarFill", spriteSortingOrder + 2);
+        levelBarBack = CreateRingLine("LevelRingBack", spriteSortingOrder + 1);
+        levelBarFill = CreateRingLine("LevelRingFill", spriteSortingOrder + 2);
 
         levelBarBack.numCapVertices = 0;
         levelBarFill.numCapVertices = 0;
@@ -606,15 +783,27 @@ public class NodeController : MonoBehaviour
         levelBarFill.startWidth = levelBarHeight;
         levelBarFill.endWidth = levelBarHeight;
 
-        levelBarBack.positionCount = 2;
-        levelBarBack.SetPosition(0, new Vector3(-levelBarWidth * 0.5f, y, 0f));
-        levelBarBack.SetPosition(1, new Vector3(levelBarWidth * 0.5f, y, 0f));
+        // 背景の円は常に一周
+        const int segments = 64;
+        levelBarBack.positionCount = segments + 1;
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float angle = (float)i / segments * Mathf.PI * 2f;
+
+            levelBarBack.SetPosition(
+                i,
+                new Vector3(
+                    Mathf.Cos(angle) * radius,
+                    Mathf.Sin(angle) * radius,
+                    0f
+                )
+            );
+        }
 
         Color back = new Color(0.05f, 0.05f, 0.05f, 0.8f);
         levelBarBack.startColor = back;
         levelBarBack.endColor = back;
-
-        levelBarFill.positionCount = 2;
     }
 
     private void UpdateLevelBar()
@@ -623,11 +812,37 @@ public class NodeController : MonoBehaviour
 
         float fraction = GetChangeFraction(out float remainGauge);
 
-        float y = -(ringRadius + levelBarGap);
-        float left = -levelBarWidth * 0.5f;
+        // 残り割合を、ノードの真上(12時)から時計回りに伸びる円弧で表示する。
+        // 変化が近づくほど、円弧が短くなる
+        float radius = ringRadius + levelBarGap;
+        float sweep = fraction * 360f;
 
-        levelBarFill.SetPosition(0, new Vector3(left, y, 0f));
-        levelBarFill.SetPosition(1, new Vector3(left + levelBarWidth * fraction, y, 0f));
+        if (sweep < 1f)
+        {
+            levelBarFill.enabled = false;
+        }
+        else
+        {
+            levelBarFill.enabled = true;
+
+            int count = Mathf.Max(2, Mathf.CeilToInt(sweep / 5f) + 1);
+            levelBarFill.positionCount = count;
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = (float)i / (count - 1);
+                float angle = (90f - sweep * t) * Mathf.Deg2Rad;
+
+                levelBarFill.SetPosition(
+                    i,
+                    new Vector3(
+                        Mathf.Cos(angle) * radius,
+                        Mathf.Sin(angle) * radius,
+                        0f
+                    )
+                );
+            }
+        }
 
         // 変化が近づいたら点滅
         float remainSeconds = gaugeSpeed > 0f ? remainGauge / gaugeSpeed : float.MaxValue;
