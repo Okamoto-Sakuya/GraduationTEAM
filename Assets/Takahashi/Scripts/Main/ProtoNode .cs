@@ -7,6 +7,7 @@ using UnityEngine.UI;
 ///   例（良性出現）: 良性100→0 → 悪性0→100 → 悪性100→0 → 良性0→100 → 良性100→0 …
 /// ・レベルはゲージ値から 1(0-24) 2(25-49) 3(50-74) 4(75-100)
 /// ・周りのリングが残りゲージ（良性出現は反時計回り、悪性出現は時計回り。反転しても向きは出現時のまま）
+/// ・特殊ノード（type5〜8）は下に種類の札を出す（SetTag。「右腕」「足早」「重い」「停止」など）
 /// </summary>
 public class ProtoNode : MonoBehaviour
 {
@@ -30,7 +31,8 @@ public class ProtoNode : MonoBehaviour
 
     bool rising;          // true = 上昇中 / false = 減少中
     Image body, ring;
-    Text orderLabel;
+    Text orderLabel, tagLabel;
+    Image tagBg;
     CanvasGroup group;
 
     /// <summary>消滅準備の点滅・消滅判定中の半透明に使用（0〜1）</summary>
@@ -60,6 +62,13 @@ public class ProtoNode : MonoBehaviour
                                            Vector2.zero, new Vector2(size, size), new Vector2(0.5f, 0.5f));
         n.orderLabel.gameObject.AddComponent<Outline>().effectColor = new Color(0, 0, 0, 0.8f);
 
+        // 種類の札（ノードの下）
+        Vector2 tagPos = new Vector2(0, size * 0.5f + -20f);
+        n.tagBg = UIShapes.CreateImage(rt, "TagBg", tagPos, new Vector2(52, 24), UIShapes.White, new Color(0f, 0f, 0f, 0.7f));
+        n.tagLabel = UIShapes.CreateText(rt, "Tag", "", font, 18, Color.white, TextAnchor.MiddleCenter,
+                                         tagPos, new Vector2(80, 24), new Vector2(0.5f, 0.5f));
+        n.tagBg.gameObject.SetActive(false);
+
         n.SpawnKind = kind;
         n.CurrentKind = kind;
         n.Value = startValue;
@@ -70,6 +79,15 @@ public class ProtoNode : MonoBehaviour
 
     /// <summary>問題準備フェーズで「何番目に来るか」を表示。0で非表示</summary>
     public void SetOrder(int order) => orderLabel.text = order > 0 ? order.ToString() : "";
+
+    /// <summary>ノードの下の札（空文字で非表示）</summary>
+    public void SetTag(string text)
+    {
+        bool on = !string.IsNullOrEmpty(text);
+        tagLabel.text = on ? text : "";
+        tagBg.gameObject.SetActive(on);
+        if (on) tagBg.rectTransform.sizeDelta = new Vector2(Mathf.Max(40f, text.Length * 19f + 12f), 24f);
+    }
 
     /// <summary>
     /// ゲージ更新。0 と 100 の間を往復し、0 に届くたびに性質が反転する。

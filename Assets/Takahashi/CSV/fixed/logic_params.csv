@@ -1,0 +1,42 @@
+﻿key,value,memo
+# 体力・SAN
+limbMaxHp,25,四肢それぞれの体力
+maxSan,40,最大SAN値
+# 造線
+maxLineGauge,2000,最大造線ゲージ
+armLostGaugePenalty,500,腕欠損時の造線ゲージ減少量
+costPerMeter,100,1mの造線消費
+pixelsPerMeter,100,1mを何pxとみなすか
+vanishMode,Count,Count=回数消滅(硬さ) / Seconds=秒間消滅
+vanishSeconds,7,秒間消滅の秒数
+warnBeforeSeconds,2,消滅何秒前に消滅準備
+warnBeforeCount,1,残り何回で消滅準備
+blinkSpeed,1.5,点滅の速さ(往復/秒)
+vanishAlpha,0.3,点滅・消滅判定時のα値
+# フェーズ
+routePhaseSeconds,60,経路フェーズの制限時間(秒)
+previewRevealInterval,0.4,問題準備でノードを1個ずつ見せる間隔(秒)
+# ノード
+nodeStartGauge,100,出現時ノードゲージ
+gaugePerSecond,10,秒間ゲージ増減量
+nodeSpeed,160,ノードの移動速度(px/秒)
+spawnInterval,1.5,ノードの出現間隔(秒)。確率出現と、指定出現でtime空欄のとき
+# 特殊ノード（10/30追加）
+limbMatchScoreRate,1.5,四肢対応(type5):良性を対応部位に運んだときのスコア倍率
+limbMismatchSan,5,四肢対応(type5):良性を違う部位に運んだときのSAN減少量(仮)
+fastSpeedRate,2,足早(type6):移動速度の倍率
+heavyMinHardness,2,重い(type7):通れる造線の硬さ(残り回数)の下限
+heavyHardnessCost,2,重い(type7):通ったときに減る硬さ
+stopAfterSeconds,2,途中停止(type8):移動開始から止まるまでの秒数(仮)
+stopSeconds,2,途中停止(type8):止まっている秒数(仮)
+# 造線操作
+snapRadius,22,基本線をクリックできる距離(px)
+forbiddenRadius,45,開始禁止範囲の半径(px)
+minLineLength,30,造線の最短長さ(px)
+# 表示
+scoreDigits,8,スコアの桁数
+# リザルト（スコアランク。この点以上でそのランク、どれも満たさなければD）
+rankScoreS,60000,Sランクの最低スコア(仮)
+rankScoreA,45000,Aランクの最低スコア(仮)
+rankScoreB,30000,Bランクの最低スコア(仮)
+rankScoreC,15000,Cランクの最低スコア(仮)
