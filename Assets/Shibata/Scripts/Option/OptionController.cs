@@ -13,13 +13,12 @@ public class OptionController : MonoBehaviour
         MASTER,
         BGM,
         SE,
+        VOICE,
     }
 
     [Header("Option Settings")]
     [SerializeField] private Canvas opCanvas;
     [SerializeField] private Mode mode;
-    [SerializeField] private Vector3 defEndButton;
-    [SerializeField] private Vector3 defCloseButton;
     [SerializeField] private bool isActive = false;
 
     [Header("Mute Icons")]
@@ -33,23 +32,27 @@ public class OptionController : MonoBehaviour
     [SerializeField] private Slider masterSlider;
     [SerializeField] private Slider bgmSlider;
     [SerializeField] private Slider seSlider;
+    [SerializeField] private Slider voiceSlider;
 
     private bool isMasterMute = false;
     private bool isBGMMute = false;
     private bool isSEMute = false;
-    private bool gameStop = false;
+    private bool isVoiceMute = false;
 
     private Vector3 mDefPos;
     private Vector3 bDefPos;
     private Vector3 sDefPos;
+    private Vector3 vDefPos;
 
     private Vector3 mDefScale;
     private Vector3 bDefScale;
     private Vector3 sDefScale;
+    private Vector3 vDefScale;
 
     private float saveMasterVol;
     private float saveBgmVol;
     private float saveSeVol;
+    private float saveVoiceVol;
 
     private void Awake()
     {
@@ -106,6 +109,9 @@ public class OptionController : MonoBehaviour
         if (seSlider != null)
             seSlider.onValueChanged.RemoveListener(SetSEVolume);
 
+        if(voiceSlider != null)
+            voiceSlider.onValueChanged.RemoveListener(SetVoiceVolume);
+
         if (instance == this)
             instance = null;
     }
@@ -115,7 +121,6 @@ public class OptionController : MonoBehaviour
         Debug.Log("Scene Loaded : " + scene.name);
 
         isActive = false;
-        gameStop = false;
 
         if (opCanvas != null)
             opCanvas.gameObject.SetActive(false);
@@ -172,6 +177,7 @@ public class OptionController : MonoBehaviour
         SetupSlider(masterSlider, SetMasterVolume, masterVolume);
         SetupSlider(bgmSlider, SetBGMVolume, bgmVolume);
         SetupSlider(seSlider, SetSEVolume, seVolume);
+        SetupSlider(voiceSlider, SetVoiceVolume, voiceVolume);
     }
 
     private void SetupSlider(
@@ -248,6 +254,21 @@ public class OptionController : MonoBehaviour
         }
     }
 
+    public void SetVoiceVolume(float value)
+    {
+        voiceVolume = Mathf.Clamp01(value);
+
+        if (voiceVolume > 0f)
+        {
+            saveVoiceVol = voiceVolume;
+
+            if (isSEMute)
+                RestoreMuteIcon(Mode.VOICE);
+
+            isVoiceMute = false;
+        }
+    }
+
     private void UpdateVolumeSliders()
     {
         if (masterSlider != null)
@@ -258,6 +279,9 @@ public class OptionController : MonoBehaviour
 
         if (seSlider != null)
             seSlider.SetValueWithoutNotify(seVolume);
+
+        if (voiceSlider != null)
+            voiceSlider.SetValueWithoutNotify(voiceVolume);
     }
 
     //==================================================
@@ -300,6 +324,17 @@ public class OptionController : MonoBehaviour
                     saveSeVol = seVolume;
                     isSEMute = false;
                     RestoreMuteIcon(Mode.SE);
+                }
+                break;
+
+            case Mode.VOICE:
+                voiceVolume = Mathf.Clamp01(voiceVolume + delta);
+
+                if (voiceVolume > 0f)
+                {
+                    saveVoiceVol = voiceVolume;
+                    isVoiceMute = false;
+                    RestoreMuteIcon(Mode.VOICE);
                 }
                 break;
         }
@@ -371,6 +406,25 @@ public class OptionController : MonoBehaviour
                     RestoreMuteIcon(Mode.SE);
                 }
                 break;
+
+            case Mode.VOICE:
+                if (!isVoiceMute)
+                {
+                    saveVoiceVol = voiceVolume;
+
+                    voiceVolume = 0f;
+                    isVoiceMute = true;
+
+                    ApplyMuteIcon(Mode.VOICE);
+                }
+                else
+                {
+                    seVolume = Mathf.Clamp01(saveVoiceVol);
+                    isVoiceMute = false;
+
+                    RestoreMuteIcon(Mode.VOICE);
+                }
+                break;
         }
 
         UpdateVolumeSliders();
@@ -432,6 +486,7 @@ public class OptionController : MonoBehaviour
             case Mode.MASTER: return mDefPos;
             case Mode.BGM: return bDefPos;
             case Mode.SE: return sDefPos;
+            case Mode.VOICE: return vDefPos;
             default: return Vector3.zero;
         }
     }
@@ -443,6 +498,7 @@ public class OptionController : MonoBehaviour
             case Mode.MASTER: return mDefScale;
             case Mode.BGM: return bDefScale;
             case Mode.SE: return sDefScale;
+            case Mode.VOICE: return vDefScale;
             default: return Vector3.one;
         }
     }
@@ -467,9 +523,6 @@ public class OptionController : MonoBehaviour
 
             opCanvas.gameObject.SetActive(false);
             SEController.UnmuteSE();
-
-            if (gameStop)
-                gameStop = false;
         }
         else
         {
