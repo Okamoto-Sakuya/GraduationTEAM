@@ -12,8 +12,7 @@ public class TitleMenu : MonoBehaviour
 {
     [SerializeField] RectTransform container;
     [SerializeField] float spacing = 64f;          // 項目の縦間隔
-    [SerializeField] float diagonalX = -12f;       // 下の項目ほどX方向にずらす量
-    [SerializeField] float slideDistance = 480f;   // 右からスライドしてくる距離
+    [SerializeField] float dropDistance = 200f;    // 最終位置より上(ロゴ側)から降りてくる距離
     [SerializeField] float duration = 0.4f;        // 1項目あたりの所要時間
     [SerializeField] float stagger = 0.05f;        // 項目ごとの開始ずれ
 
@@ -43,7 +42,7 @@ public class TitleMenu : MonoBehaviour
 
             int index = items.Count;
             items.Add(item);
-            rest.Add(new Vector2(index * diagonalX, -index * spacing));
+            rest.Add(new Vector2(0f, -index * spacing));
             item.Hovered = x => Select(items.IndexOf(x));
         }
         if (items.Count == 0)
@@ -121,7 +120,7 @@ public class TitleMenu : MonoBehaviour
             float p = Mathf.Clamp01((time - i * stagger) / duration);
             float e = 1f - (1f - p) * (1f - p) * (1f - p);   // ease-out cubic
             ((RectTransform)items[i].transform).anchoredPosition =
-                rest[i] + new Vector2(slideDistance * (1f - e), 0f);
+                rest[i] + new Vector2(0f, dropDistance * (1f - e));   // 上から下へ
             items[i].Group.alpha = e;
         }
     }
