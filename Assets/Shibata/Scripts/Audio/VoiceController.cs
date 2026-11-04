@@ -349,4 +349,110 @@ public class VoiceController : MonoBehaviour
 
         return false;
     }
+
+    //============================================================
+    // 終了処理・Addressables解放
+    //============================================================
+
+    private void OnDestroy()
+    {
+        if (instance != this)
+            return;
+
+        if(audioSources != null)
+        {
+            foreach (AudioSource source in audioSources)
+            {
+                if (source != null)
+                {
+                    source.Stop();
+                    source.clip = null;
+                }
+            }
+        }
+
+        foreach(var pair in voiceHandles)
+        {
+            if(pair.Value.IsValid())
+            {
+                Addressables.Release(pair.Value);
+            }
+
+            voiceHandles.Clear();
+            voiceDic.Clear();
+            loadingVoice.Clear();
+            pendingPlayCounts.Clear();
+
+            instance = null;
+        }
+    }
+    
+    //============================================================
+    // AudioSourceからSEを外す
+    //============================================================
+
+    void RemoveVoiceFromAudioSource(VoiceType type)
+    {
+        if(!voiceDic.TryGetValue(type, out AudioClip clip))
+        {
+            pendingPlayCounts.Remove(type);
+            return;
+        }
+
+        foreach(AudioSource source in audioSources)
+        {
+            if(source.clip == clip)
+            {
+                source.Stop();
+                source.clip = null;
+                RemoveSourceFromQueue(source);
+            }
+        }
+    }
+
+    //============================================================
+    // SEミュート管理
+    //============================================================
+
+    public static void MuteVoice()
+    {
+        if(instance == null)
+            return;
+
+        instance.isMuteVoice = true;
+
+        if(instance.muteVoice == null)
+            return;
+
+        foreach(VoiceType type in instance.muteVoice)
+        {
+            instance.RemoveVoiceFromAudioSource(type);
+        }
+    }
+
+    public static void UnmuteVoice()
+    {
+        if(instance == null)
+            return;
+        instance.isMuteVoice = false;
+    }
+
+    public static void StopAllVoices()
+    {
+        if (instance == null)
+            return;
+
+        VoiceController controller = instance;
+
+        foreach (AudioSource source in controller.audioSources)
+        {
+            if (source.isPlaying)
+                source.Stop();
+
+            source.clip = null;
+        }
+        controller.playOrder.Clear();
+
+        controller.pendingPlayCounts.Clear();
+    }
 }

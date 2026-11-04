@@ -16,10 +16,21 @@ public class OptionController : MonoBehaviour
         VOICE,
     }
 
+    public enum Menu
+    {
+        GAME,
+        AUDIO,
+    }
+
     [Header("Option Settings")]
     [SerializeField] private Canvas opCanvas;
     [SerializeField] private Mode mode;
+    [SerializeField] private Menu menu;
     [SerializeField] private bool isActive = false;
+
+    [Header("Menus")]
+    [SerializeField] private GameObject gameMenu;
+    [SerializeField] private GameObject audioMenu;
 
     [Header("Mute Icons")]
     [SerializeField] private Sprite defSprite;
@@ -91,7 +102,7 @@ public class OptionController : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.Escape))
         {
-            ChangeOptionManu();
+            ChangeOptionMenu();
         }
     }
 
@@ -507,7 +518,7 @@ public class OptionController : MonoBehaviour
     // オプション開閉
     //==================================================
 
-    public void ChangeOptionManu()
+    public void ChangeOptionMenu()
     {
         if (opCanvas == null)
         {
@@ -534,5 +545,36 @@ public class OptionController : MonoBehaviour
             // 開くたびに現在の音量をSliderへ同期
             UpdateVolumeSliders();
         }
+    }
+
+    //==================================================
+    // メニュー切り替え
+    //==================================================
+
+    static void MenuChanger()
+    {
+        if (instance == null)
+            return;
+
+        switch (instance.menu)
+        {
+            case Menu.GAME:
+                instance.gameMenu.SetActive(true);
+                instance.audioMenu.SetActive(false);
+                break;
+            case Menu.AUDIO:
+                instance.gameMenu.SetActive(false);
+                instance.audioMenu.SetActive(true);
+                break;
+        }
+    }
+
+    public static void ToggleMenu(Menu m)
+    {
+        if (instance == null)
+            return;
+
+        instance.menu = m;
+        MenuChanger();
     }
 }
