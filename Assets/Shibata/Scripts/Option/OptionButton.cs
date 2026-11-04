@@ -9,6 +9,20 @@ public class OptionButton : MonoBehaviour
     // アスペクト比変更用
     //============================================================
 
+    public void CloseOption()
+    {
+
+    }
+
+    public void OpenOption()
+    {
+
+    }
+
+    //============================================================
+    // アスペクト比変更用
+    //============================================================
+
     public void AspectRate_A()
     {
         AspectRateCoontroller.instance.SetAspectRate(2560, 1440);
@@ -38,5 +52,19 @@ public class OptionButton : MonoBehaviour
     public void Enter()
     {
         AspectRateCoontroller.instance.Enter();
+    }
+
+    //============================================================
+    // Menuの表示切替
+    //============================================================
+
+    public void OpenMenu_Game()
+    {
+
+    }
+
+    public void OpenMenu_Audio()
+    {
+
     }
 }
