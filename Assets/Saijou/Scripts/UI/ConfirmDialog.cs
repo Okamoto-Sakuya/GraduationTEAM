@@ -27,6 +27,9 @@ public class ConfirmDialog : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float flickerStrength = 0.5f; // ちらつきの強さ
     [SerializeField, Range(0f, 1f)] private float dropChance = 0.15f;     // 一瞬消える確率（毎フレーム）
 
+    [SerializeField] private RectTransform rootRect;   // Root の RectTransform
+    [SerializeField] private float jitterAmount = 8f;  // ブレの大きさ（ピクセル）
+
     private Action onYes;
     private Action onNo;
     private Coroutine fadeRoutine;
@@ -85,26 +88,30 @@ public class ConfirmDialog : MonoBehaviour
     // 基本は徐々に濃くなり、序盤ほどアルファがランダムに揺れ、たまに一瞬消える
     private IEnumerator NoiseFadeIn()
     {
-        canvasGroup.interactable = false; // 出きるまでボタンを押せないようにする
+        canvasGroup.interactable = false;
         canvasGroup.alpha = 0f;
+        Vector2 basePos = rootRect.anchoredPosition;
 
         float t = 0f;
         while (t < fadeDuration)
         {
-            t += Time.unscaledDeltaTime; // timeScale=0 でも動くように
+            t += Time.unscaledDeltaTime;
             float progress = Mathf.Clamp01(t / fadeDuration);
 
-            float baseAlpha = progress * progress; // 最初はゆっくり、後半で一気に
+            // （アルファの計算は今までと同じ）
+            float baseAlpha = progress * progress;
             float noise = (UnityEngine.Random.value - 0.5f) * 2f * flickerStrength * (1f - progress);
             float alpha = Mathf.Clamp01(baseAlpha + noise);
-
-            // 序盤ほど、一瞬だけ消える
             if (UnityEngine.Random.value < dropChance * (1f - progress)) alpha = 0f;
-
             canvasGroup.alpha = alpha;
+
+            // 序盤ほど大きくブレる
+            rootRect.anchoredPosition = basePos + UnityEngine.Random.insideUnitCircle * jitterAmount * (1f - progress);
+
             yield return null;
         }
 
+        rootRect.anchoredPosition = basePos; // 必ず元の位置に戻す
         canvasGroup.alpha = 1f;
         canvasGroup.interactable = true;
         fadeRoutine = null;

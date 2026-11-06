@@ -577,9 +577,11 @@ MonoBehaviour:
   noButton: {fileID: 1662641722435274101}
   yesButtonText: {fileID: 4652773493886908749}
   noButtonText: {fileID: 6663176364552315342}
-  fadeDuration: 0.8
-  flickerStrength: 0.5
-  dropChance: 0.15
+  fadeDuration: 0.5
+  flickerStrength: 0.08
+  dropChance: 0.4
+  rootRect: {fileID: 832624555743048692}
+  jitterAmount: 38
 --- !u!1 &6860006719190312150
 GameObject:
   m_ObjectHideFlags: 0
