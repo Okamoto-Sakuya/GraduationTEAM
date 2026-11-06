@@ -159,7 +159,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2f39e954c024254abd84b09a84770a3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LogicModeScreen
-  centerSprite: {fileID: 21300000, guid: d90cd432ed07b874f9e7e9f09ecc67ec, type: 3}
+  centerSprite: {fileID: 21300000, guid: 74ac34170961c114383f61ea6600238c, type: 3}
   centerSize: {x: 820, y: 820}
   centerOffset: {x: 0, y: 0}
   preserveAspect: 1
@@ -186,8 +186,28 @@ MonoBehaviour:
   lineGaugeFrameSprite: {fileID: 0}
   lineGaugeFillSprite: {fileID: 0}
   dangerSprite: {fileID: 0}
+  useLimbBloom: 1
+  limbBloomResources: Higanbana
+  bloomDirection: 1
+  baseNoLimbsSprite: {fileID: 21300000, guid: 74ac34170961c114383f61ea6600238c, type: 3}
+  limbSprites:
+  - {fileID: 21300000, guid: f68984b5e737c8244856e2e5abe9018c, type: 3}
+  - {fileID: 21300000, guid: aaf1e7d611a0fe443b91268c2419f277, type: 3}
+  - {fileID: 21300000, guid: d48b981e281c70d4698d6d39db1c986e, type: 3}
+  - {fileID: 21300000, guid: 7538ed3f2c47b3140a3e8786a6056a3d, type: 3}
+  flowerSheet: {fileID: 21300000, guid: 8c413392317d68f4ab42bbd9eefad23f, type: 3}
+  bloomSettings:
+    spreadSeconds: 4
+    flowerSeconds: 1.8
+    limbFadeSeconds: 1.8
+    leadSeconds: 1.2
+    flowerSize: 1
+    density: 1
+    veins: 1
+    embers: 10
+    randomEachTime: 1
   hierarchyOverrides: []
-  stageNumber: 9
+  stageNumber: 1
   markClearedOnClear: 1
   clearCharacter: Daughter
   debugKeys: 1
@@ -196,7 +216,7 @@ MonoBehaviour:
   spawnLogFolder: SpawnLogs
   resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
-  spawnMode: 2
+  spawnMode: 1
   useStreamingAssets: 1
   paramsCsvName: logic_params.csv
   nodeTableCsvName: node_table.csv
