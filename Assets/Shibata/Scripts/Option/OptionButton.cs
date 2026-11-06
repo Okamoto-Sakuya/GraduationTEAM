@@ -2,21 +2,13 @@ using UnityEngine;
 
 public class OptionButton : MonoBehaviour
 {
-    [SerializeField] 
-    AspectRateSetter setter;
-
     //============================================================
-    // アスペクト比変更用
+    // オプション開閉
     //============================================================
 
-    public void CloseOption()
+    public void ToggleOption()
     {
-
-    }
-
-    public void OpenOption()
-    {
-
+        OptionController.instance.ToggleOptionMenu();
     }
 
     //============================================================
@@ -41,12 +33,12 @@ public class OptionButton : MonoBehaviour
 
     public void Setter_Next()
     {
-        setter.ToggleAspRate(true);
+        AspectRateSetter.instance.ToggleAspRate(true);
     }
 
     public void Setter_Back()
     {
-        setter.ToggleAspRate(false);
+        AspectRateSetter.instance.ToggleAspRate(false);
     }
 
     public void Enter()
@@ -55,16 +47,16 @@ public class OptionButton : MonoBehaviour
     }
 
     //============================================================
-    // Menuの表示切替
+    // メニューの表示切替
     //============================================================
 
     public void OpenMenu_Game()
     {
-
+        OptionController.ToggleMenu(OptionController.Menu.GAME);
     }
 
     public void OpenMenu_Audio()
     {
-
+        OptionController.ToggleMenu(OptionController.Menu.AUDIO);
     }
 }
