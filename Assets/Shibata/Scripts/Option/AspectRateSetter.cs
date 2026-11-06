@@ -6,6 +6,8 @@ using UnityEngine.UI;
 
 public class AspectRateSetter : MonoBehaviour
 {
+    public static AspectRateSetter instance;
+
     public enum Type
     {
         A,  // 2560 * 1440
@@ -28,6 +30,18 @@ public class AspectRateSetter : MonoBehaviour
 
     [Header("‰Šúİ’è")]
     [SerializeField] Type type = Type.B;
+
+    private void Awake()
+    {
+        if (instance != null && instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
 
     void Start()
     {

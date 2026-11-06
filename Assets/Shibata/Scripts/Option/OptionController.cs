@@ -102,7 +102,7 @@ public class OptionController : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.Escape))
         {
-            ChangeOptionMenu();
+            ToggleOptionMenu();
         }
     }
 
@@ -173,6 +173,9 @@ public class OptionController : MonoBehaviour
             bDefScale = muteIcons[1].transform.localScale;
             sDefScale = muteIcons[2].transform.localScale;
         }
+
+        //表示する内容の初期化
+        ToggleMenu(Menu.GAME);
 
         // 保存音量の初期値
         saveMasterVol = masterVolume;
@@ -518,7 +521,7 @@ public class OptionController : MonoBehaviour
     // オプション開閉
     //==================================================
 
-    public void ChangeOptionMenu()
+    public void ToggleOptionMenu()
     {
         if (opCanvas == null)
         {
