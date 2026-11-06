@@ -6,53 +6,30 @@ using UnityEngine.InputSystem;
 #endif
 
 /// <summary>
-/// 左右2分割のキャラ選択。画面の左半分/右半分のどこをクリックしても、その側が全画面に広がり、反対側は端へ消える。
-/// 初期位置はInspectorの設定をそのまま使い、起動時に書き換えない。
+/// 左右2分割のキャラ選択。
+/// Root の大きさは変えず、RectMask2D の Padding だけで「見える範囲」を動かす。
+/// 選ぶと、選んだ側のマスクが画面全体まで開き、反対側は大きさを変えずに横へ移動して消える。
 /// </summary>
 public class CharacterSelectSplit : MonoBehaviour
 {
     [System.Serializable]
     private class Side
     {
-        public RectTransform root;
+        public RectTransform root;     // 半分サイズでも全画面でもOK(大きさは変えない)
         public CanvasGroup detail;
+        [HideInInspector] public RectMask2D mask;
         [HideInInspector] public CanvasGroup whole;
-        [HideInInspector] public Graphic[] texts;       // 子のテキスト
-        [HideInInspector] public float[] textAlphas;    // 元のアルファ
-    }
+        [HideInInspector] public Graphic[] texts;
+        [HideInInspector] public float[] textAlphas;
+        [HideInInspector] public Vector2 restPos;   // 元の位置
 
-    private struct RectState
-    {
-        public Vector2 aMin, aMax, oMin, oMax;
-
-        public static RectState Of(RectTransform r) => new RectState
-        {
-            aMin = r.anchorMin,
-            aMax = r.anchorMax,
-            oMin = r.offsetMin,
-            oMax = r.offsetMax
-        };
-
-        public static RectState Lerp(RectState a, RectState b, float t) => new RectState
-        {
-            aMin = Vector2.Lerp(a.aMin, b.aMin, t),
-            aMax = Vector2.Lerp(a.aMax, b.aMax, t),
-            oMin = Vector2.Lerp(a.oMin, b.oMin, t),
-            oMax = Vector2.Lerp(a.oMax, b.oMax, t)
-        };
-
-        public void ApplyTo(RectTransform r)
-        {
-            r.anchorMin = aMin;
-            r.anchorMax = aMax;
-            r.offsetMin = oMin;
-            r.offsetMax = oMax;
-        }
+        public RectTransform characterImage;        // 空なら、Root直下の「CharacterImage」を自動で探す
+        [HideInInspector] public Vector2 imageRestPos;
     }
 
     [SerializeField] private Side left;    // 娘
     [SerializeField] private Side right;   // 母
-    [SerializeField] private Button backButton;   // 広がった状態から戻る(任意)
+    [SerializeField] private Button backButton;
 
     [Header("Timing")]
     [SerializeField] private float expandDuration = 0.6f;
@@ -60,34 +37,43 @@ public class CharacterSelectSplit : MonoBehaviour
     [SerializeField] private AnimationCurve ease = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
     [Header("Expanded Offset")]
-    [SerializeField] private float leftExpandedShiftX = 100f;     // 娘が広がったときの横ずれ(プラスで右)
-    [SerializeField] private float rightExpandedShiftX = -100f;   // 母が広がったときの横ずれ(マイナスで左)
+    [SerializeField] private float leftExpandedShiftX = 0f;     // 娘が広がったときの横ずれ(プラスで右)
+    [SerializeField] private float rightExpandedShiftX = 0f;    // 母が広がったときの横ずれ(マイナスで左)
+
+    [Header("Character Image Shift (Rootとは別に、絵だけ動かす量)")]
+    [SerializeField] private float leftImageShiftX = 0f;     // 娘を選んだとき、娘の絵をずらす量(プラスで右)
+    [SerializeField] private float rightImageShiftX = 80f;   // 母を選んだとき、母の絵をずらす量(プラスで右)
 
     [Header("Other Side Exit")]
-    [SerializeField] private float exitSlideDistance = 600f;   // 消える側が外へ動く距離(px)
+    [SerializeField] private float exitSlideDistance = 600f;    // 消える側が外へ動く距離
 
-    private RectState leftRest;    // Inspectorで決めた元の位置
-    private RectState rightRest;
-    private bool touched;          // 位置を動かしたかどうか
-    private Side current;          // 選択中の側(null = 未選択)
+    private Side current;
     private bool busy;
+    private RectTransform canvasRect;
+    private readonly Vector3[] corners = new Vector3[4];
 
     private void Awake()
     {
-        // 位置は書き換えず、元の値を記録するだけ
-        leftRest = RectState.Of(left.root);
-        rightRest = RectState.Of(right.root);
+        // マスクの基準にする画面(Canvas)
+        canvasRect = (RectTransform)left.root.GetComponentInParent<Canvas>().rootCanvas.transform;
 
-        left.whole = GetOrAddGroup(left.root.gameObject);
-        right.whole = GetOrAddGroup(right.root.gameObject);
-
-        // テキスト集める
-        CollectTexts(left);
-        CollectTexts(right);
+        Setup(left);
+        Setup(right);
 
         if (backButton != null) backButton.onClick.AddListener(Back);
+    }
 
-       
+    private void Setup(Side side)
+    {
+        side.restPos = side.root.anchoredPosition;
+
+        if (side.characterImage == null)
+            side.characterImage = side.root.Find("CharacterImage") as RectTransform;
+        if (side.characterImage != null)
+            side.imageRestPos = side.characterImage.anchoredPosition;
+        side.whole = GetOrAdd<CanvasGroup>(side.root.gameObject);
+        side.mask = GetOrAdd<RectMask2D>(side.root.gameObject);
+        CollectTexts(side);
     }
 
     private void OnEnable()
@@ -102,11 +88,16 @@ public class CharacterSelectSplit : MonoBehaviour
 
     private void Update()
     {
-        if (busy || current != null) return;
+        if (busy) return;
 
-        if (TryGetPress(out Vector2 pos))
+        if (current == null)
         {
-            Select(pos.x < Screen.width * 0.5f ? left : right);
+            // 待機中は毎フレーム「半分だけ見せる」状態を保つ(画面サイズが変わっても追従)
+            SetMask(left, 0f);
+            SetMask(right, 0f);
+
+            if (TryGetPress(out Vector2 pos))
+                Select(pos.x < Screen.width * 0.5f ? left : right);
         }
     }
 
@@ -159,30 +150,22 @@ public class CharacterSelectSplit : MonoBehaviour
     {
         busy = true;
         current = chosen;
-        touched = true;
 
         Side other = chosen == left ? right : left;
-
-        RectState chosenFrom = RectState.Of(chosen.root);
-        RectState otherFrom = RectState.Of(other.root);
-        RectState chosenTo = FullScreen(chosen == right ? rightExpandedShiftX : leftExpandedShiftX);
-        RectState otherTo = SlideOut(otherFrom, other == left ? -exitSlideDistance : exitSlideDistance);
+        float otherDir = other == left ? -1f : 1f;
+        float chosenShift = chosen == right ? rightExpandedShiftX : leftExpandedShiftX;
 
         for (float t = 0f; t < expandDuration; t += Time.unscaledDeltaTime)
         {
             float k = ease.Evaluate(t / expandDuration);
-            RectState.Lerp(chosenFrom, chosenTo, k).ApplyTo(chosen.root);
-            RectState.Lerp(otherFrom, otherTo, k).ApplyTo(other.root);
-            other.whole.alpha = 1f - k;
-            SetTextAlpha(chosen, 1f - k);   // 選んだ側のテキストが消えていく
+            Apply(chosen, other, k, otherDir, chosenShift);
             yield return null;
         }
-        chosenTo.ApplyTo(chosen.root);
-        otherTo.ApplyTo(other.root);
-        other.whole.alpha = 0f;
-        SetTextAlpha(chosen, 0f);
+        Apply(chosen, other, 1f, otherDir, chosenShift);
 
-        // 説明文と進むボタンをフェードイン
+        // フェードアウトが終わってから、選ばれなかった側のRectMask2Dを外す(戻るときに復活させる)
+        other.mask.enabled = false;
+
         yield return Fade(chosen.detail, 1f, detailFadeDuration);
         chosen.detail.interactable = true;
         chosen.detail.blocksRaycasts = true;
@@ -196,6 +179,8 @@ public class CharacterSelectSplit : MonoBehaviour
         busy = true;
         Side chosen = current;
         Side other = chosen == left ? right : left;
+        float otherDir = other == left ? -1f : 1f;
+        float chosenShift = chosen == right ? rightExpandedShiftX : leftExpandedShiftX;
 
         chosen.detail.interactable = false;
         chosen.detail.blocksRaycasts = false;
@@ -203,28 +188,66 @@ public class CharacterSelectSplit : MonoBehaviour
 
         yield return Fade(chosen.detail, 0f, detailFadeDuration);
 
-        RectState chosenFrom = RectState.Of(chosen.root);
-        RectState otherFrom = RectState.Of(other.root);
-        RectState chosenTo = RestOf(chosen);
-        RectState otherTo = RestOf(other);
+        // 反対側はまだ透明なので、ここでマスクを戻しても見た目は変わらない
+        other.mask.enabled = true;
 
         for (float t = 0f; t < expandDuration; t += Time.unscaledDeltaTime)
         {
-            float k = ease.Evaluate(t / expandDuration);
-            RectState.Lerp(chosenFrom, chosenTo, k).ApplyTo(chosen.root);
-            RectState.Lerp(otherFrom, otherTo, k).ApplyTo(other.root);
-            other.whole.alpha = k;
-            SetTextAlpha(chosen, k);  // 戻るにつれて元の透明度へ
+            float k = 1f - ease.Evaluate(t / expandDuration);   // 逆再生
+            Apply(chosen, other, k, otherDir, chosenShift);
             yield return null;
         }
-        chosenTo.ApplyTo(chosen.root);
-        otherTo.ApplyTo(other.root);
-        other.whole.alpha = 1f;
-        SetTextAlpha(chosen, 1f);
+        Apply(chosen, other, 0f, otherDir, chosenShift);
 
-        touched = false;
         current = null;
         busy = false;
+    }
+
+    // k: 0 = 初期状態(半分表示) / 1 = 選んだ側が全表示
+    private void Apply(Side chosen, Side other, float k, float otherDir, float chosenShift)
+    {
+        // 選んだ側：マスクを開く＋(必要なら)横ずれ。Rootの大きさは変えない
+        SetMask(chosen, k);
+        chosen.root.anchoredPosition = chosen.restPos + new Vector2(chosenShift * k, 0f);
+        SetTextAlpha(chosen, 1f - k);
+
+        // 絵だけ、Rootとは別にもう少し横へずらす
+        if (chosen.characterImage != null)
+        {
+            float imageShift = chosen == right ? rightImageShiftX : leftImageShiftX;
+            chosen.characterImage.anchoredPosition = chosen.imageRestPos + new Vector2(imageShift * k, 0f);
+        }
+
+        // 反対側：大きさはそのまま、位置だけ外へ動かして消す
+        other.root.anchoredPosition = other.restPos + new Vector2(otherDir * exitSlideDistance * k, 0f);
+        other.whole.alpha = 1f - k;
+    }
+
+    // open: 0 = 半分だけ見せる / 1 = 全部見せる
+    // Rootの大きさには依存せず、「画面の左半分 / 右半分」を基準に見える範囲を決める。
+    // Paddingはマイナスにすると外側へ広がるので、半分サイズのRootでもそのまま全画面まで開ける。
+    private void SetMask(Side side, float open)
+    {
+        // 画面の左端・右端を、このRootのローカル座標に変換
+        canvasRect.GetWorldCorners(corners);   // 0:左下 2:右上
+        float canvasL = side.root.InverseTransformPoint(corners[0]).x;
+        float canvasR = side.root.InverseTransformPoint(corners[2]).x;
+        float mid = (canvasL + canvasR) * 0.5f;
+        Rect r = side.root.rect;
+
+        // Vector4(left, bottom, right, top)
+        if (side == left)
+        {
+            // 娘：左端?中央 → 左端?右端
+            float visibleRight = Mathf.Lerp(mid, canvasR, open);
+            side.mask.padding = new Vector4(0f, 0f, r.xMax - visibleRight, 0f);
+        }
+        else
+        {
+            // 母：中央?右端 → 左端?右端
+            float visibleLeft = Mathf.Lerp(mid, canvasL, open);
+            side.mask.padding = new Vector4(visibleLeft - r.xMin, 0f, 0f, 0f);
+        }
     }
 
     private IEnumerator Fade(CanvasGroup group, float to, float time)
@@ -240,68 +263,38 @@ public class CharacterSelectSplit : MonoBehaviour
 
     // ---------- 内部処理 ----------
 
-    private RectState RestOf(Side side) => side == left ? leftRest : rightRest;
-
-    private static RectState FullScreen(float shiftX = 0f) => new RectState
-    {
-        aMin = Vector2.zero,
-        aMax = Vector2.one,
-        oMin = new Vector2(shiftX, 0f),
-        oMax = new Vector2(shiftX, 0f)
-    };
-
-    // x の位置(0=左端 / 1=右端)で幅0につぶれた状態
-    private static RectState Collapsed(float x) => new RectState
-    {
-        aMin = new Vector2(x, 0f),
-        aMax = new Vector2(x, 1f),
-        oMin = Vector2.zero,
-        oMax = Vector2.zero
-    };
-
     private void ResetImmediate()
     {
         StopAllCoroutines();
         busy = false;
         current = null;
 
-        // 位置を動かしていたときだけ、元の位置に戻す(初回起動では何も書き換えない)
-        if (touched)
-        {
-            leftRest.ApplyTo(left.root);
-            rightRest.ApplyTo(right.root);
-            touched = false;
-        }
-
         foreach (var side in new[] { left, right })
         {
-            if (side.whole == null) side.whole = GetOrAddGroup(side.root.gameObject);
+            if (side.whole == null) Setup(side);   // Awake前に呼ばれた場合の保険
+
+            side.root.anchoredPosition = side.restPos;
+            if (side.characterImage != null)
+                side.characterImage.anchoredPosition = side.imageRestPos;
             side.whole.alpha = 1f;
+            side.mask.enabled = true;
             side.detail.alpha = 0f;
             side.detail.interactable = false;
             side.detail.blocksRaycasts = false;
-            if (side.texts != null) SetTextAlpha(side, 1f);
+            SetMask(side, 0f);
+            SetTextAlpha(side, 1f);
         }
         if (backButton != null) backButton.gameObject.SetActive(false);
     }
 
-    private static CanvasGroup GetOrAddGroup(GameObject go)
+    private static T GetOrAdd<T>(GameObject go) where T : Component
     {
-        var g = go.GetComponent<CanvasGroup>();
-        if (g == null) g = go.AddComponent<CanvasGroup>();
-        return g;
+        var c = go.GetComponent<T>();
+        if (c == null) c = go.AddComponent<T>();
+        return c;
     }
 
-    // 今の大きさのまま、横にずらした状態
-    private static RectState SlideOut(RectState from, float dx) => new RectState
-    {
-        aMin = from.aMin,
-        aMax = from.aMax,
-        oMin = from.oMin + new Vector2(dx, 0f),
-        oMax = from.oMax + new Vector2(dx, 0f)
-    };
-
-    // root の子のテキストを集める(detail の中身は別でフェードするので除外)
+    // Root 直下のテキストを集める(detail の中身は別でフェードするので除外)
     private static void CollectTexts(Side side)
     {
         var list = new System.Collections.Generic.List<Graphic>();
