@@ -1,0 +1,767 @@
+fileFormatVersion: 2
+guid: 8c413392317d68f4ab42bbd9eefad23f
+TextureImporter:
+  internalIDToNameTable:
+  - first:
+      213: -7850320948501571869
+    second: flower_bloom_sheet_0
+  - first:
+      213: -163080731645835478
+    second: flower_bloom_sheet_1
+  - first:
+      213: 542158014397833109
+    second: flower_bloom_sheet_2
+  - first:
+      213: -2862035296720249639
+    second: flower_bloom_sheet_3
+  - first:
+      213: 4486523520387169065
+    second: flower_bloom_sheet_4
+  - first:
+      213: 1109472450164691705
+    second: flower_bloom_sheet_5
+  - first:
+      213: -5584809991209515412
+    second: flower_bloom_sheet_6
+  - first:
+      213: 5623777386436890852
+    second: flower_bloom_sheet_7
+  - first:
+      213: -8807161642383101480
+    second: flower_bloom_sheet_8
+  - first:
+      213: 4710130725668101717
+    second: flower_bloom_sheet_9
+  - first:
+      213: -5659872268654454511
+    second: flower_bloom_sheet_10
+  - first:
+      213: 2496787799863765103
+    second: flower_bloom_sheet_11
+  - first:
+      213: -5150703034879619095
+    second: flower_bloom_sheet_12
+  - first:
+      213: -4326523230987827304
+    second: flower_bloom_sheet_13
+  - first:
+      213: 3331640901779014105
+    second: flower_bloom_sheet_14
+  - first:
+      213: 7592802267296938388
+    second: flower_bloom_sheet_15
+  - first:
+      213: 4393687575184932066
+    second: flower_bloom_sheet_16
+  - first:
+      213: -6426537996421376853
+    second: flower_bloom_sheet_17
+  - first:
+      213: 1762912076896105985
+    second: flower_bloom_sheet_18
+  - first:
+      213: -4607624262132071876
+    second: flower_bloom_sheet_19
+  - first:
+      213: -6669673741679583775
+    second: flower_bloom_sheet_20
+  - first:
+      213: 7730085723002339329
+    second: flower_bloom_sheet_21
+  - first:
+      213: -707977961582155580
+    second: flower_bloom_sheet_22
+  - first:
+      213: 1480299865725114987
+    second: flower_bloom_sheet_23
+  externalObjects: {}
+  serializedVersion: 13
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 0
+    sRGBTexture: 1
+    linearTexture: 0
+    fadeOut: 0
+    borderMipMap: 0
+    mipMapsPreserveCoverage: 0
+    alphaTestReferenceValue: 0.5
+    mipMapFadeDistanceStart: 1
+    mipMapFadeDistanceEnd: 3
+  bumpmap:
+    convertToNormalMap: 0
+    externalNormalMap: 0
+    heightScale: 0.25
+    normalMapFilter: 0
+    flipGreenChannel: 0
+  isReadable: 0
+  streamingMipmaps: 0
+  streamingMipmapsPriority: 0
+  vTOnly: 0
+  ignoreMipmapLimit: 0
+  grayScaleToAlpha: 0
+  generateCubemap: 6
+  cubemapConvolution: 0
+  seamlessCubemap: 0
+  textureFormat: 1
+  maxTextureSize: 2048
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  nPOTScale: 0
+  lightmap: 0
+  compressionQuality: 50
+  spriteMode: 1
+  spriteExtrude: 1
+  spriteMeshType: 1
+  alignment: 0
+  spritePivot: {x: 0.5, y: 0.5}
+  spritePixelsToUnits: 100
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spriteGenerateFallbackPhysicsShape: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 8
+  textureShape: 1
+  singleChannelComponent: 0
+  flipbookRows: 1
+  flipbookColumns: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  ignorePngGamma: 0
+  applyGammaDecoding: 0
+  swizzle: 50462976
+  cookieLightType: 0
+  platformSettings:
+  - serializedVersion: 4
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Standalone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WebGL
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  spriteSheet:
+    serializedVersion: 2
+    sprites:
+    - serializedVersion: 2
+      name: flower_bloom_sheet_0
+      rect:
+        serializedVersion: 2
+        x: 112
+        y: 866
+        width: 44
+        height: 44
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 3e691cba0be0e0390800000000000000
+      internalID: -7850320948501571869
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_1
+      rect:
+        serializedVersion: 2
+        x: 351
+        y: 863
+        width: 66
+        height: 66
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: a270a8840fe9cbdf0800000000000000
+      internalID: -163080731645835478
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_2
+      rect:
+        serializedVersion: 2
+        x: 604
+        y: 860
+        width: 72
+        height: 72
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 59f505477d1268700800000000000000
+      internalID: 542158014397833109
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_3
+      rect:
+        serializedVersion: 2
+        x: 858
+        y: 858
+        width: 76
+        height: 76
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 9dc1c54bf020848d0800000000000000
+      internalID: -2862035296720249639
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_4
+      rect:
+        serializedVersion: 2
+        x: 1114
+        y: 858
+        width: 76
+        height: 76
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 92bbc150f55534e30800000000000000
+      internalID: 4486523520387169065
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_5
+      rect:
+        serializedVersion: 2
+        x: 1370
+        y: 858
+        width: 76
+        height: 76
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 9f21620b053a56f00800000000000000
+      internalID: 1109472450164691705
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_6
+      rect:
+        serializedVersion: 2
+        x: 90
+        y: 602
+        width: 76
+        height: 76
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c6687ef07e4ce72b0800000000000000
+      internalID: -5584809991209515412
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_7
+      rect:
+        serializedVersion: 2
+        x: 341
+        y: 597
+        width: 86
+        height: 86
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4e01276acbbab0e40800000000000000
+      internalID: 5623777386436890852
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_8
+      rect:
+        serializedVersion: 2
+        x: 588
+        y: 588
+        width: 104
+        height: 104
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 8d13f4a062da6c580800000000000000
+      internalID: -8807161642383101480
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_9
+      rect:
+        serializedVersion: 2
+        x: 836
+        y: 580
+        width: 120
+        height: 120
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 55e991d80febd5140800000000000000
+      internalID: 4710130725668101717
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_10
+      rect:
+        serializedVersion: 2
+        x: 1085
+        y: 573
+        width: 134
+        height: 134
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 11954c0b8281471b0800000000000000
+      internalID: -5659872268654454511
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_11
+      rect:
+        serializedVersion: 2
+        x: 1336
+        y: 568
+        width: 144
+        height: 144
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: f68a862864f56a220800000000000000
+      internalID: 2496787799863765103
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_12
+      rect:
+        serializedVersion: 2
+        x: 51
+        y: 307
+        width: 154
+        height: 154
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 9ef497e11e60588b0800000000000000
+      internalID: -5150703034879619095
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_13
+      rect:
+        serializedVersion: 2
+        x: 303
+        y: 303
+        width: 162
+        height: 162
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 897ce785b0a15f3c0800000000000000
+      internalID: -4326523230987827304
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_14
+      rect:
+        serializedVersion: 2
+        x: 555
+        y: 299
+        width: 170
+        height: 170
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 9d143b59fbd5c3e20800000000000000
+      internalID: 3331640901779014105
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_15
+      rect:
+        serializedVersion: 2
+        x: 809
+        y: 297
+        width: 174
+        height: 174
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 499b3080f6d0f5960800000000000000
+      internalID: 7592802267296938388
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_16
+      rect:
+        serializedVersion: 2
+        x: 1063
+        y: 295
+        width: 178
+        height: 178
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 2ecf1f4229389fc30800000000000000
+      internalID: 4393687575184932066
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_17
+      rect:
+        serializedVersion: 2
+        x: 1317
+        y: 293
+        width: 182
+        height: 182
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: ba4d0c3ddb950d6a0800000000000000
+      internalID: -6426537996421376853
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_18
+      rect:
+        serializedVersion: 2
+        x: 36
+        y: 36
+        width: 184
+        height: 184
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 10673a1913f177810800000000000000
+      internalID: 1762912076896105985
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_19
+      rect:
+        serializedVersion: 2
+        x: 291
+        y: 35
+        width: 186
+        height: 186
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c328525552e6e00c0800000000000000
+      internalID: -4607624262132071876
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_20
+      rect:
+        serializedVersion: 2
+        x: 547
+        y: 35
+        width: 186
+        height: 186
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 1ed1073c11f8073a0800000000000000
+      internalID: -6669673741679583775
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_21
+      rect:
+        serializedVersion: 2
+        x: 803
+        y: 35
+        width: 186
+        height: 186
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 1008fd26208c64b60800000000000000
+      internalID: 7730085723002339329
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_22
+      rect:
+        serializedVersion: 2
+        x: 1059
+        y: 35
+        width: 186
+        height: 186
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4c827138bc1cc26f0800000000000000
+      internalID: -707977961582155580
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: flower_bloom_sheet_23
+      rect:
+        serializedVersion: 2
+        x: 1315
+        y: 35
+        width: 186
+        height: 186
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: b6a9a9982e41b8410800000000000000
+      internalID: 1480299865725114987
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    outline: []
+    customData: 
+    physicsShape: []
+    bones: []
+    spriteID: 5e97eb03825dee720800000000000000
+    internalID: 0
+    vertices: []
+    indices: 
+    edges: []
+    weights: []
+    secondaryTextures: []
+    spriteCustomMetadata:
+      entries: []
+    nameFileIdTable:
+      flower_bloom_sheet_0: -7850320948501571869
+      flower_bloom_sheet_1: -163080731645835478
+      flower_bloom_sheet_10: -5659872268654454511
+      flower_bloom_sheet_11: 2496787799863765103
+      flower_bloom_sheet_12: -5150703034879619095
+      flower_bloom_sheet_13: -4326523230987827304
+      flower_bloom_sheet_14: 3331640901779014105
+      flower_bloom_sheet_15: 7592802267296938388
+      flower_bloom_sheet_16: 4393687575184932066
+      flower_bloom_sheet_17: -6426537996421376853
+      flower_bloom_sheet_18: 1762912076896105985
+      flower_bloom_sheet_19: -4607624262132071876
+      flower_bloom_sheet_2: 542158014397833109
+      flower_bloom_sheet_20: -6669673741679583775
+      flower_bloom_sheet_21: 7730085723002339329
+      flower_bloom_sheet_22: -707977961582155580
+      flower_bloom_sheet_23: 1480299865725114987
+      flower_bloom_sheet_3: -2862035296720249639
+      flower_bloom_sheet_4: 4486523520387169065
+      flower_bloom_sheet_5: 1109472450164691705
+      flower_bloom_sheet_6: -5584809991209515412
+      flower_bloom_sheet_7: 5623777386436890852
+      flower_bloom_sheet_8: -8807161642383101480
+      flower_bloom_sheet_9: 4710130725668101717
+  mipmapLimitGroupName: 
+  pSDRemoveMatte: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

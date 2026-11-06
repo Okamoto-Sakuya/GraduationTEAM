@@ -20,6 +20,8 @@ using UnityEngine.InputSystem.UI;
 /// 画面構成（1920×1080 基準）… 10/30 仕様
 ///   全面   : 暗い背景（ゲーム画面の上に重ねる）
 ///   左     : イラスト（clearImage / gameOverImage）
+///            ResultData.figure にゲーム画面の女の子を渡すと、イラストの代わりに「今の状態の女の子」を出す
+///            （欠損した部位・咲いている彼岸花もそのまま。花の演出も止まらずに続く）
 ///   右上   : タイトル（STAGE CLEAR / GAME OVER）
 ///   右中   : 取得スコア ＋ スコアランク（S / A / B / C / D）
 ///            取得ノード（良性・悪性 × Lv1〜4 の個数表）
@@ -64,6 +66,7 @@ public class ResultScreen : MonoBehaviour
         public int[] goodCounts;          // 良性 Lv1〜4 の取得数（null で取得ノード欄なし）
         public int[] badCounts;           // 悪性 Lv1〜4 の取得数
         public IList<PartStatus> parts;   // 残った部位（null で欄なし）
+        public RectTransform figure;      // ゲーム画面の女の子（今の状態）。入れるとイラストの代わりに表示
     }
 
     public enum PreviewMode { None, Clear, GameOver }
@@ -81,6 +84,7 @@ public class ResultScreen : MonoBehaviour
     public Sprite gameOverImage;                         // ゲームオーバー時のイラスト（空欄なら clearImage を使う）
     public Vector2 imagePos = new Vector2(-470, 0);      // イラストの位置（画面中央基準 px）
     public Vector2 imageSize = new Vector2(760, 1000);   // イラストの表示枠（縦横比は保つ）
+    public bool useLiveFigure = true;                    // true = ゲーム側から女の子が渡されたら、イラストの代わりに今の状態を表示
 
     [Header("スコアランク（ResultData.rank が空のときに使う。S, A, B, C の最低スコア。満たさなければ D）")]
     public int[] rankScores = { 60000, 45000, 30000, 15000 };
@@ -135,6 +139,14 @@ public class ResultScreen : MonoBehaviour
     CanvasGroup group;
     RectTransform illust, rankRect;
     static Sprite circleSprite;
+
+    // 借りているゲーム画面の女の子（リザルトを閉じたら元に戻す）
+    RectTransform borrowed;
+    Transform bParent;
+    int bSibling;
+    Vector2 bAnchorMin, bAnchorMax, bPivot, bPos, bSize;
+    Vector3 bScale;
+    Quaternion bRot;
 
     // ======================= 公開API =======================
 
@@ -223,6 +235,7 @@ public class ResultScreen : MonoBehaviour
 
     void DestroyCanvas(string name)
     {
+        if (name == RuntimeCanvasName) ReturnFigure();   // 女の子をゲーム画面に戻してから消す
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
             var c = transform.GetChild(i);
@@ -257,9 +270,15 @@ public class ResultScreen : MonoBehaviour
         var bg = Img(root, "Background", Vector2.zero, new Vector2(1920, 1080), null, backgroundColor);
         bg.raycastTarget = true;
 
-        // 左：イラスト
+        // 左：イラスト（ゲーム側から女の子が渡されたら、今の状態の女の子）
         Sprite art = clear ? clearImage : (gameOverImage != null ? gameOverImage : clearImage);
-        if (art != null)
+        if (interactive && useLiveFigure && d.figure != null)
+        {
+            var slot = NewRect(root, "Illustration", imagePos, imageSize);
+            BorrowFigure(d.figure, slot);
+            illust = slot;
+        }
+        else if (art != null)
         {
             var img = Img(root, "Illustration", imagePos, imageSize, art, Color.white);
             img.preserveAspect = true;
@@ -392,6 +411,57 @@ public class ResultScreen : MonoBehaviour
         btn.colors = cb;
         return btn;
     }
+
+    // ======================= ゲーム画面の女の子を借りる =======================
+
+    /// <summary>
+    /// ゲーム画面の女の子（UI）をリザルトのイラスト枠に移す。複製ではなく本物を移すので、
+    /// 欠損した部位・咲いている彼岸花・花の演出がそのまま続く。Hide() やシーン破棄で元に戻す。
+    /// </summary>
+    void BorrowFigure(RectTransform fig, RectTransform slot)
+    {
+        ReturnFigure();
+        borrowed = fig;
+        bParent = fig.parent;
+        bSibling = fig.GetSiblingIndex();
+        bAnchorMin = fig.anchorMin; bAnchorMax = fig.anchorMax; bPivot = fig.pivot;
+        bPos = fig.anchoredPosition; bSize = fig.sizeDelta;
+        bScale = fig.localScale; bRot = fig.localRotation;
+
+        Vector2 size = fig.rect.size;          // 移す前の大きさ（ストレッチされていてもOK）
+        Vector2 drawn = size;                  // 実際に絵が描かれている大きさ
+        var img = fig.GetComponent<Image>();
+        if (img != null && img.preserveAspect && img.sprite != null)
+        {
+            float aspect = img.sprite.rect.width / img.sprite.rect.height;
+            drawn = size.x / size.y > aspect ? new Vector2(size.y * aspect, size.y) : new Vector2(size.x, size.x / aspect);
+        }
+
+        fig.SetParent(slot, false);
+        fig.anchorMin = fig.anchorMax = fig.pivot = new Vector2(0.5f, 0.5f);
+        fig.sizeDelta = size;
+        fig.anchoredPosition = Vector2.zero;
+        fig.localRotation = Quaternion.identity;
+        float k = Mathf.Min(imageSize.x / Mathf.Max(1f, drawn.x), imageSize.y / Mathf.Max(1f, drawn.y));
+        fig.localScale = new Vector3(k, k, 1f);
+    }
+
+    /// <summary>借りている女の子をゲーム画面の元の場所に戻す</summary>
+    void ReturnFigure()
+    {
+        if (borrowed == null) return;
+        if (bParent != null)
+        {
+            borrowed.SetParent(bParent, false);
+            borrowed.SetSiblingIndex(bSibling);
+            borrowed.anchorMin = bAnchorMin; borrowed.anchorMax = bAnchorMax; borrowed.pivot = bPivot;
+            borrowed.anchoredPosition = bPos; borrowed.sizeDelta = bSize;
+            borrowed.localScale = bScale; borrowed.localRotation = bRot;
+        }
+        borrowed = null;
+    }
+
+    void OnDestroy() => ReturnFigure();
 
     // ======================= ボタン処理 =======================
 

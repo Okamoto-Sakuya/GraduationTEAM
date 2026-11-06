@@ -92,6 +92,15 @@ public class LogicModeScreen : MonoBehaviour
     public Sprite lineGaugeFillSprite;                   // 造線ゲージの中身
     public Sprite dangerSprite;                          // 危険演出の赤枠（中心が透明・外周が不透明な白い画像。色は dangerColor が乗る）
 
+    [Header("四肢欠損の彼岸花演出（素材が無ければ従来どおり）")]
+    public bool useLimbBloom = true;                     // true = 欠損した部位の手足を消して彼岸花を咲かせる
+    public string limbBloomResources = "Higanbana";      // 素材を置いた Resources 以下のフォルダ（Assets/Resources/Higanbana）
+    public HiganbanaLimbs.Direction bloomDirection = HiganbanaLimbs.Direction.FromTip;   // FromTip = 指先・つま先から / FromRoot = 付け根から
+    public Sprite baseNoLimbsSprite;                     // 四肢を消した人体図。空欄なら Resources の base_no_limbs
+    public Sprite[] limbSprites = new Sprite[4];         // 手足の切り抜き（左腕・右腕・左足・右足 の順。画面上の左右）。空欄なら Resources の limb_*
+    public Sprite flowerSheet;                           // 花の画像（flower_bloom_sheet.png をドラッグ）。空欄なら Resources の flower_bloom_sheet
+    public HiganbanaLimbs.Settings bloomSettings = new HiganbanaLimbs.Settings();   // 咲く速さ・花の大きさ・密度・脈・火の粉
+
     /// <summary>ヒエラルキー上で変更した Image・表示状態の記録（1オブジェクト1件）</summary>
     [System.Serializable]
     public class HierarchyOverride
@@ -248,6 +257,8 @@ public class LogicModeScreen : MonoBehaviour
         public RectTransform root;
         public Image hpFill;
         public BasicLine overflow;   // 欠損後、ここに届いたノードが流れる先（円弧）
+        public Image limbImage;      // 彼岸花演出：人体図に重ねた手足の切り抜き
+        public RectTransform bloomLayer;   // 彼岸花演出：花・脈・火の粉の入れ物
     }
 
     class BasicLine
@@ -714,6 +725,7 @@ public class LogicModeScreen : MonoBehaviour
         BuildUI();
 
         ApplyHierarchyOverrides(canvasGo.transform);
+        BuildLimbBloom();   // 人体図を「四肢なし＋手足の切り抜き」に組み替える（ヒエラルキーの差し替えより後）
     }
 
     // ======================= ヒエラルキー変更の記録・反映 =======================
@@ -1702,6 +1714,7 @@ public class LogicModeScreen : MonoBehaviour
     {
         limb.lost = true;
         limb.root.gameObject.SetActive(false);
+        PlayLimbBloom(limb);   // 手足を消して彼岸花を咲かせる
         dangerFlash = Mathf.Min(1f, Mathf.Max(dangerFlash, damageFlash * 2f));   // 欠損は強めに脈打つ
 
         if (limb.isArm)
@@ -1726,6 +1739,64 @@ public class LogicModeScreen : MonoBehaviour
         bool allLost = true;
         foreach (var l in limbs) if (!l.lost) allLost = false;
         if (allLost) GameOver();
+    }
+
+    // ======================= 四肢欠損の彼岸花演出 =======================
+
+    void BuildLimbBloom()
+    {
+        if (!useLimbBloom || centerImage == null) return;
+        Sprite baseSprite = baseNoLimbsSprite != null
+            ? baseNoLimbsSprite
+            : HiganbanaLimbs.LoadSprite(limbBloomResources, "base_no_limbs");
+        if (baseSprite == null) return;   // 素材が無ければ従来の人体図のまま
+
+        centerImage.sprite = baseSprite;
+        centerImage.color = Color.white;
+        var placeholder = centerImage.transform.Find("Placeholder");
+        if (placeholder != null) placeholder.gameObject.SetActive(false);
+
+        var parent = (RectTransform)centerImage.transform;
+        Vector2 fitted = HiganbanaLimbs.FittedSize(centerSize, preserveAspect);
+        Limb[] order = { leftArm, rightArm, leftLeg, rightLeg };
+
+        // 手足の切り抜き（下）… 4 枚重ねると元の絵に戻る
+        for (int i = 0; i < order.Length; i++)
+        {
+            var limb = order[i];
+            if (limb == null) continue;
+            string key = HiganbanaLimbs.KeyOf(limb.name);
+            Sprite s = limbSprites != null && i < limbSprites.Length && limbSprites[i] != null
+                ? limbSprites[i]
+                : HiganbanaLimbs.LoadSprite(limbBloomResources, "limb_" + key);
+            limb.limbImage = HiganbanaLimbs.CreateLayer(parent, "Limb_" + key, HiganbanaLimbs.LimbRect(key), fitted, s);
+        }
+
+        // 花・脈・火の粉の入れ物（手足より上）。中身は欠損したときにコードで作る
+        foreach (var limb in order)
+        {
+            if (limb == null) continue;
+            limb.bloomLayer = HiganbanaLimbs.CreateContainer(parent, "Bloom_" + HiganbanaLimbs.KeyOf(limb.name), fitted);
+        }
+
+        // 花 1 輪のシート（24 コマ）… 画像 1 枚をコードで切り分ける
+        if (Application.isPlaying)
+        {
+            bloomFrames = flowerSheet != null
+                ? HiganbanaLimbs.SliceSheet(flowerSheet)
+                : HiganbanaLimbs.LoadSheet(limbBloomResources);
+            if (bloomFrames == null)
+                Debug.LogWarning("[彼岸花] 花の画像がありません。Inspector の Flower Sheet に flower_bloom_sheet.png を入れてください");
+        }
+    }
+
+    Sprite[] bloomFrames;   // 花 1 輪が咲く 24 コマ
+
+    void PlayLimbBloom(Limb limb)
+    {
+        if (limb.bloomLayer == null) return;
+        StartCoroutine(HiganbanaLimbs.Play(limb.bloomLayer, limb.limbImage, HiganbanaLimbs.KeyOf(limb.name),
+                                           bloomDirection, bloomFrames, bloomSettings));
     }
 
     void KillLine(string name)
@@ -1794,6 +1865,7 @@ public class LogicModeScreen : MonoBehaviour
             goodCounts = (int[])goodCollected.Clone(),
             badCounts = (int[])badCollected.Clone(),
             parts = null,   // 残った部位も出す場合は PartStatus のリストを入れる
+            figure = centerImage != null ? centerImage.rectTransform : null,   // 今の状態の女の子（欠損・彼岸花ごと）をリザルトに出す
         };
         if (clear) resultScreen.ShowClear(data);
         else resultScreen.ShowGameOver(data);
