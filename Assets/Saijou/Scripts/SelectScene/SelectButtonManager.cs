@@ -21,13 +21,14 @@ public class SelectButtonManager : MonoBehaviour
 
     private void Awake()
     {
-        motherButton.onClick.AddListener(() => ChangePanel(selectPanel, motherPanel));
-        daughterButton.onClick.AddListener(() => ChangePanel(selectPanel, daughterPanel));
+        motherButton.onClick.AddListener(() =>
+            Confirm("母を選びますか？", motherPanel));
+        daughterButton.onClick.AddListener(() =>
+            Confirm("娘を選びますか？", daughterPanel));
 
         motherBackButton.onClick.AddListener(() => ChangePanel(motherPanel, selectPanel));
         daughterBackButton.onClick.AddListener(() => ChangePanel(daughterPanel, selectPanel));
     }
-
     private void Start()
     {
         // 最初はSelectPanelだけ表示
@@ -36,6 +37,17 @@ public class SelectButtonManager : MonoBehaviour
         daughterPanel.SetActive(false);
     }
 
+    // 確認ウィンドウを出して、「はい」ならパネルを切り替える
+    private void Confirm(string message, GameObject targetPanel)
+    {
+        if (isTransitioning) return;
+
+        ConfirmDialog.Instance.Show(
+            "確認",
+            message,
+            "はい", "いいえ",
+            onYes: () => ChangePanel(selectPanel, targetPanel));
+    }
     private void OnDestroy()
     {
         motherButton.onClick.RemoveAllListeners();
