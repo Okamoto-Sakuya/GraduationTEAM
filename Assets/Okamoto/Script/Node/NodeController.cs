@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 
@@ -29,6 +30,9 @@ public class NodeController : MonoBehaviour
     [Header("行き止まり")]
     [Tooltip("進める線がなくなったとき、固まらずにノードを消す")]
     [SerializeField] private bool destroyOnDeadEnd = true;
+
+    [Tooltip("線の途中で、進む先に分岐点が見つからないとき、後ろに分岐点があれば消さずに戻る回数。0なら従来どおり消す")]
+    [SerializeField] private int maxNoJunctionTurns = 3;
 
     [Header("ゲージ(良性/悪性の変化)")]
     [SerializeField] private float spawnGauge = 100f;
@@ -89,6 +93,15 @@ public class NodeController : MonoBehaviour
     [SerializeField] private float fastLabelSize = 4f;
     [SerializeField] private Color fastLabelColor = Color.yellow;
 
+    [Header("交差ノード(type10)")]
+    [Tooltip("他のノードと交差した、と判定する距離(ワールド単位)")]
+    [SerializeField] private float crossDistance = 0.5f;
+    [Tooltip("出現してからこの秒数は、交差しても入れ替えない(出現位置で重なるのを避ける)")]
+    [SerializeField] private float crossGraceSeconds = 0.5f;
+    [SerializeField] private string crossLabelText = "X";
+    [SerializeField] private float crossLabelSize = 4f;
+    [SerializeField] private Color crossLabelColor = Color.cyan;
+
     [Header("レベル変化ゲージ(次に見た目が変わるまでの残り)")]
     [SerializeField] private bool showLevelBar = true;
     [Tooltip("円の太さ")]
@@ -126,6 +139,7 @@ public class NodeController : MonoBehaviour
     private float s;
     private int dir = 1;
     private bool placed;
+    private int noJunctionTurns;
 
     // 四肢対応ノード: 運ぶ先の四肢
     private bool hasTargetLimb;
@@ -146,11 +160,31 @@ public class NodeController : MonoBehaviour
     private TextMeshPro scoreText;
     private TextMeshPro limbLabel;
     private TextMeshPro fastLabel;
+    private TextMeshPro crossLabel;
     private int shownLevel = -1;
     private bool shownMalignant;
 
+    // 交差ノード
+    private bool isCrossing;
+    private float crossAge;
+    private readonly HashSet<NodeController> overlapping = new HashSet<NodeController>();
+    private readonly List<NodeController> overlapBuffer = new List<NodeController>();
+
+    // 画面上の全ノード(交差の判定用)
+    private static readonly List<NodeController> allNodes = new List<NodeController>();
+
     private static Sprite fallbackSprite;
     private static Material ringMaterial;
+
+    private void OnEnable()
+    {
+        allNodes.Add(this);
+    }
+
+    private void OnDisable()
+    {
+        allNodes.Remove(this);
+    }
 
     private void Awake()
     {
@@ -216,6 +250,8 @@ public class NodeController : MonoBehaviour
         UpdateRing();
         UpdateLevelBar();
 
+        if (isCrossing) CheckCrossing();
+
         if (!IsMoving) return;
 
         var g = PathGraph.Instance;
@@ -235,6 +271,25 @@ public class NodeController : MonoBehaviour
         for (int guard = 0; remain > 0f && guard < 8; guard++)
         {
             Junction next = g.NextJunction(line, s, dir);
+
+            // 進む先に分岐点がなくても、後ろに分岐点があれば、消さずに戻る
+            // (後ろにもなければ、従来どおり消える)
+            if (next == null && noJunctionTurns < maxNoJunctionTurns)
+            {
+                Junction back = g.NextJunction(line, s, -dir);
+
+                if (back != null)
+                {
+                    noJunctionTurns++;
+                    dir = -dir;
+                    next = back;
+
+                    Debug.LogWarning(
+                        $"{name}: 進む先に分岐点がないので戻ります({noJunctionTurns}回目) " +
+                        $"s={s:F2} dir={dir}", this);
+                }
+            }
+
             if (next == null)
             {
                 DeadEnd("この線の先に分岐点がありません");
@@ -265,6 +320,9 @@ public class NodeController : MonoBehaviour
     // 例: 悪性2→3→4→3→2→1→良性1→2…
     private void TickGauge(float dt)
     {
+        // 交差ノードは、時間が経っても良性/悪性が変わらない(ゲージは100固定)
+        if (isCrossing) return;
+
         gauge += (rising ? 1f : -1f) * gaugeSpeed * dt;
 
         if (rising && gauge >= 100f)
@@ -494,6 +552,84 @@ public class NodeController : MonoBehaviour
         fastLabel.sortingOrder = spriteSortingOrder + 4;
         fastLabel.rectTransform.sizeDelta = new Vector2(2f, 0.6f);
         fastLabel.text = fastLabelText;
+    }
+
+    // 交差ノード: ゲージを100に固定して、中央に目印を表示する(スポナーから呼ぶ)
+    public void SetCrossing()
+    {
+        if (isCrossing) return;
+
+        isCrossing = true;
+        crossAge = 0f;
+        gauge = 100f;
+        rising = false;
+
+        // レベルは変わらないので、レベル変化ゲージは出さない
+        if (levelBarBack != null) levelBarBack.enabled = false;
+        if (levelBarFill != null) levelBarFill.enabled = false;
+
+        GameObject obj = new GameObject("CrossLabel");
+        obj.transform.SetParent(transform, false);
+        obj.transform.localPosition = Vector3.zero;
+
+        crossLabel = obj.AddComponent<TextMeshPro>();
+        crossLabel.alignment = TextAlignmentOptions.Center;
+        crossLabel.fontSize = crossLabelSize;
+        crossLabel.color = crossLabelColor;
+        crossLabel.enableWordWrapping = false;
+        crossLabel.sortingOrder = spriteSortingOrder + 4;
+        crossLabel.rectTransform.sizeDelta = new Vector2(2f, 0.6f);
+        crossLabel.text = crossLabelText;
+
+        // 見た目を作り直す(ゲージ100 = レベル4)
+        shownLevel = -1;
+        RefreshVisual();
+        UpdateRing();
+    }
+
+    // 他のノードと重なった(交差した)瞬間に、良性⇔悪性を入れ替える。
+    // 重なっている間は、何度も入れ替えない
+    private void CheckCrossing()
+    {
+        crossAge += Time.deltaTime;
+
+        float sqrDistance = crossDistance * crossDistance;
+        bool flip = false;
+
+        overlapBuffer.Clear();
+
+        foreach (NodeController other in allNodes)
+        {
+            if (other == null || other == this) continue;
+
+            Vector2 diff = other.transform.position - transform.position;
+
+            if (diff.sqrMagnitude > sqrDistance) continue;
+
+            overlapBuffer.Add(other);
+
+            // 前のフレームでは重なっていなかったノードと、新しく重なった
+            if (!overlapping.Contains(other))
+            {
+                flip = true;
+            }
+        }
+
+        overlapping.Clear();
+
+        foreach (NodeController other in overlapBuffer)
+        {
+            overlapping.Add(other);
+        }
+
+        // 出現直後は、重なりを記録するだけで入れ替えない
+        if (flip && crossAge >= crossGraceSeconds)
+        {
+            SetNodeType(!isMalignant);
+
+            Debug.Log(
+                $"{name}: 交差して{(isMalignant ? "悪性" : "良性")}になりました", this);
+        }
     }
 
     // 読み込み済みのTextMeshProのフォントから、textの文字をすべて表示できるものを探す
@@ -809,6 +945,9 @@ public class NodeController : MonoBehaviour
     private void UpdateLevelBar()
     {
         if (levelBarFill == null) return;
+
+        // 交差ノードはレベルが変わらないので、表示しない
+        if (isCrossing) return;
 
         float fraction = GetChangeFraction(out float remainGauge);
 
