@@ -7,7 +7,8 @@ using UnityEngine.UI;
 ///   例（良性出現）: 良性100→0 → 悪性0→100 → 悪性100→0 → 良性0→100 → 良性100→0 …
 /// ・レベルはゲージ値から 1(0-24) 2(25-49) 3(50-74) 4(75-100)
 /// ・周りのリングが残りゲージ（良性出現は反時計回り、悪性出現は時計回り。反転しても向きは出現時のまま）
-/// ・特殊ノード（type5〜8）は下に種類の札を出す（SetTag。「右腕」「足早」「重い」「停止」など）
+/// ・特殊ノード（type5〜10）は下に種類の札を出す（SetTag。「右腕」「足早」「重い」「停止」「交差」「線追加」など）
+/// ・LockGauge でゲージを固定できる（交差ノード：時間で変化せず、FlipKind でのみ良性⇔悪性が入れ替わる）
 /// </summary>
 public class ProtoNode : MonoBehaviour
 {
@@ -28,6 +29,9 @@ public class ProtoNode : MonoBehaviour
     public RectTransform Rect => (RectTransform)transform;
 
     public int Level => Value < 25f ? 1 : Value < 50f ? 2 : Value < 75f ? 3 : 4;
+
+    /// <summary>true = ゲージが時間で変化しない（交差ノード）</summary>
+    public bool GaugeLocked { get; private set; }
 
     bool rising;          // true = 上昇中 / false = 減少中
     Image body, ring;
@@ -96,6 +100,7 @@ public class ProtoNode : MonoBehaviour
     /// </summary>
     public void TickGauge(float dt, float perSecond)
     {
+        if (GaugeLocked) return;   // 固定中（交差ノード）は変化しない
         float step = perSecond * dt;
 
         if (rising)
@@ -119,6 +124,21 @@ public class ProtoNode : MonoBehaviour
         }
 
         Value = Mathf.Clamp(Value, 0f, 100f);   // 1フレームで大きく進んだ場合の保険
+        Refresh();
+    }
+
+    /// <summary>ゲージを value で固定する（以後 TickGauge で変化しない）</summary>
+    public void LockGauge(float value)
+    {
+        GaugeLocked = true;
+        Value = Mathf.Clamp(value, 0f, 100f);
+        Refresh();
+    }
+
+    /// <summary>良性⇔悪性を入れ替える（ゲージ値はそのまま）</summary>
+    public void FlipKind()
+    {
+        CurrentKind = CurrentKind == Kind.Good ? Kind.Bad : Kind.Good;
         Refresh();
     }
 

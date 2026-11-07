@@ -45,6 +45,11 @@ using UnityEngine.InputSystem.UI;
 ///   6 足早     : 移動速度×fastSpeedRate
 ///   7 重い     : 硬さ（残り回数）が heavyMinHardness 以上の造線しか通れず、通ると heavyHardnessCost 減る
 ///   8 途中停止 : 移動開始から stopAfterSeconds 秒後に stopSeconds 秒止まる（ゲージは進む・他のノードは追い越せる）
+/// 特殊ノード（11/07 追加）
+///   9 交差     : ゲージは 100 固定で時間では良性⇔悪性に変わらない。他のノードと重なる（交差する）たびに良性⇔悪性が反転
+///                重なり判定 = 中心間の距離が nodeSize × crossHitRate 以下。離れてから再び重なると再反転
+///  10 線追加   : 出現した瞬間に、ランダムな基本線上の位置からランダムな角度で造線を 1 本追加（ゲージ消費なし・右クリックで消せない）
+///                角度の範囲 = addLineAngleMin〜Max（addLineAngleBase：Line = 基本線の向きからの角度（左右どちらかに振る）/ Screen = 画面の角度。右=0、反時計回り）
 /// 出現ログ : 出たノードの種類・順番・位置・結果を Console と CSV（Excel 用、プロジェクト直下の SpawnLogs/）に出す（LogicSpawnLog）
 /// リザルト : 取得スコア / スコアランク(S〜D。rankScoreS〜C) / 取得ノード（良性・悪性 × Lv1〜4）
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
@@ -209,6 +214,18 @@ public class LogicModeScreen : MonoBehaviour
     public float stopAfterSeconds = 2f;                  // type8 途中停止：移動開始から止まるまでの秒数
     public float stopSeconds = 2f;                       // type8 途中停止：止まっている秒数（その間もゲージは進む）
 
+    [Header("参照数値：特殊ノード（11/07 追加・nodetype 9〜10）")]
+    public float crossGauge = 100f;                      // type9 交差：固定するゲージ値（100 = Lv4）
+    public float crossHitRate = 0.8f;                    // type9 交差：中心間の距離が nodeSize × これ以下で「交差」とみなす
+    public enum AngleBase { Line, Screen }
+    public AngleBase addLineAngleBase = AngleBase.Line;  // type10 線追加：角度の基準（Line = 基本線の向きから / Screen = 画面の右=0°・反時計回り）
+    public float addLineAngleMin = 30f;                  // type10 線追加：生成角度の下限（度）
+    public float addLineAngleMax = 150f;                 // type10 線追加：生成角度の上限（度）。Line のとき 90 = 基本線に直角
+    public int addLineHardness = 1;                      // type10 線追加：追加する造線の硬さ（通れる回数）
+    public float addLineMaxLength = 600f;                // type10 線追加：造線の最大長さ（px）。0 = 制限なし
+    public float addLineEndMargin = 40f;                 // type10 線追加：基本線の端からこの距離（px）以内には始点を置かない
+    public int addLineTries = 50;                        // type10 線追加：条件を満たす線が見つかるまでの抽選回数（見つからなければ追加なし）
+
     [Header("参照数値：スコアランク（リザルト。この点以上でそのランク、どれも満たさなければ D）")]
     public int rankScoreS = 60000;
     public int rankScoreA = 45000;
@@ -325,17 +342,18 @@ public class LogicModeScreen : MonoBehaviour
         public Image body;
         public Text label;
         public GameObject forbiddenGroup;
+        public bool auto;     // true = 線追加ノードが引いた造線（右クリックで消せない・色が違う）
     }
 
     struct ProblemNode
     {
         public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order;
-        public int type;      // nodetype（1〜8）
+        public int type;      // nodetype（1〜10）
         public string limb;   // type5 の対応部位（Limb.name）
     }
 
     // nodetype
-    const int TypeLimb = 5, TypeFast = 6, TypeHeavy = 7, TypeStop = 8;
+    const int TypeLimb = 5, TypeFast = 6, TypeHeavy = 7, TypeStop = 8, TypeCross = 9, TypeAddLine = 10;
 
     LogicRandomSpawner randomSpawner;                       // 確率出現のマスター（読めたときだけ）
     LogicFixedSpawner fixedSpawner;                         // 指定出現のマスター（読めたときだけ）
@@ -353,10 +371,11 @@ public class LogicModeScreen : MonoBehaviour
         public DrawnLine onDrawn;
         public bool fromA;
         public float drawnPos;
-        public int type;          // nodetype（1〜8）
+        public int type;          // nodetype（1〜10）
         public Limb targetLimb;   // type5 の対応部位
         public float elapsed;     // 移動開始からの秒数（type8 用）
         public bool stopped;      // type8：停止中
+        public readonly HashSet<MovingNode> touching = new HashSet<MovingNode>();   // type9：いま重なっているノード（重なり始めの 1 回だけ反転するため）
         public LogicSpawnLog.Record record;   // 出現ログの行
     }
 
@@ -372,6 +391,7 @@ public class LogicModeScreen : MonoBehaviour
     // 色
     static readonly Color LineColor = Color.white;
     static readonly Color DrawnColor = new Color(0.75f, 0.92f, 1f);
+    static readonly Color AutoDrawnColor = new Color(0.85f, 0.65f, 1f);   // 線追加ノードが引いた造線
     static readonly Color InvalidCol = new Color(1f, 0.35f, 0.3f);
     static readonly Color LimbFill = new Color(0.94f, 0.66f, 0.55f);
     static readonly Color LimbOutline = new Color(0.10f, 0.16f, 0.22f);
@@ -861,8 +881,22 @@ public class LogicModeScreen : MonoBehaviour
         TypeFast => "足早",
         TypeHeavy => "重い",
         TypeStop => "停止",
+        TypeCross => "交差",
+        TypeAddLine => "線追加",
         _ => "",
     };
+
+    /// <summary>出現時のゲージ（交差ノードは固定値）</summary>
+    float StartGaugeOf(int type) => type == TypeCross ? crossGauge : nodeStartGauge;
+
+    /// <summary>ノード生成（交差ノードはゲージ固定）</summary>
+    ProtoNode CreateNode(ProblemNode pn)
+    {
+        var n = ProtoNode.Create(nodeLayer, pn.kind, pn.gauge, font);
+        if (pn.type == TypeCross) n.LockGauge(crossGauge);
+        n.SetTag(TagOf(pn.type, pn.limb));
+        return n;
+    }
 
     void BuildLines()
     {
@@ -1065,9 +1099,8 @@ public class LogicModeScreen : MonoBehaviour
                 var line = lines[problem[i].line];
                 if (!line.alive) continue;
                 int k = perLine[problem[i].line]++;
-                var n = ProtoNode.Create(nodeLayer, problem[i].kind, problem[i].gauge, font);
+                var n = CreateNode(problem[i]);
                 n.SetOrder(problem[i].order > 0 ? problem[i].order : i + 1);
-                n.SetTag(TagOf(problem[i].type, problem[i].limb));
                 n.Rect.anchoredPosition = line.Sample(45f + k * 64f);
                 previews.Add(n);
                 yield return new WaitForSeconds(previewRevealInterval);
@@ -1128,7 +1161,7 @@ public class LogicModeScreen : MonoBehaviour
                 {
                     line = sp.line,
                     kind = sp.bad ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
-                    gauge = nodeStartGauge,
+                    gauge = StartGaugeOf(sp.type),
                     time = sp.time,
                     order = sp.order,
                     type = sp.type,
@@ -1155,7 +1188,7 @@ public class LogicModeScreen : MonoBehaviour
                 {
                     line = sp.line,
                     kind = sp.bad ? ProtoNode.Kind.Bad : ProtoNode.Kind.Good,
-                    gauge = nodeStartGauge,
+                    gauge = StartGaugeOf(sp.type),
                     time = sp.time,
                     order = sp.order,
                     type = sp.type,
@@ -1313,19 +1346,29 @@ public class LogicModeScreen : MonoBehaviour
 
     void CommitDraw(DrawEval e)
     {
+        CreateDrawnLine(drawStart, e.end, drawStartLine, e.endLine, drawStartDist, e.endDist,
+                        e.length, e.cost, SelectedHardness, false);
+        lineGauge -= e.cost;
+    }
+
+    /// <summary>造線を作って登録（プレイヤーの造線・線追加ノードの造線で共通）</summary>
+    DrawnLine CreateDrawnLine(Vector2 a, Vector2 b, BasicLine lineA, BasicLine lineB, float distA, float distB,
+                              float length, float cost, int hardness, bool auto)
+    {
         var d = new DrawnLine
         {
-            a = drawStart,
-            b = e.end,
-            lineA = drawStartLine,
-            lineB = e.endLine,
-            distA = drawStartDist,
-            distB = e.endDist,
-            length = e.length,
-            cost = e.cost,
-            remaining = SelectedHardness,
+            a = a,
+            b = b,
+            lineA = lineA,
+            lineB = lineB,
+            distA = distA,
+            distB = distB,
+            length = length,
+            cost = cost,
+            remaining = Mathf.Max(1, hardness),
             lifeLeft = vanishSeconds,
-            state = DrawnState.Solid
+            state = DrawnState.Solid,
+            auto = auto
         };
 
         d.root = UIShapes.CreateRect(drawnLayer, "DrawnLine", Vector2.zero, Vector2.zero);
@@ -1339,16 +1382,16 @@ public class LogicModeScreen : MonoBehaviour
             UIShapes.CreateImage(d.forbiddenGroup.transform, "Ring", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Ring, new Color(0.85f, 0.4f, 0.4f, 0.5f));
         }
 
-        d.body = UIShapes.CreateLine(d.root, d.a, d.b, DrawnThickness, DrawnColor, "Body");
+        d.body = UIShapes.CreateLine(d.root, d.a, d.b, DrawnThickness, auto ? AutoDrawnColor : DrawnColor, "Body");
 
         Vector2 mid = (d.a + d.b) * 0.5f;
         UIShapes.CreateImage(d.root, "LabelBg", mid, new Vector2(30, 30), UIShapes.Circle, new Color(0.1f, 0.2f, 0.3f, 0.9f));
         d.label = UIShapes.CreateText(d.root, "Label", "", font, 20, Color.white, TextAnchor.MiddleCenter,
                                       mid, new Vector2(30, 30), new Vector2(0.5f, 0.5f));
 
-        lineGauge -= e.cost;
         drawnLines.Add(d);
         RefreshDrawnState(d);
+        return d;
     }
 
     void CancelDrawing()
@@ -1365,6 +1408,7 @@ public class LogicModeScreen : MonoBehaviour
         for (int i = drawnLines.Count - 1; i >= 0; i--)
         {
             var d = drawnLines[i];
+            if (d.auto) continue;   // 線追加ノードの造線は消せない
             if (DistPointSeg(p, d.a, d.b) <= 14f) { RemoveDrawn(d); return; }
         }
     }
@@ -1459,7 +1503,7 @@ public class LogicModeScreen : MonoBehaviour
         foreach (var d in drawnLines)
         {
             float a = AlphaOf(d);
-            var c = DrawnColor; c.a = a;
+            var c = d.auto ? AutoDrawnColor : DrawnColor; c.a = a;
             d.body.color = c;
             d.label.text = vanishMode == VanishMode.Count ? d.remaining.ToString() : Mathf.CeilToInt(d.lifeLeft).ToString();
             d.forbiddenGroup.SetActive(showForbidden);
@@ -1482,10 +1526,9 @@ public class LogicModeScreen : MonoBehaviour
             spawnLog?.SetResult(record, "出現せず（基本線が消滅）");   // 消滅した基本線からは出現しない
             return;
         }
-        var n = ProtoNode.Create(nodeLayer, pn.kind, pn.gauge, font);
+        var n = CreateNode(pn);
         n.Rect.anchoredPosition = line.Sample(0f);
-        n.SetTag(TagOf(pn.type, pn.limb));
-        moving.Add(new MovingNode
+        var m = new MovingNode
         {
             node = n,
             line = line,
@@ -1493,7 +1536,145 @@ public class LogicModeScreen : MonoBehaviour
             type = pn.type,
             record = record,
             targetLimb = pn.type == TypeLimb ? FindLimb(pn.limb) : null
-        });
+        };
+        RegisterSpawnOverlaps(m);   // 出現した瞬間に重なっている分は「交差」に数えない
+        moving.Add(m);
+
+        // type10 線追加：出現時にランダムな位置・角度で造線を追加
+        if (pn.type == TypeAddLine)
+        {
+            bool ok = TryAddRandomLine();
+            if (spawnLogToConsole)
+                Debug.Log(ok ? "[線追加] 造線を 1 本追加しました" : "[線追加] 条件に合う位置が見つからず、造線は追加されませんでした");
+        }
+    }
+
+    // ======================= type9 交差 =======================
+
+    bool Overlaps(MovingNode a, MovingNode b)
+    {
+        float r = nodeSize * crossHitRate;
+        return (a.node.Rect.anchoredPosition - b.node.Rect.anchoredPosition).sqrMagnitude <= r * r;
+    }
+
+    /// <summary>出現時点ですでに重なっている組を「重なり中」として登録（出現直後の誤反転を防ぐ）</summary>
+    void RegisterSpawnOverlaps(MovingNode nm)
+    {
+        foreach (var o in moving)
+        {
+            if (!Overlaps(nm, o)) continue;
+            if (nm.type == TypeCross) nm.touching.Add(o);
+            if (o.type == TypeCross) o.touching.Add(nm);
+        }
+    }
+
+    /// <summary>交差ノードが他のノードと重なり始めたら良性⇔悪性を反転（離れるまでは再反転しない）</summary>
+    void CheckCrossings()
+    {
+        foreach (var a in moving)
+        {
+            if (a.type != TypeCross) continue;
+            a.touching.RemoveWhere(o => !moving.Contains(o));   // 回収・消滅したノードを外す
+            foreach (var b in moving)
+            {
+                if (b == a) continue;
+                if (Overlaps(a, b))
+                {
+                    if (a.touching.Add(b))
+                    {
+                        a.node.FlipKind();
+                        if (spawnLogToConsole)
+                            Debug.Log($"[交差] 交差ノードが反転 → {(a.node.CurrentKind == ProtoNode.Kind.Good ? "良性" : "悪性")}");
+                    }
+                }
+                else a.touching.Remove(b);
+            }
+        }
+    }
+
+    // ======================= type10 線追加 =======================
+
+    /// <summary>
+    /// ランダムな基本線上の点から、ランダムな角度で別の基本線まで造線を引く。
+    /// プレイヤーの造線と同じ条件（別の基本線に届く・造線を跨がない・同じ基本線に繋がない・最短長・開始禁止範囲）を満たすまで抽選。
+    /// </summary>
+    bool TryAddRandomLine()
+    {
+        var cands = lines.FindAll(x => x.alive && x.length > addLineEndMargin * 2f);
+        if (cands.Count == 0) return false;
+
+        float minDeg = Mathf.Min(addLineAngleMin, addLineAngleMax);
+        float maxDeg = Mathf.Max(addLineAngleMin, addLineAngleMax);
+
+        for (int tries = 0; tries < Mathf.Max(1, addLineTries); tries++)
+        {
+            var l = cands[Random.Range(0, cands.Count)];
+            float dist = Random.Range(addLineEndMargin, l.length - addLineEndMargin);
+            Vector2 s = l.Sample(dist);
+            if (NearDrawnEnd(s)) continue;
+
+            float deg = Random.Range(minDeg, maxDeg);
+            if (addLineAngleBase == AngleBase.Line)
+            {
+                Vector2 tan = l.Sample(Mathf.Min(l.length, dist + 2f)) - l.Sample(Mathf.Max(0f, dist - 2f));
+                float baseDeg = Mathf.Atan2(tan.y, tan.x) * Mathf.Rad2Deg;
+                if (Random.value < 0.5f) deg = -deg;   // 基本線の左右どちらに振るか
+                deg += baseDeg;
+            }
+            float rad = deg * Mathf.Deg2Rad;
+            Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
+
+            if (!CastToBasicLine(s, dir, l, out var hitLine, out float hitDist, out float len)) continue;
+            if (len < minLineLength) continue;
+            if (addLineMaxLength > 0f && len > addLineMaxLength) continue;
+            Vector2 e = s + dir * len;
+            if (NearDrawnEnd(e)) continue;
+
+            CreateDrawnLine(s, e, l, hitLine, dist, hitDist, len, 0f, addLineHardness, true);
+            return true;
+        }
+        return false;
+    }
+
+    bool NearDrawnEnd(Vector2 p)
+    {
+        foreach (var d in drawnLines)
+            if (Vector2.Distance(p, d.a) < forbiddenRadius || Vector2.Distance(p, d.b) < forbiddenRadius) return true;
+        return false;
+    }
+
+    /// <summary>s から dir 方向へ伸ばして最初に当たる線を調べる。基本線（start 以外）に当たれば true</summary>
+    bool CastToBasicLine(Vector2 s, Vector2 dir, BasicLine start, out BasicLine hitLine, out float hitDist, out float along)
+    {
+        const float reach = 4000f, ignoreNearStart = 6f;
+        Vector2 far = s + dir * reach;
+        float best = float.MaxValue;
+        bool hitDrawn = false;
+        hitLine = null; hitDist = 0f; along = 0f;
+
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            for (int i = 1; i < l.pts.Count; i++)
+            {
+                if (!SegSeg(s, far, l.pts[i - 1], l.pts[i], out float t, out float u)) continue;
+                float a = t * reach;
+                if (a < ignoreNearStart || a >= best) continue;
+                best = a; hitLine = l; hitDrawn = false;
+                hitDist = l.cum[i - 1] + (l.cum[i] - l.cum[i - 1]) * u;
+            }
+        }
+        foreach (var d in drawnLines)
+        {
+            if (!SegSeg(s, far, d.a, d.b, out float t, out _)) continue;
+            float a = t * reach;
+            if (a < ignoreNearStart || a >= best) continue;
+            best = a; hitLine = null; hitDrawn = true;
+        }
+
+        if (hitDrawn || hitLine == null || hitLine == start) return false;
+        along = best;
+        return true;
     }
 
     void UpdateMoving(float dt)
@@ -1589,6 +1770,8 @@ public class LogicModeScreen : MonoBehaviour
                 if (CurrentPhase == Phase.GameOver) return;
             }
         }
+
+        CheckCrossings();   // type9 交差：移動後の位置で重なりを判定
     }
 
     /// <summary>

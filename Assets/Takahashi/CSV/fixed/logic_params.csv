@@ -29,6 +29,16 @@ heavyMinHardness,2,重い(type7):通れる造線の硬さ(残り回数)の下限
 heavyHardnessCost,2,重い(type7):通ったときに減る硬さ
 stopAfterSeconds,2,途中停止(type8):移動開始から止まるまでの秒数(仮)
 stopSeconds,2,途中停止(type8):止まっている秒数(仮)
+# 特殊ノード（11/07追加）
+crossGauge,100,交差(type9):固定するゲージ値
+crossHitRate,0.8,交差(type9):中心間の距離がノードの大きさ×これ以下で交差
+addLineAngleBase,Line,線追加(type10):角度の基準 Line=基本線の向きから / Screen=画面の角度
+addLineAngleMin,30,線追加(type10):生成角度の下限(度)
+addLineAngleMax,150,線追加(type10):生成角度の上限(度)
+addLineHardness,1,線追加(type10):追加する造線の硬さ
+addLineMaxLength,600,線追加(type10):造線の最大長さ(px) 0=制限なし
+addLineEndMargin,40,線追加(type10):基本線の端からこの距離(px)以内に始点を置かない
+addLineTries,50,線追加(type10):条件に合う線を探す回数
 # 造線操作
 snapRadius,22,基本線をクリックできる距離(px)
 forbiddenRadius,45,開始禁止範囲の半径(px)

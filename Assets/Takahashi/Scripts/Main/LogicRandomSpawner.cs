@@ -10,7 +10,8 @@ using UnityEngine;
 ///       … グループごとのノードの抽選箱。1 行 = 1 枚のくじ（同じ種類の行が多いほど出やすい）
 ///         nodetype  1=良性 / 2=悪性 / 3=良性(2つ同時出現) / 4=悪性(2つ同時出現)
 ///                   5=四肢対応 / 6=足早 / 7=重い / 8=途中停止
-///         nodekind  type5〜8 の良性/悪性（1・良性・青 / 2・悪性・赤）。空欄なら良性
+///                   9=交差 / 10=線追加（11/07 追加）
+///         nodekind  type5〜10 の良性/悪性（1・良性・青 / 2・悪性・赤）。空欄なら良性
 ///         nodelimb  type5 の対応部位（右腕・左腕・右足・左足 など）。空欄なら残っている部位から抽選
 ///   logic_randomside_master    : id, count, same, opposite
 ///       … 同じ側（左/右）に count 回続けて出たとき、次も同じ側に出る確率 : 反対側に出る確率
@@ -41,7 +42,7 @@ public class LogicRandomSpawner
         public bool bad;      // true = 悪性
         public int order;     // 何番目に来るか（2つ同時出現は同じ番号）
         public float time;    // 実行開始から何秒後に出るか
-        public int type;      // nodetype（1〜8）
+        public int type;      // nodetype（1〜10）
         public string limb;   // type5 の対応部位（"RightArm" など。空 = 抽選）
     }
 
@@ -95,7 +96,7 @@ public class LogicRandomSpawner
             foreach (var r in nt.rows)
             {
                 var n = new NodeRow { id = Int(Get(r, cId)), group = Int(Get(r, cGroup)), type = Int(Get(r, cType)) };
-                if (n.type < 1 || n.type > 8)
+                if (n.type < 1 || n.type > 10)
                 {
                     Debug.LogWarning($"[確率出現:randomnode] id {n.id} の nodetype {Get(r, cType)} は不明 → 良性(1)として扱います");
                     n.type = 1;
