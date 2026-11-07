@@ -21,6 +21,7 @@ public class StageNodeSpawner : MonoBehaviour
     private const int RightArmType = 7;   // 四肢対応: 右腕
     private const int RightLegType = 8;   // 四肢対応: 右足
     private const int FastType = 9;       // 足早ノード(番号が違う場合はここを変える)
+    private const int CrossType = 10;     // 交差ノード
 
     [Header("ノード")]
     [SerializeField] private GameObject nodePrefab;
@@ -59,12 +60,15 @@ public class StageNodeSpawner : MonoBehaviour
     [Tooltip("画面上のノードがこの数以上なら、新しく出さない")]
     [SerializeField] private int maxNodeCount = 30;
 
+    [Tooltip("レベルが切り替わるとき、スピードと頻度を前のレベルの値から新しい値へ変えていく秒数。ステージの表の7列目(transition)があれば、そちらが優先")]
+    [SerializeField] private float defaultTransitionSeconds = 5f;
+
     [Header("特殊ノード")]
     [Tooltip("足早ノードの速度倍率。現在のステージのノードスピードに掛ける")]
     [SerializeField] private float fastSpeedMultiplier = 2f;
 
-    [Tooltip("動作確認用: 1?9にすると、表に関係なく、すべてそのtypeのノードを出す。0なら表のとおり")]
-    [Range(0, 9)]
+    [Tooltip("動作確認用: 1?10にすると、表に関係なく、すべてそのtypeのノードを出す。0なら表のとおり")]
+    [Range(0, 10)]
     [SerializeField] private int debugForceNodeType = 0;
 
     [Tooltip("四肢対応ノード・足早ノードが、悪性で出現する確率(0?1)")]
@@ -160,6 +164,9 @@ public class StageNodeSpawner : MonoBehaviour
 
         CurrentLevel = row.level;
 
+        // レベルが切り替わった直後は、前のレベルの値から徐々に変える
+        GetBlendedValues(row, out float rate, out float speed);
+
         timer -= Time.deltaTime;
 
         if (timer > 0f)
@@ -167,11 +174,11 @@ public class StageNodeSpawner : MonoBehaviour
             return;
         }
 
-        SpawnWave(row);
+        SpawnWave(row, speed);
 
         // rate個 / rateUnitSeconds秒 の間隔で出現させる
-        float interval = row.rate > 0
-            ? rateUnitSeconds / row.rate
+        float interval = rate > 0f
+            ? rateUnitSeconds / rate
             : 1f;
 
         timer += interval;
@@ -204,9 +211,65 @@ public class StageNodeSpawner : MonoBehaviour
         return current;
     }
 
+    // ひとつ前の行(同じステージで、timeがひとつ小さい行)
+    private StageRow GetPreviousRow(StageRow current)
+    {
+        StageRow previous = null;
+
+        foreach (StageRow row in stageRows)
+        {
+            if (row.stage != current.stage || row.time >= current.time)
+            {
+                continue;
+            }
+
+            if (previous == null || row.time > previous.time)
+            {
+                previous = row;
+            }
+        }
+
+        return previous;
+    }
+
+    // 現在のスピードと頻度を返す。
+    // 現在の行に切り替わった時点から、transition秒かけて、前の行の値から現在の行の値へ変える。
+    // (グループは切り替わった時点ですぐ変わる)
+    private void GetBlendedValues(StageRow row, out float rate, out float speed)
+    {
+        rate = row.rate;
+        speed = row.speed;
+
+        StageRow previous = GetPreviousRow(row);
+
+        if (previous == null)
+        {
+            return;
+        }
+
+        float seconds = row.transition >= 0f ? row.transition : defaultTransitionSeconds;
+
+        if (seconds <= 0f)
+        {
+            return;
+        }
+
+        float t = (elapsed - row.time * 0.1f) / seconds;
+
+        if (t >= 1f)
+        {
+            return;
+        }
+
+        t = Mathf.Clamp01(t);
+
+        rate = Mathf.Lerp(previous.rate, row.rate, t);
+        speed = Mathf.Lerp(previous.speed, row.speed, t);
+    }
+
     // ===== 出現 =====
 
-    private void SpawnWave(StageRow row)
+    private void SpawnWave(StageRow row, float stageSpeed)
     {
         NodeRow picked = PickNodeRow(row.group);
 
@@ -225,12 +288,13 @@ public class StageNodeSpawner : MonoBehaviour
 
         bool limbNode = picked.type >= LeftArmType && picked.type <= RightLegType;
         bool fastNode = picked.type == FastType;
+        bool crossNode = picked.type == CrossType;
 
-        // 四肢対応ノード・足早ノードは、確率で悪性になる
+        // 四肢対応ノード・足早ノード・交差ノードは、確率で悪性になる
         bool malignant =
             picked.type == 2 ||
             picked.type == 4 ||
-            ((limbNode || fastNode) && Random.value < specialMalignantChance);
+            ((limbNode || fastNode || crossNode) && Random.value < specialMalignantChance);
 
         int count = (picked.type == 3 || picked.type == 4) ? 2 : 1;
 
@@ -258,7 +322,7 @@ public class StageNodeSpawner : MonoBehaviour
 
         Debug.Log(
             $"出現: type={picked.type} 悪性={malignant} " +
-            $"speed={row.speed * speedMultiplier}", this);
+            $"speed={stageSpeed * speedMultiplier}", this);
 
         BasicLine firstLine = null;
 
@@ -275,10 +339,11 @@ public class StageNodeSpawner : MonoBehaviour
             SpawnNode(
                 line,
                 malignant,
-                row.speed * speedMultiplier,
+                stageSpeed * speedMultiplier,
                 hasTarget,
                 targetType,
-                fastNode
+                fastNode,
+                crossNode
             );
 
             if (i == 0)
@@ -466,7 +531,8 @@ public class StageNodeSpawner : MonoBehaviour
         float speed,
         bool hasTarget,
         LimbController.LimbType targetType,
-        bool fast)
+        bool fast,
+        bool cross)
     {
         if (nodePrefab == null)
         {
@@ -498,6 +564,11 @@ public class StageNodeSpawner : MonoBehaviour
         if (fast)
         {
             node.SetFast();
+        }
+
+        if (cross)
+        {
+            node.SetCrossing();
         }
 
         node.SetSpawnBasicLine(line);

@@ -21,7 +21,7 @@ public class NodeRow
     public int group;        // どのノードグループか
     public int type;         // 1=良性 2=悪性 3=良性(2つ同時) 4=悪性(2つ同時)
                              // 5=四肢対応(左腕) 6=四肢対応(左足) 7=四肢対応(右腕) 8=四肢対応(右足)
-                             // 9=足早ノード
+                             // 9=足早ノード 10=交差ノード
 }
 
 // ステージの表の1行
@@ -33,6 +33,10 @@ public class StageRow
     public int group;        // 出現するノードグループ
     public int rate;         // 出現するノードの頻度
     public int speed;        // 出現したノードのスピード
+
+    // 前のレベルから、この行のスピード・頻度へ変えていく秒数(7列目。なければ-1)
+    // -1のときは、StageNodeSpawnerのDefault Transition Secondsを使う
+    public float transition = -1f;
 }
 
 public static class SpawnTables
@@ -114,6 +118,14 @@ public static class SpawnTables
                 TryInt(cells[4], out int rate) &&
                 TryInt(cells[5], out int speed))
             {
+                // 7列目(任意): スピード・頻度を変えていく秒数
+                float transition = -1f;
+
+                if (cells.Length >= 7 && TryFloat(cells[6], out float parsed))
+                {
+                    transition = parsed;
+                }
+
                 rows.Add(new StageRow
                 {
                     stage = stage,
@@ -121,7 +133,8 @@ public static class SpawnTables
                     level = level,
                     group = group,
                     rate = rate,
-                    speed = speed
+                    speed = speed,
+                    transition = transition
                 });
             }
         }
@@ -224,7 +237,7 @@ public static class SpawnTableDefaults
 
     // id, nodegroup, nodetype
     //  1=良性 2=悪性 3=良性2つ 4=悪性2つ
-    //  5=左腕 6=左足 7=右腕 8=右足(四肢対応)  9=足早
+    //  5=左腕 6=左足 7=右腕 8=右足(四肢対応)  9=足早  10=交差
     public const string NodeGroup =
 @"1,1,1
 2,1,1
@@ -290,9 +303,11 @@ public static class SpawnTableDefaults
 62,3,6
 63,3,7
 64,3,8
-65,3,9";
+65,3,9
+66,2,10
+67,3,10";
 
-    // stage, time(100=10.0秒), level, nodegroup, rate, speed
+    // stage, time(100=10.0秒), level, nodegroup, rate, speed, [transition(秒・任意)]
     public const string Stage =
 @"1,0,1,1,10,10
 1,100,2,1,11,10
