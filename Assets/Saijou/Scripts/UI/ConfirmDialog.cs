@@ -30,6 +30,8 @@ public class ConfirmDialog : MonoBehaviour
     [SerializeField] private RectTransform rootRect;   // Root の RectTransform
     [SerializeField] private float jitterAmount = 8f;  // ブレの大きさ（ピクセル）
 
+    [SerializeField] private GlitchEffect glitch;   // フィールドを追加し、Root の GlitchEffect を割り当てる
+
     private Action onYes;
     private Action onNo;
     private Coroutine fadeRoutine;
@@ -78,6 +80,7 @@ public class ConfirmDialog : MonoBehaviour
         this.onNo = onNo;
 
         root.SetActive(true);
+        if (glitch != null) glitch.Burst();
         transform.SetAsLastSibling(); // 他のUIより手前に出す
 
         if (fadeRoutine != null) StopCoroutine(fadeRoutine);

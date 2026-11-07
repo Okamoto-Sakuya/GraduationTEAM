@@ -359,6 +359,7 @@ GameObject:
   m_Component:
   - component: {fileID: 266017154466262934}
   - component: {fileID: 4125833188401836290}
+  - component: {fileID: 1322193271558074663}
   m_Layer: 5
   m_Name: Root
   m_TagString: Untagged
@@ -399,6 +400,33 @@ CanvasGroup:
   m_Interactable: 1
   m_BlocksRaycasts: 1
   m_IgnoreParentGroups: 0
+--- !u!114 &1322193271558074663
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6400853780996617508}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4766f80ce3535094cbf549962b5a6a70, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GlitchEffect
+  glitchMaterial: {fileID: 2100000, guid: 1795cb7036be3db458820822a293e81b, type: 2}
+  imageTargets:
+  - {fileID: 8053272524560108314}
+  jitterTexts:
+  - {fileID: 7863170869333159184}
+  - {fileID: 3583317525410239818}
+  - {fileID: 4652773493886908749}
+  - {fileID: 6663176364552315342}
+  burstDuration: 0.6
+  burstPeak: 1
+  idleGlitch: 1
+  idleIntensity: 0.5
+  idleInterval: {x: 1.5, y: 4}
+  idleLength: {x: 0.08, y: 0.25}
+  textJitterPixels: 6
 --- !u!1 &6536739705263885214
 GameObject:
   m_ObjectHideFlags: 0
@@ -582,6 +610,7 @@ MonoBehaviour:
   dropChance: 0.4
   rootRect: {fileID: 832624555743048692}
   jitterAmount: 38
+  glitch: {fileID: 1322193271558074663}
 --- !u!1 &6860006719190312150
 GameObject:
   m_ObjectHideFlags: 0
