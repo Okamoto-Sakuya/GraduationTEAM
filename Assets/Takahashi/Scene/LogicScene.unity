@@ -159,7 +159,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2f39e954c024254abd84b09a84770a3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LogicModeScreen
-  centerSprite: {fileID: 21300000, guid: 74ac34170961c114383f61ea6600238c, type: 3}
+  centerSprite: {fileID: 0}
   centerSize: {x: 820, y: 820}
   centerOffset: {x: 0, y: 0}
   preserveAspect: 1
@@ -168,7 +168,7 @@ MonoBehaviour:
   armAngle: 42.8
   legAngle: -50.71222
   arcSegments: 96
-  backgroundSprite: {fileID: 0}
+  backgroundSprite: {fileID: 21300000, guid: 327a96eb03fec624cac74d705049e484, type: 3}
   armSprite: {fileID: 0}
   legSprite: {fileID: 0}
   limbIconSize: {x: 78, y: 78}
@@ -189,7 +189,7 @@ MonoBehaviour:
   useLimbBloom: 1
   limbBloomResources: Higanbana
   bloomDirection: 1
-  baseNoLimbsSprite: {fileID: 21300000, guid: 74ac34170961c114383f61ea6600238c, type: 3}
+  baseNoLimbsSprite: {fileID: 21300000, guid: 5806b76e9626acd49b55a8106fe9d9b6, type: 3}
   limbSprites:
   - {fileID: 21300000, guid: f68984b5e737c8244856e2e5abe9018c, type: 3}
   - {fileID: 21300000, guid: aaf1e7d611a0fe443b91268c2419f277, type: 3}
@@ -207,7 +207,7 @@ MonoBehaviour:
     embers: 10
     randomEachTime: 1
   hierarchyOverrides: []
-  stageNumber: 1
+  stageNumber: 10
   markClearedOnClear: 1
   clearCharacter: Daughter
   debugKeys: 1
@@ -270,6 +270,15 @@ MonoBehaviour:
   heavyHardnessCost: 2
   stopAfterSeconds: 2
   stopSeconds: 2
+  crossGauge: 100
+  crossHitRate: 0.8
+  addLineAngleBase: 0
+  addLineAngleMin: 30
+  addLineAngleMax: 150
+  addLineHardness: 1
+  addLineMaxLength: 600
+  addLineEndMargin: 40
+  addLineTries: 50
   rankScoreS: 60000
   rankScoreA: 45000
   rankScoreB: 30000

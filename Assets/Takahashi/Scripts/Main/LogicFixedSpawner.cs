@@ -10,7 +10,8 @@ using UnityEngine;
 ///       … 問題ごとのノード。同じ問題の中に nodegroup が複数あれば、そのうち 1 つを抽選して出す
 ///         nodetype  1=良性 / 2=悪性 / 3=良性(2つ同時出現) / 4=悪性(2つ同時出現)
 ///                   5=四肢対応 / 6=足早 / 7=重い / 8=途中停止（10/30 追加）
-///         nodekind  type5〜8 の良性/悪性（1・良性・青 / 2・悪性・赤）。空欄なら良性。列ごと省略してもよい
+///                   9=交差 / 10=線追加（11/07 追加）
+///         nodekind  type5〜10 の良性/悪性（1・良性・青 / 2・悪性・赤）。空欄なら良性。列ごと省略してもよい
 ///         nodelimb  type5 の対応部位（右腕・左腕・右足・左足 / RA・LA・RL・LL / 1〜4 = 右腕・左腕・右足・左足）
 ///                   空欄なら、問題を作るときに残っている部位から抽選
 ///         nodeorder 何番目に出るか（同じ番号は同じ時刻に出る）
@@ -37,7 +38,7 @@ public class LogicFixedSpawner
         public bool bad;      // true = 悪性
         public int order;     // 何番目に来るか（2つ同時出現は同じ番号）
         public float time;    // 実行開始から何秒後に出るか
-        public int type;      // nodetype（1〜8）
+        public int type;      // nodetype（1〜10）
         public string limb;   // type5 の対応部位（"RightArm" など。空 = 抽選）
     }
 
@@ -88,12 +89,12 @@ public class LogicFixedSpawner
                     type = Int(Get(r, cType)),
                     order = Int(Get(r, cOrder))
                 };
-                if (n.type < 1 || n.type > 8)
+                if (n.type < 1 || n.type > 10)
                 {
                     Debug.LogWarning($"[指定出現:fixednode] id {n.id} の nodetype {Get(r, cType)} は不明 → 良性(1)として扱います");
                     n.type = 1;
                 }
-                // 悪性かどうか：2/4 は悪性。5〜8 は nodekind で決める（空欄なら良性）
+                // 悪性かどうか：2/4 は悪性。5〜10 は nodekind で決める（空欄なら良性）
                 n.bad = n.type == 2 || n.type == 4 || (n.type >= 5 && Kind(Get(r, cKind)) == 2);
                 if (n.type == 5) n.limb = Limb(Get(r, cLimb), n.id);
                 foreach (int c in posCols)
