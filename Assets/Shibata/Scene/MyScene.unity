@@ -174,7 +174,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MouseSensController
   sensSlider: {fileID: 39963976}
   cursor: {fileID: 1747624648}
-  mouseSens: 0.5
 --- !u!114 &39963976
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3821,7 +3820,7 @@ Canvas:
   m_AdditionalShaderChannelsFlag: 0
   m_UpdateRectTransformForStandalone: 0
   m_SortingLayerID: 0
-  m_SortingOrder: 0
+  m_SortingOrder: 10
   m_TargetDisplay: 0
 --- !u!224 &1141830965
 RectTransform:
@@ -5040,6 +5039,7 @@ GameObject:
   - component: {fileID: 1747624648}
   - component: {fileID: 1747624650}
   - component: {fileID: 1747624649}
+  - component: {fileID: 1747624651}
   m_Layer: 5
   m_Name: Cursor
   m_TagString: Untagged
@@ -5080,7 +5080,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
   m_Material: {fileID: 0}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
@@ -5104,6 +5104,20 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1747624647}
   m_CullTransparentMesh: 1
+--- !u!114 &1747624651
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1747624647}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a7c3fe3a46984941b6f8f757fd957ec, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CursorController
+  sensitivity: 30
+  areaTopLeft: {x: 0, y: 0}
 --- !u!1 &1758929771
 GameObject:
   m_ObjectHideFlags: 0

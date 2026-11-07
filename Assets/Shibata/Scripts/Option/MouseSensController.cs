@@ -8,21 +8,8 @@ public class MouseSensController : MonoBehaviour
     [SerializeField]
     RectTransform cursor;
 
-    [SerializeField]
-    float mouseSens = 1.0f;
-
     void Update()
     {
-        //Cursor.visible = false;
-
-        mouseSens = sensSlider.value;
-
-        Vector2 mousePosition = Input.mousePosition;
-
-        cursor.position = Vector2.Lerp(
-            cursor.position,
-            mousePosition,
-            mouseSens * Time.deltaTime
-        );
+        OptionManager.mouseSens = sensSlider.value;
     }
 }

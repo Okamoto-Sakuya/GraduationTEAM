@@ -129,12 +129,12 @@ TextureImporter:
       name: icon-carsol_0
       rect:
         serializedVersion: 2
-        x: 377
+        x: 267
         y: 326
-        width: 248
-        height: 321
+        width: 358
+        height: 557
       alignment: 0
-      pivot: {x: 0, y: 0}
+      pivot: {x: 0.5, y: 0.5}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
       outline: []
@@ -151,7 +151,7 @@ TextureImporter:
     customData: 
     physicsShape: []
     bones: []
-    spriteID: 
+    spriteID: 99095d7f81bea9242b4efb213251c396
     internalID: 0
     vertices: []
     indices: 

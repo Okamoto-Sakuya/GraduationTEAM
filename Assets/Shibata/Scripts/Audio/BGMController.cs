@@ -1,18 +1,30 @@
+
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Audio;
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using static AudioManager;
 
 public class BGMController : MonoBehaviour
 {
-    public static BGMController Inst_BGMManager;
+    public static BGMController instance;
+
+    //============================================================
+    // BGMデータ
+    //============================================================
 
     [System.Serializable]
     public class BGMData
     {
         public BGMType type;
-        public AudioClip clip;
+
+        [Header("AddressableのBGM")]
+        public AssetReferenceT<AudioClip> clip;
     }
+
+    //============================================================
+    // BGMの種類
+    //============================================================
 
     public enum BGMType
     {
@@ -22,83 +34,269 @@ public class BGMController : MonoBehaviour
         MainGame3,
         MainGame4,
         Clear,
-        SkillTree,
-
-        MainGame
     }
 
+    //============================================================
+    // BGM管理
+    //============================================================
+
     [SerializeField]
-    List<BGMData> bgmList = new();
+    private List<BGMData> bgmList = new();
 
-    Dictionary<BGMType, AudioClip> bgmDictionary = new();
+    // ロード済みのAudioClip
+    private Dictionary<BGMType, AudioClip> bgmDictionary = new();
 
-    AudioSource audioSource;
+    // Addressablesのロードハンドル
+    private Dictionary<BGMType, AsyncOperationHandle<AudioClip>>
+        bgmHandles = new();
 
-    void Awake()
+    // ロード中のBGM
+    private HashSet<BGMType> loadingBGM = new();
+
+    // ロード中に要求されたBGM
+    private BGMType? pendingBGM = null;
+
+    // 現在再生中のBGM
+    private BGMType? currentBGM = null;
+
+    //============================================================
+    // AudioSource
+    //============================================================
+
+    private AudioSource audioSource;
+
+    //============================================================
+    // 初期化
+    //============================================================
+
+    private void Awake()
     {
-        DontDestroyOnLoad(this.gameObject);
-        if (Inst_BGMManager != null)
+        if (instance != null && instance != this)
         {
             Destroy(gameObject);
             return;
         }
-        Inst_BGMManager = this;
+
+        instance = this;
+
+        DontDestroyOnLoad(gameObject);
 
         audioSource = GetComponent<AudioSource>();
 
-        // Inspectorで設定した内容をDictionaryへ変換
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+        }
+
+        audioSource.playOnAwake = false;
+        audioSource.loop = true;
+
+        // AddressablesからBGMをロード
+        LoadAllBGM();
+    }
+
+    //============================================================
+    // Addressablesロード
+    //============================================================
+
+    /// <summary>
+    /// Inspectorで設定したBGMをすべて非同期ロードする
+    /// </summary>
+    private void LoadAllBGM()
+    {
+        HashSet<BGMType> registeredTypes = new();
+
         foreach (BGMData data in bgmList)
         {
-            if (data.clip != null)
+            if (data == null || data.clip == null)
+                continue;
+
+            if (!registeredTypes.Add(data.type))
             {
-                bgmDictionary[data.type] = data.clip;
+                Debug.LogWarning(
+                    $"BGMTypeが重複しています: {data.type}");
+                continue;
             }
+
+            BGMType type = data.type;
+
+            loadingBGM.Add(type);
+
+            AsyncOperationHandle<AudioClip> handle =
+                Addressables.LoadAssetAsync<AudioClip>(data.clip);
+
+            bgmHandles[type] = handle;
+
+            handle.Completed += operation =>
+            {
+                if (this == null)
+                    return;
+
+                loadingBGM.Remove(type);
+
+                if (operation.Status == AsyncOperationStatus.Succeeded)
+                {
+                    bgmDictionary[type] = operation.Result;
+
+                    Debug.Log($"BGMロード成功: {type}");
+
+                    // ロード中に要求されたBGMを再生
+                    if (pendingBGM.HasValue &&
+                        pendingBGM.Value == type)
+                    {
+                        pendingBGM = null;
+                        PlayBGM(type);
+                    }
+                }
+                else
+                {
+                    Debug.LogError(
+                        $"BGMロード失敗: {type}");
+
+                    if (pendingBGM.HasValue &&
+                        pendingBGM.Value == type)
+                    {
+                        pendingBGM = null;
+                    }
+                }
+            };
         }
     }
 
-    void Start()
+    //============================================================
+    // Start
+    //============================================================
+
+    private void Start()
     {
-        bgmVolume = 0;
-        foreach(BGMType type in bgmDictionary.Keys)
-        {
-            PlayBGM(type);
-
-            if(type == BGMType.SkillTree)
-            {
-                bgmVolume = 1;
-                break;
-            }
-        }
-
+        // 初期BGM
         PlayBGM(BGMType.Title);
     }
 
-    void Update()
+    //============================================================
+    // Update
+    //============================================================
+
+    private void Update()
     {
-        Inst_BGMManager.audioSource.volume = masterVolume * bgmVolume;
+        if (audioSource == null)
+            return;
+
+        // 全体音量を適用
+        audioSource.volume = masterVolume * bgmVolume;
     }
 
+    //============================================================
+    // BGM再生
+    //============================================================
+
+    /// <summary>
+    /// BGM再生
+    /// </summary>
     public static void PlayBGM(BGMType type)
     {
-        if (Inst_BGMManager == null)
+        if (instance == null)
         {
             Debug.LogWarning("BGMManagerが存在しません");
             return;
         }
 
-        if (Inst_BGMManager.bgmDictionary.TryGetValue(type, out AudioClip clip))
+        BGMController manager = instance;
+
+        // すでに同じBGMを再生中なら何もしない
+        if (manager.currentBGM.HasValue &&
+            manager.currentBGM.Value == type &&
+            manager.audioSource.isPlaying)
         {
-            Inst_BGMManager.audioSource.Stop();
-
-            Inst_BGMManager.audioSource.loop = true;
-
-            Inst_BGMManager.audioSource.clip = clip;
-
-            Inst_BGMManager.audioSource.Play();
+            return;
         }
-        else
+
+        // ロード済みか確認
+        if (!manager.bgmDictionary.TryGetValue(
+            type, out AudioClip clip))
         {
-            Debug.LogWarning($"BGM未登録: {type}");
+            // ロード中なら再生要求を保留
+            if (manager.loadingBGM.Contains(type))
+            {
+                // 最後に要求されたBGMを優先
+                manager.pendingBGM = type;
+                return;
+            }
+
+            Debug.LogWarning(
+                $"BGM未登録またはロード失敗: {type}");
+            return;
         }
+
+        // 現在のBGMを停止
+        manager.audioSource.Stop();
+
+        // BGMを設定
+        manager.audioSource.clip = clip;
+        manager.audioSource.loop = true;
+
+        // 再生
+        manager.audioSource.Play();
+
+        manager.currentBGM = type;
+
+        Debug.Log($"BGM再生: {type}");
+    }
+
+    //============================================================
+    // BGM停止
+    //============================================================
+
+    /// <summary>
+    /// BGMを停止する
+    /// </summary>
+    public static void StopBGM()
+    {
+        if (instance == null)
+        {
+            Debug.LogWarning("BGMManagerが存在しません");
+            return;
+        }
+
+        instance.audioSource.Stop();
+        instance.audioSource.clip = null;
+
+        instance.currentBGM = null;
+        instance.pendingBGM = null;
+    }
+
+    //============================================================
+    // 終了処理・Addressables解放
+    //============================================================
+
+    private void OnDestroy()
+    {
+        if (instance != this)
+            return;
+
+        // 再生中のBGMを停止
+        if (audioSource != null)
+        {
+            audioSource.Stop();
+            audioSource.clip = null;
+        }
+
+        // ロードしたAddressablesのハンドルを解放
+        foreach (var pair in bgmHandles)
+        {
+            if (pair.Value.IsValid())
+            {
+                Addressables.Release(pair.Value);
+            }
+        }
+
+        bgmHandles.Clear();
+        bgmDictionary.Clear();
+        loadingBGM.Clear();
+
+        pendingBGM = null;
+        currentBGM = null;
+
+        instance = null;
     }
 }
