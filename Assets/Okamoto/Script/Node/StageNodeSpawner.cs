@@ -22,6 +22,7 @@ public class StageNodeSpawner : MonoBehaviour
     private const int RightLegType = 8;   // 四肢対応: 右足
     private const int FastType = 9;       // 足早ノード(番号が違う場合はここを変える)
     private const int CrossType = 10;     // 交差ノード
+    private const int LineAddType = 11;   // 線追加ノード
 
     [Header("ノード")]
     [SerializeField] private GameObject nodePrefab;
@@ -67,13 +68,27 @@ public class StageNodeSpawner : MonoBehaviour
     [Tooltip("足早ノードの速度倍率。現在のステージのノードスピードに掛ける")]
     [SerializeField] private float fastSpeedMultiplier = 2f;
 
-    [Tooltip("動作確認用: 1?10にすると、表に関係なく、すべてそのtypeのノードを出す。0なら表のとおり")]
-    [Range(0, 10)]
+    [Tooltip("動作確認用: 1?11にすると、表に関係なく、すべてそのtypeのノードを出す。0なら表のとおり")]
+    [Range(0, 11)]
     [SerializeField] private int debugForceNodeType = 0;
 
     [Tooltip("四肢対応ノード・足早ノードが、悪性で出現する確率(0?1)")]
     [Range(0f, 1f)]
     [SerializeField] private float specialMalignantChance = 0.5f;
+
+    [Header("線追加ノード")]
+    [Tooltip("線を追加する先のLineManager。空なら自動で探す")]
+    [SerializeField] private LineManager lineManager;
+
+    [Tooltip("追加する造線の角度の範囲。基本線に垂直な向きから±この角度(度)")]
+    [Range(0f, 89f)]
+    [SerializeField] private float lineAddMaxAngle = 45f;
+
+    [Tooltip("追加する造線の最大の長さ。0なら制限なし")]
+    [SerializeField] private float lineAddMaxDistance = 6f;
+
+    [Tooltip("1体の出現で追加する造線の本数")]
+    [SerializeField] private int lineAddCount = 1;
 
     // 読み込んだデータ
     private List<CountRow> baselineRows;
@@ -289,12 +304,13 @@ public class StageNodeSpawner : MonoBehaviour
         bool limbNode = picked.type >= LeftArmType && picked.type <= RightLegType;
         bool fastNode = picked.type == FastType;
         bool crossNode = picked.type == CrossType;
+        bool lineAddNode = picked.type == LineAddType;
 
         // 四肢対応ノード・足早ノード・交差ノードは、確率で悪性になる
         bool malignant =
             picked.type == 2 ||
             picked.type == 4 ||
-            ((limbNode || fastNode || crossNode) && Random.value < specialMalignantChance);
+            ((limbNode || fastNode || crossNode || lineAddNode) && Random.value < specialMalignantChance);
 
         int count = (picked.type == 3 || picked.type == 4) ? 2 : 1;
 
@@ -345,6 +361,12 @@ public class StageNodeSpawner : MonoBehaviour
                 fastNode,
                 crossNode
             );
+
+            // 線追加ノード: 出現時に、ランダムな場所・角度に造線を追加する
+            if (lineAddNode)
+            {
+                AddRandomLines();
+            }
 
             if (i == 0)
             {
@@ -572,6 +594,25 @@ public class StageNodeSpawner : MonoBehaviour
         }
 
         node.SetSpawnBasicLine(line);
+    }
+
+    private void AddRandomLines()
+    {
+        if (lineManager == null)
+        {
+            lineManager = FindFirstObjectByType<LineManager>();
+        }
+
+        if (lineManager == null)
+        {
+            Debug.LogWarning("StageNodeSpawner: LineManagerが見つかりません。", this);
+            return;
+        }
+
+        for (int i = 0; i < lineAddCount; i++)
+        {
+            lineManager.AddRandomLine(lineAddMaxAngle, lineAddMaxDistance);
+        }
     }
 
     private int CountAliveNodes()
