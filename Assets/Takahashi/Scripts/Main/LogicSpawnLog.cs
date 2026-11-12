@@ -28,10 +28,7 @@ public class LogicSpawnLog
         public float damage, san;
     }
 
-    public static readonly string[] TypeNames =
-        { "", "良性", "悪性", "良性(2つ同時)", "悪性(2つ同時)", "四肢対応", "足早", "重い", "途中停止" };
-
-    public static string TypeName(int type) => type >= 1 && type < TypeNames.Length ? TypeNames[type] : "type" + type;
+    public static string TypeName(int type) => LogicNodeTypes.Name(type);
 
     public string FilePath { get; }
     public IReadOnlyList<Record> Records => records;
@@ -60,13 +57,21 @@ public class LogicSpawnLog
     {
         var r = new Record
         {
-            serial = records.Count + 1, stage = stage, problem = problem, order = order, time = time,
-            mode = mode, type = type, bad = bad, line = line ?? "", limb = limb ?? ""
+            serial = records.Count + 1,
+            stage = stage,
+            problem = problem,
+            order = order,
+            time = time,
+            mode = mode,
+            type = type,
+            bad = bad,
+            line = line ?? "",
+            limb = limb ?? ""
         };
         records.Add(r);
         if (toConsole)
             Debug.Log($"[出現ログ] #{r.serial} 問題{problem} 順番{order} {TypeName(type)}" +
-                      $"{(type >= 5 ? (bad ? "(悪性)" : "(良性)") : "")}{(r.limb != "" ? " 部位:" + r.limb : "")} @{r.line} {time:0.0}秒");
+                      $"{(bad ? "(悪性)" : "(良性)")}{(r.limb != "" ? " 部位:" + r.limb : "")} @{r.line} {time:0.0}秒");
         return r;
     }
 

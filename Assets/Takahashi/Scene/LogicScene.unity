@@ -165,8 +165,8 @@ MonoBehaviour:
   preserveAspect: 1
   circleCenter: {x: 0, y: 20}
   circleRadius: 285
-  armAngle: 42.8
-  legAngle: -50.71222
+  armAngle: 41.31816
+  legAngle: -58.65094
   arcSegments: 96
   backgroundSprite: {fileID: 21300000, guid: 327a96eb03fec624cac74d705049e484, type: 3}
   armSprite: {fileID: 0}
@@ -207,7 +207,7 @@ MonoBehaviour:
     embers: 10
     randomEachTime: 1
   hierarchyOverrides: []
-  stageNumber: 10
+  stageNumber: 1
   markClearedOnClear: 1
   clearCharacter: Daughter
   debugKeys: 1
@@ -217,27 +217,40 @@ MonoBehaviour:
   resultScreen: {fileID: 24437205}
   uiFont: {fileID: 0}
   spawnMode: 1
+  commonCsvFolder: MasterData/Main/Common
+  logicCsvFolder: MasterData/Main/Logic
+  useDebugCsv: 1
   useStreamingAssets: 1
   paramsCsvName: logic_params.csv
   nodeTableCsvName: node_table.csv
   paramsCsv: {fileID: 4900000, guid: e9178894c740d9a4da4d37470f8afb8c, type: 3}
   nodeTableCsv: {fileID: 4900000, guid: 826d941a0f3403244bf2bd1cfeed09e8, type: 3}
+  nodeStatusCsvName: nodestatus_master.csv
+  playerStatusCsvName: playerstatus_master.csv
+  miscParamsCsvName: miscparams_master.csv
+  nodeStatusCsv: {fileID: 4900000, guid: 0009fe5dc4de8784ab62f70e255181fe, type: 3}
+  playerStatusCsv: {fileID: 4900000, guid: 4cedd062aeb742d4e9079fe174a3f4fd, type: 3}
+  miscParamsCsv: {fileID: 0}
   randomProblemCsvName: logic_randomproblem_master.csv
   randomNodeCsvName: logic_randomnode_master.csv
   randomSideCsvName: logic_randomside_master.csv
   randomLineCsvName: logic_randomline_master.csv
-  randomProblemCsv: {fileID: 4900000, guid: df927abdf37b2b840850c592c7862c17, type: 3}
-  randomNodeCsv: {fileID: 4900000, guid: 5518db02a6024ed4e8af09532d15e304, type: 3}
-  randomSideCsv: {fileID: 4900000, guid: a5a2769864f59ec46b1d91a217ab0d14, type: 3}
-  randomLineCsv: {fileID: 4900000, guid: f686c247454d58843aac7957802eb4d0, type: 3}
+  randomProblemCsv: {fileID: 4900000, guid: 9fb0c4ce3bef2c046afb890bae68c9ce, type: 3}
+  randomNodeCsv: {fileID: 4900000, guid: ba225ec0039c7844a9496ced0d824068, type: 3}
+  randomSideCsv: {fileID: 4900000, guid: f007bc0fe249b7f43a940194769ff332, type: 3}
+  randomLineCsv: {fileID: 4900000, guid: 65cbfeca80fda054e88c87cc74225036, type: 3}
   fixedProblemCsvName: logic_fixedproblem_master.csv
   fixedNodeCsvName: logic_fixednode_master.csv
-  fixedProblemCsv: {fileID: 4900000, guid: de574d5419a563540ad9c805faf44af2, type: 3}
-  fixedNodeCsv: {fileID: 4900000, guid: 1d0bf7ec1540efa458699bb870e74094, type: 3}
-  limbMaxHp: 25
-  killMiddleOnLegLost: 0
+  fixedProblemCsv: {fileID: 4900000, guid: ca74a1238ae409d4084a6773796ebe4d, type: 3}
+  fixedNodeCsv: {fileID: 4900000, guid: 46a2f9ec6c0ff6e448efbe024e425e98, type: 3}
+  hpLeftArm: 25
+  hpLeftLeg: 25
+  hpRightArm: 25
+  hpRightLeg: 25
+  showHpGauge: 0
+  killMiddleOnLegLost: 1
   maxSan: 40
-  maxLineGauge: 2000
+  maxLineGauge: 1000
   armLostGaugePenalty: 500
   costPerMeter: 100
   pixelsPerMeter: 100
@@ -251,25 +264,36 @@ MonoBehaviour:
   nodeStartGauge: 100
   gaugePerSecond: 10
   goodScore: e8030000dc050000d0070000b80b0000
-  badScore: f40100005e010000c800000032000000
+  badScore: 32000000c80000005e010000f4010000
+  goodDamage:
+  - 0
+  - 0
+  - 0
+  - 0
   badDamage:
   - 10
   - 7
   - 10
   - 15
+  goodSan:
+  - 0
+  - 0
+  - 0
+  - 0
   badSan:
   - 3
   - 5
   - 8
   - 10
   scoreDigits: 8
-  limbMatchScoreRate: 1.5
-  limbMismatchSan: 5
   fastSpeedRate: 2
   heavyMinHardness: 2
   heavyHardnessCost: 2
   stopAfterSeconds: 2
   stopSeconds: 2
+  stopTint: {r: 0.55, g: 0.55, b: 0.55, a: 1}
+  limbMatchScoreRate: 1.5
+  limbMismatchSan: 5
   crossGauge: 100
   crossHitRate: 0.8
   addLineAngleBase: 0
@@ -290,9 +314,16 @@ MonoBehaviour:
   flashDecay: 2
   dangerStartScale: 2.2
   previewDanger: 0
+  settingsVersion: 1
   snapRadius: 22
   forbiddenRadius: 45
   minLineLength: 30
+  endPointMode: 0
+  forbidCenter: 1
+  centerForbiddenRate: 0.98
+  unplaceableColor: {r: 0.55, g: 0.55, b: 0.55, a: 1}
+  violationColor: {r: 1, g: 0.2, b: 0.2, a: 1}
+  violationBlinkSpeed: 4
   nodeSpeed: 160
   spawnInterval: 1.5
   previewRevealInterval: 0.4
@@ -461,6 +492,37 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 282972026}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &429421360
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 429421361}
+  m_Layer: 0
+  m_Name: gamesetting
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &429421361
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 429421360}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -730,3 +792,4 @@ SceneRoots:
   - {fileID: 183445545}
   - {fileID: 3729817648152522315}
   - {fileID: 3744174039667977052}
+  - {fileID: 429421361}
