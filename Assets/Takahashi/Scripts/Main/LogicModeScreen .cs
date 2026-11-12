@@ -39,17 +39,22 @@ using UnityEngine.InputSystem.UI;
 ///   右腕欠損 → 右腕に届いたノードは円の右側を下って右足へ
 ///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
 ///   流れ先も欠損していれば、さらに時計回りに次の部位へ
+///   左足欠損 → 左中間の直線（②）が消える ／ 右足欠損 → 右中間の直線（⑤）が消える（中央の円の線 ⑦⑧ は残る）
 /// 出現モード（Inspector の spawnMode）: 自動 / 指定出現(logic_fixed*_master.csv) / 確率出現(logic_random*_master.csv)
-/// 特殊ノード（10/30 追加。nodetype）
-///   5 四肢対応 : ノードの上の札に部位名。良性を対応する部位へ → スコア×limbMatchScoreRate ／ 違う部位へ → SAN 減少。悪性は通常どおり（ダメージ＋SAN）
-///   6 足早     : 移動速度×fastSpeedRate
-///   7 重い     : 硬さ（残り回数）が heavyMinHardness 以上の造線しか通れず、通ると heavyHardnessCost 減る
-///   8 途中停止 : 移動開始から stopAfterSeconds 秒後に stopSeconds 秒止まる（ゲージは進む・他のノードは追い越せる）
-/// 特殊ノード（11/07 追加）
-///   9 交差     : ゲージは 100 固定で時間では良性⇔悪性に変わらない。他のノードと重なる（交差する）たびに良性⇔悪性が反転
+/// ノードの種類（nodetype。メイン共通仕様 11/12。LogicNodeTypes）… 良性・悪性は base 列（1 良性 / 2 悪性）
+///   1 通常     : 基本のノード
+///   2 同時出現 : 2 か所の基本線から 2 個同時に出る（見た目は通常と同じ）
+///   3 迅速     : 移動速度×fastSpeedRate
+///   4 重圧     : 硬さ（残り回数）が heavyMinHardness 以上の造線しか通れず、通ると heavyHardnessCost 減る
+///   5 停滞     : 移動開始から stopAfterSeconds 秒後に stopSeconds 秒止まる（ゲージは進む・他のノードは追い越せる・停止中は灰色）
+///   6〜9 帰属  : 6 左腕 / 7 右腕 / 8 左足 / 9 右足。札に部位名。良性を対応する部位へ → スコア×limbMatchScoreRate
+///                良性を違う部位へ → SAN が limbMismatchSan ＋ 今のレベルの SAN 減少量だけ減る。悪性は通常どおり（ダメージ＋SAN）
+///  10 交錯     : Lv4 か Lv-4 だけ（ゲージ固定・時間で変化しない）。他のノードと重なる（すれ違う・座標が一致する）たびに良性⇔悪性が反転
 ///                重なり判定 = 中心間の距離が nodeSize × crossHitRate 以下。離れてから再び重なると再反転
-///  10 線追加   : 出現した瞬間に、ランダムな基本線上の位置からランダムな角度で造線を 1 本追加（ゲージ消費なし・右クリックで消せない）
+///  11 造線     : 出現した瞬間に、ランダムな基本線上の位置からランダムな角度で造線を 1 本追加（ゲージ消費なし・右クリックで消せない）
 ///                角度の範囲 = addLineAngleMin〜Max（addLineAngleBase：Line = 基本線の向きからの角度（左右どちらかに振る）/ Screen = 画面の角度。右=0、反時計回り）
+/// ノードのステータス（ゲージ・レベル・スコア・ダメージ・SAN）は nodestatus_master（nodetype ごと。無い種類は id 1 の行）
+/// プレイヤーのステータス（部位ごとの HP・SAN・造線ゲージ）は playerstatus_master
 /// 出現ログ : 出たノードの種類・順番・位置・結果を Console と CSV（Excel 用、プロジェクト直下の SpawnLogs/）に出す（LogicSpawnLog）
 /// リザルト : 取得スコア / スコアランク(S〜D。rankScoreS〜C) / 取得ノード（良性・悪性 × Lv1〜4）
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
@@ -57,9 +62,12 @@ using UnityEngine.InputSystem.UI;
 ///   ① Inspector の「画像差し替え」欄に入れる
 ///   ② ヒエラルキーの LogicModePreview 以下で Image を直接変更（自動記録され、作り直し・再生後も残る）
 ///
-/// 造線の操作（経路フェーズのみ）
-///   基本線の上で左ドラッグ → 始点から伸ばした直線が最初に触れた別の基本線が終点
-///   描画中は点線（白=確定可能 / 赤=不可）、離すと実線で確定
+/// 造線の操作（経路フェーズのみ）… 操作タイプは GameSettings.Operation（今は GameSettingsInspector で切り替え）
+///   ドラッグ&ドロップ : 基本線の上で左ボタンを押す → ドラッグ → 別の基本線の上で離す
+///   クリック          : 基本線の上でクリック → カーソルを動かす → 別の基本線の上でクリック（基本線以外をクリックで解除）
+///   終点は endPointMode：OnCursor = カーソルの下の基本線（新仕様）/ Extend = 始点から伸ばして最初に触れた基本線（プロト）
+///   描画中は点線（白=確定可能 / 灰=置けない）。禁止ルールに触れたら、触れた所を赤く点滅
+///     ルール1 基本線を跨ぐ / ルール2 中央の円の中を通る / ルール4 造線を跨ぐ / ルール5 造線の端の禁止範囲から始める / ルール6 ゲージ不足
 ///   右クリック : 描画キャンセル / 造線の削除（ゲージ返却）※プロト用
 /// </summary>
 [ExecuteAlways]
@@ -154,12 +162,23 @@ public class LogicModeScreen : MonoBehaviour
     [Header("出現モード")]
     public SpawnMode spawnMode = SpawnMode.Random;       // 指定出現 / 確率出現の切り替え（初期値は確率出現＝新しいマスター CSV）
 
-    [Header("CSV（StreamingAssets優先 → TextAsset → どちらも無ければInspectorの値）")]
-    public bool useStreamingAssets = true;               // true = StreamingAssets フォルダの CSV を最優先で読む（ビルド後も差し替え可）
+    [Header("CSV（Resources → StreamingAssets → TextAsset → どれも無ければInspectorの値）")]
+    public string commonCsvFolder = "MasterData/Main/Common";   // メイン共通の CSV（Resources 以下）。nodestatus / playerstatus / miscparams
+    public string logicCsvFolder = "MasterData/Main/Logic";     // ロジックのみの CSV（Resources 以下）。logic_*_master
+    public bool useDebugCsv = false;                     // true = {名前}_debug があればそちらを優先（デバッグ用データ）
+    public bool useStreamingAssets = true;               // true = Resources に無ければ StreamingAssets の CSV を読む（旧置き場所）
     public string paramsCsvName = "logic_params.csv";    // 参照数値の CSV ファイル名（StreamingAssets 内）。読めた値は下の Inspector 値を上書き
     public string nodeTableCsvName = "node_table.csv";   // ノード表（スコア・ダメージ等の Lv 別テーブル）の CSV ファイル名
     public TextAsset paramsCsv;                          // StreamingAssets に無いときに使う参照数値 CSV
     public TextAsset nodeTableCsv;                       // StreamingAssets に無いときに使うノード表 CSV
+
+    [Header("メイン共通のマスター CSV（commonCsvFolder）")]
+    public string nodeStatusCsvName = "nodestatus_master.csv";       // ノードの種類ごとのステータス（id = nodetype）
+    public string playerStatusCsvName = "playerstatus_master.csv";   // 部位ごとの HP・最大 SAN・造線ゲージ・1m の消費量
+    public string miscParamsCsvName = "miscparams_master.csv";       // その他の数値（key, value。形式が決まったら合わせる）
+    public TextAsset nodeStatusCsv;
+    public TextAsset playerStatusCsv;
+    public TextAsset miscParamsCsv;
 
     [Header("確率出現のマスター CSV（StreamingAssets 優先 → TextAsset）")]
     public string randomProblemCsvName = "logic_randomproblem_master.csv";   // ステージの問題構成（stage, problem, nodegroup, nodecount）
@@ -178,14 +197,18 @@ public class LogicModeScreen : MonoBehaviour
     public TextAsset fixedNodeCsv;
 
     [Header("参照数値：体力・SAN")]
-    public float limbMaxHp = 25f;                        // 四肢それぞれの最大体力。0 になるとその部位は欠損
-    public bool killMiddleOnLegLost = false;             // true = 足が欠損したら同じ側の中間線（と円の右半分/左半分）を消す（旧仕様）
+    public float hpLeftArm = 25f;                        // 左腕の最大体力（playerstatus id1）。0 になるとその部位は欠損
+    public float hpLeftLeg = 25f;                        // 左足の最大体力（playerstatus id2）
+    public float hpRightArm = 25f;                       // 右腕の最大体力（playerstatus id3）
+    public float hpRightLeg = 25f;                       // 右足の最大体力（playerstatus id4）
+    public bool showHpGauge = false;                     // true = 回収点に体力ゲージを出す（新仕様では出さず、侵食の見た目で表す。確認用）
+    public bool killMiddleOnLegLost = true;              // true = 足が欠損したら同じ側の中間の直線（左足 → ② / 右足 → ⑤）を消す（新仕様）
     public float maxSan = 40f;                           // 正気度の最大値。悪性ノード回収で減る（現状、0 になっても効果なし）
 
     [Header("参照数値：造線")]
-    public float maxLineGauge = 2000f;                   // 造線ゲージの最大値（造線を引くと消費、消すと返却）
+    public float maxLineGauge = 1000f;                   // 造線ゲージの最大値（playerstatus id6。造線を引くと消費、消すと返却）
     public float armLostGaugePenalty = 500f;             // 腕が1本欠損するごとに造線ゲージの上限が減る量
-    public float costPerMeter = 100f;                    // 造線 1m あたりのゲージ消費量
+    public float costPerMeter = 100f;                    // 造線 1m あたりのゲージ消費量（playerstatus id7）
     public float pixelsPerMeter = 100f;                  // 1m を何 px とみなすか（仮）。コスト = 長さ(px) ÷ これ × costPerMeter
     public enum VanishMode { Count, Seconds }            // 造線の消え方：Count = ノード通過回数 / Seconds = 経過秒数
     public VanishMode vanishMode = VanishMode.Count;     // ロジックは回数（＝硬さ。硬さ1/2/3 = 通れる回数）
@@ -197,34 +220,36 @@ public class LogicModeScreen : MonoBehaviour
 
     [Header("参照数値：ノード・スコア")]
     public float routePhaseSeconds = 60f;                // 経路フェーズ（造線を描ける時間）の制限時間（秒）
-    public float nodeStartGauge = 100f;                  // ノード出現時のゲージ量（問題 CSV で gauge 未指定のときに使用）
-    public float gaugePerSecond = 10f;                   // ノードのゲージが 1 秒あたりに増減する量（0〜100 を往復、0 で良性⇔悪性が反転）
+    // ↓ nodestatus_master が読めないときの値（読めたときは nodetype ごとの行を使う）
+    public float nodeStartGauge = 100f;                  // ノード出現時のゲージの大きさ（良性 +100 / 悪性 −100 で出る）
+    public float gaugePerSecond = 10f;                   // ノードのゲージが 1 秒あたりに増減する量（−100〜+100 を往復、0 をまたぐと良性⇔悪性）
     public int[] goodScore = { 1000, 1500, 2000, 3000 }; // 良性ノード回収時のスコア（Lv1〜4）
-    public int[] badScore = { 500, 350, 200, 50 };       // 悪性ノード回収時のスコア（Lv1〜4）
-    public float[] badDamage = { 5, 7, 10, 15 };         // 悪性ノード回収時に、その部位が受けるダメージ（Lv1〜4）
-    public float[] badSan = { 3, 5, 8, 10 };             // 悪性ノード回収時の SAN 減少量（Lv1〜4）
+    public int[] badScore = { 50, 200, 350, 500 };       // 悪性ノード回収時のスコア（Lv-1〜-4。nodestatus_master と同じ向き）
+    public float[] goodDamage = { 0, 0, 0, 0 };          // 良性ノード回収時のダメージ（Lv1〜4）
+    public float[] badDamage = { 5, 7, 10, 15 };         // 悪性ノード回収時に、その部位が受けるダメージ（Lv-1〜-4）
+    public float[] goodSan = { 0, 0, 0, 0 };             // 良性ノード回収時の SAN 減少量（Lv1〜4）
+    public float[] badSan = { 3, 5, 8, 10 };             // 悪性ノード回収時の SAN 減少量（Lv-1〜-4）
     public int scoreDigits = 8;                          // スコアの表示桁数（ゼロ埋め）。この桁の最大値で頭打ち
 
-    [Header("参照数値：特殊ノード（10/30 追加・nodetype 5〜8）")]
-    public float limbMatchScoreRate = 1.5f;              // type5 四肢対応：良性を対応する部位に運んだときのスコア倍率
-    public float limbMismatchSan = 5f;                   // type5 四肢対応：良性を対応しない部位に運んだときの SAN 減少量
-    public float fastSpeedRate = 2f;                     // type6 足早：通常ノードに対する移動速度の倍率
-    public int heavyMinHardness = 2;                     // type7 重い：通れる造線の硬さ（残り通過回数）の下限
-    public int heavyHardnessCost = 2;                    // type7 重い：通ったときに減る硬さ
-    public float stopAfterSeconds = 2f;                  // type8 途中停止：移動開始から止まるまでの秒数
-    public float stopSeconds = 2f;                       // type8 途中停止：止まっている秒数（その間もゲージは進む）
-
-    [Header("参照数値：特殊ノード（11/07 追加・nodetype 9〜10）")]
-    public float crossGauge = 100f;                      // type9 交差：固定するゲージ値（100 = Lv4）
-    public float crossHitRate = 0.8f;                    // type9 交差：中心間の距離が nodeSize × これ以下で「交差」とみなす
+    [Header("参照数値：特殊ノード（miscparams_master が届くまでの仮の値）")]
+    public float fastSpeedRate = 2f;                     // type3 迅速：通常ノードに対する移動速度の倍率
+    public int heavyMinHardness = 2;                     // type4 重圧：通れる造線の硬さ（残り通過回数）の下限
+    public int heavyHardnessCost = 2;                    // type4 重圧：通ったときに減る硬さ
+    public float stopAfterSeconds = 2f;                  // type5 停滞：移動開始から止まるまでの秒数
+    public float stopSeconds = 2f;                       // type5 停滞：止まっている秒数（その間もゲージは進む）
+    public Color stopTint = new Color(0.55f, 0.55f, 0.55f);   // type5 停滞：止まっている間のノードの色（灰色）
+    public float limbMatchScoreRate = 1.5f;              // type6〜9 帰属：良性を対応する部位に運んだときのスコア倍率（〇倍）
+    public float limbMismatchSan = 5f;                   // type6〜9 帰属：良性を違う部位に運んだときの SAN 減少量（△。今のレベルの SAN 減少量に足す）
+    public float crossGauge = 100f;                      // type10 交錯：固定するゲージの大きさ（100 = Lv4 / Lv-4）
+    public float crossHitRate = 0.8f;                    // type10 交錯：中心間の距離が nodeSize × これ以下で「交錯」とみなす
     public enum AngleBase { Line, Screen }
-    public AngleBase addLineAngleBase = AngleBase.Line;  // type10 線追加：角度の基準（Line = 基本線の向きから / Screen = 画面の右=0°・反時計回り）
-    public float addLineAngleMin = 30f;                  // type10 線追加：生成角度の下限（度）
-    public float addLineAngleMax = 150f;                 // type10 線追加：生成角度の上限（度）。Line のとき 90 = 基本線に直角
-    public int addLineHardness = 1;                      // type10 線追加：追加する造線の硬さ（通れる回数）
-    public float addLineMaxLength = 600f;                // type10 線追加：造線の最大長さ（px）。0 = 制限なし
-    public float addLineEndMargin = 40f;                 // type10 線追加：基本線の端からこの距離（px）以内には始点を置かない
-    public int addLineTries = 50;                        // type10 線追加：条件を満たす線が見つかるまでの抽選回数（見つからなければ追加なし）
+    public AngleBase addLineAngleBase = AngleBase.Line;  // type11 造線：角度の基準（Line = 基本線の向きから / Screen = 画面の右=0°・反時計回り）
+    public float addLineAngleMin = 30f;                  // type11 造線：生成角度の下限（度）
+    public float addLineAngleMax = 150f;                 // type11 造線：生成角度の上限（度）。Line のとき 90 = 基本線に直角
+    public int addLineHardness = 1;                      // type11 造線：追加する造線の硬さ（通れる回数）
+    public float addLineMaxLength = 600f;                // type11 造線：造線の最大長さ（px）。0 = 制限なし
+    public float addLineEndMargin = 40f;                 // type11 造線：基本線の端からこの距離（px）以内には始点を置かない
+    public int addLineTries = 50;                        // type11 造線：条件を満たす線が見つかるまでの抽選回数（見つからなければ追加なし）
 
     [Header("参照数値：スコアランク（リザルト。この点以上でそのランク、どれも満たさなければ D）")]
     public int rankScoreS = 60000;
@@ -241,10 +266,37 @@ public class LogicModeScreen : MonoBehaviour
     [Range(1f, 4f)] public float dangerStartScale = 2.2f;      // 赤さ0のときの赤枠の大きさ（画面比）。大きいほど赤が外から入ってくる距離が長い
     [Range(0f, 1f)] public float previewDanger = 0f;           // 非再生中のプレビュー用。見た目の確認・調整に使う
 
+    // 設定の版。古い版のまま保存されていたら、新仕様で変わった値を一度だけ直す（HelpWindow と同じ仕組み）
+    [SerializeField, HideInInspector] int settingsVersion = 0;
+    const int CurrentSettingsVersion = 1;
+
+    /// <summary>11/12 仕様：造線ゲージ 2000→1000、悪性スコアの向き、足欠損で中間線を消す</summary>
+    void MigrateSettings()
+    {
+        if (settingsVersion >= CurrentSettingsVersion) return;
+        if (Mathf.Approximately(maxLineGauge, 2000f)) maxLineGauge = 1000f;
+        if (badScore != null && badScore.Length == 4 && badScore[0] == 500 && badScore[3] == 50) badScore = new[] { 50, 200, 350, 500 };
+        if (goodDamage == null || goodDamage.Length < 4) goodDamage = new float[4];
+        if (goodSan == null || goodSan.Length < 4) goodSan = new float[4];
+        killMiddleOnLegLost = true;
+        settingsVersion = CurrentSettingsVersion;
+        Debug.Log("[LogicMode] 設定を 11/12 仕様に更新しました（造線ゲージ最大 1000 / 悪性スコア lv-1→-4 = 50→500 / 足欠損で中間線を消す）");
+#if UNITY_EDITOR
+        if (!Application.isPlaying) UnityEditor.EditorUtility.SetDirty(this);
+#endif
+    }
+
     [Header("造線の操作")]
     public float snapRadius = 22f;                       // 基本線をクリックできる距離（px）。終点判定の伸ばし分にも使用
     public float forbiddenRadius = 45f;                  // 既存の造線の両端からこの距離（px）以内では新しい造線を始められない
     public float minLineLength = 30f;                    // 造線の最短長（px）。これより短いと確定できない
+    public enum EndPointMode { OnCursor, Extend }
+    public EndPointMode endPointMode = EndPointMode.OnCursor;   // 終点：OnCursor = カーソルの下の基本線（新仕様）/ Extend = 始点から伸ばして最初に触れた基本線（プロト）
+    public bool forbidCenter = true;                     // ルール2：中央の円の中を通る造線は置けない
+    [Range(0.5f, 1f)] public float centerForbiddenRate = 0.98f;   // ルール2：禁止範囲の半径（円の半径 × これ）。1 未満にして、円周上の終点は通れるように
+    public Color unplaceableColor = new Color(0.55f, 0.55f, 0.55f);   // 置けないときの点線の色（灰色）
+    public Color violationColor = new Color(1f, 0.2f, 0.2f);          // 禁止ルールに触れた所を点滅させる色
+    public float violationBlinkSpeed = 4f;               // 禁止ルールの点滅の速さ（往復/秒）
 
     [Header("ノード移動・出現")]
     public float nodeSpeed = 160f;                       // ノードの移動速度（px/秒）
@@ -271,6 +323,7 @@ public class LogicModeScreen : MonoBehaviour
         public bool isArm;
         public float hp;
         public bool lost;
+        public float maxHp;          // この部位の最大体力（playerstatus）
         public RectTransform root;
         public Image hpFill;
         public BasicLine overflow;   // 欠損後、ここに届いたノードが流れる先（円弧）
@@ -342,18 +395,25 @@ public class LogicModeScreen : MonoBehaviour
         public Image body;
         public Text label;
         public GameObject forbiddenGroup;
-        public bool auto;     // true = 線追加ノードが引いた造線（右クリックで消せない・色が違う）
+        public bool auto;     // true = 造線ノードが引いた造線（右クリックで消せない・色が違う）
+        public readonly List<Image> forbiddenImages = new List<Image>();   // 開始禁止範囲の円（ルール5の点滅用）
+        public readonly List<Color> forbiddenColors = new List<Color>();
     }
 
     struct ProblemNode
     {
         public int line; public ProtoNode.Kind kind; public float gauge; public float time; public int order;
-        public int type;      // nodetype（1〜10）
-        public string limb;   // type5 の対応部位（Limb.name）
+        public int type;      // nodetype（1〜11。LogicNodeTypes）
+        public string limb;   // 帰属ノードの対応部位（Limb.name）
     }
 
-    // nodetype
-    const int TypeLimb = 5, TypeFast = 6, TypeHeavy = 7, TypeStop = 8, TypeCross = 9, TypeAddLine = 10;
+    // nodetype（メイン共通仕様 11/12）
+    const int TypeFast = LogicNodeTypes.Fast, TypeHeavy = LogicNodeTypes.Heavy, TypeStop = LogicNodeTypes.Stop,
+              TypeCross = LogicNodeTypes.Cross, TypeAddLine = LogicNodeTypes.AddLine;
+    static bool IsLimbType(int t) => LogicNodeTypes.IsLimb(t);
+
+    Dictionary<int, NodeStatus> nodeStatus;   // nodestatus_master（id = nodetype）
+    NodeStatus fallbackStatus;                // nodestatus_master が無いとき（Inspector の値）
 
     LogicRandomSpawner randomSpawner;                       // 確率出現のマスター（読めたときだけ）
     LogicFixedSpawner fixedSpawner;                         // 指定出現のマスター（読めたときだけ）
@@ -371,8 +431,9 @@ public class LogicModeScreen : MonoBehaviour
         public DrawnLine onDrawn;
         public bool fromA;
         public float drawnPos;
-        public int type;          // nodetype（1〜10）
-        public Limb targetLimb;   // type5 の対応部位
+        public int type;          // nodetype（1〜11）
+        public NodeStatus status; // このノードのステータス（nodestatus_master）
+        public Limb targetLimb;   // 帰属ノードの対応部位
         public float elapsed;     // 移動開始からの秒数（type8 用）
         public bool stopped;      // type8：停止中
         public readonly HashSet<MovingNode> touching = new HashSet<MovingNode>();   // type9：いま重なっているノード（重なり始めの 1 回だけ反転するため）
@@ -386,6 +447,12 @@ public class LogicModeScreen : MonoBehaviour
         public BasicLine endLine;
         public float endDist, length, cost;
         public string reason;
+        public bool onLine;             // 終点が基本線の上（クリック操作で「基本線以外をクリック」かどうかの判定）
+        public BasicLine crossedLine;   // ルール1：跨いだ基本線
+        public DrawnLine crossedDrawn;  // ルール4：跨いだ造線
+        public bool hitCenter;          // ルール2：中央の円の中を通る
+        public bool hitGauge;           // ルール6：造線ゲージが足りない
+        public bool Forbidden => crossedLine != null || crossedDrawn != null || hitCenter || hitGauge;
     }
 
     // 色
@@ -408,6 +475,9 @@ public class LogicModeScreen : MonoBehaviour
     Image centerImage;
     Text scoreText, timerText, statusText, gaugeText, hintText;
     Image gaugeFill, gaugePreviewFill, gaugeLostFill;
+    Image gaugeBorder; Color gaugeBorderColor;   // ルール6 の点滅用
+    Image centerZone;                            // ルール2 の禁止範囲（普段は透明）
+    RectTransform centerZoneMask;                // 禁止範囲の表示を上下で切る枠
     readonly List<Button> hardnessButtons = new List<Button>();
     Button executeButton;
 
@@ -424,6 +494,12 @@ public class LogicModeScreen : MonoBehaviour
     Vector2 drawStart;
     readonly List<Image> dashPool = new List<Image>();
     Image startMarker;
+    bool hasEval;            // lastEval が今の描画のものか
+    DrawEval lastEval;       // 直近の判定（禁止ルールの点滅に使う）
+    BasicLine hlLine;        // ルール1 で点滅中の基本線
+    readonly List<Color> hlSaved = new List<Color>();
+    readonly List<DrawnLine> flashForbidden = new List<DrawnLine>();   // ルール5 で点滅中の造線
+    float flashForbiddenTime;
 
     // 危険演出
     Image dangerVignette;
@@ -443,8 +519,16 @@ public class LogicModeScreen : MonoBehaviour
     {
         if (!Application.isPlaying) return;
 
+        MigrateSettings();
         DestroyPreview();
         ClearBuiltState();
+
+        // 設定（操作タイプ）：シーンに GameSettingsInspector が無ければ自動で追加（保存済みの設定を使う）
+        if (FindObjectOfType<GameSettingsInspector>() == null)
+        {
+            GameSettingsInspector.adoptSavedOnNextAwake = true;
+            gameObject.AddComponent<GameSettingsInspector>();
+        }
 
         Time.timeScale = 1f;
         font = ResolveFont();
@@ -495,6 +579,12 @@ public class LogicModeScreen : MonoBehaviour
         "TopRight" => "右上",
         "MiddleRight" => "右中",
         "BottomRight" => "右下",
+        "ArcLeft" => "左円(⑦)",
+        "ArcRight" => "右円(⑧)",
+        "ArcLowerLeft" => "左下円",
+        "ArcUpperRight" => "右上円",
+        "TopArc" => "上円(⑨)",
+        "BottomArc" => "下円(⑩)",
         _ => name,
     };
 
@@ -533,6 +623,7 @@ public class LogicModeScreen : MonoBehaviour
         else if (drawing) CancelDrawing();
 
         UpdateDrawnVisuals();
+        UpdateViolationVisuals();
         UpdateStatus();
         UpdateDanger(Time.unscaledDeltaTime);   // ゲームオーバー中（timeScale=0）も動かす
     }
@@ -552,6 +643,7 @@ public class LogicModeScreen : MonoBehaviour
 
     void OnValidate()
     {
+        MigrateSettings();
         if (!Application.isPlaying) SchedulePreviewRebuild();
     }
 
@@ -610,15 +702,33 @@ public class LogicModeScreen : MonoBehaviour
         moving.Clear();
         dashPool.Clear();
         drawing = false;
+        hasEval = false;
+        hlLine = null;
+        hlSaved.Clear();
+        flashForbidden.Clear();
     }
 
     void LoadCsv()
     {
-        string t = LogicCsvLoader.LoadText(paramsCsv, paramsCsvName, useStreamingAssets);
-        if (t != null) LogicCsvLoader.ApplyParams(this, t, "logic_params");
+        string Logic(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, logicCsvFolder, useDebugCsv);
+        string Common(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, commonCsvFolder, useDebugCsv);
 
-        t = LogicCsvLoader.LoadText(nodeTableCsv, nodeTableCsvName, useStreamingAssets);
+        // 旧形式（あれば）
+        string t = Logic(paramsCsv, paramsCsvName);
+        if (t != null) LogicCsvLoader.ApplyParams(this, t, "logic_params");
+        t = Logic(nodeTableCsv, nodeTableCsvName);
         if (t != null) LogicCsvLoader.ApplyNodeTable(this, t);
+
+        // メイン共通
+        t = Common(playerStatusCsv, playerStatusCsvName);
+        if (t != null) LogicCsvLoader.ApplyPlayerStatus(this, t);
+        else Debug.LogWarning("[CSV] playerstatus_master が見つかりません → Inspector の値（部位HP・SAN・造線ゲージ）を使います");
+        t = Common(miscParamsCsv, miscParamsCsvName);
+        if (t != null) LogicCsvLoader.ApplyParams(this, t, "miscparams");
+        t = Common(nodeStatusCsv, nodeStatusCsvName);
+        nodeStatus = t != null ? LogicCsvLoader.LoadNodeStatus(t) : new Dictionary<int, NodeStatus>();
+        if (nodeStatus.Count == 0) Debug.LogWarning("[CSV] nodestatus_master が読めません → Inspector の値（スコア・ダメージ・SAN）を使います");
+        fallbackStatus = null;
 
         // --- 指定出現（Fixed / Auto のとき） ---
         fixedStageProblems = null;
@@ -626,8 +736,8 @@ public class LogicModeScreen : MonoBehaviour
         if (spawnMode != SpawnMode.Random)
         {
             fixedSpawner = LogicFixedSpawner.Load(
-                LogicCsvLoader.LoadText(fixedProblemCsv, fixedProblemCsvName, useStreamingAssets),
-                LogicCsvLoader.LoadText(fixedNodeCsv, fixedNodeCsvName, useStreamingAssets));
+                Logic(fixedProblemCsv, fixedProblemCsvName),
+                Logic(fixedNodeCsv, fixedNodeCsvName));
             if (fixedSpawner != null)
             {
                 fixedStageProblems = fixedSpawner.ProblemsOf(stageNumber);
@@ -650,10 +760,10 @@ public class LogicModeScreen : MonoBehaviour
         if (!useFixedSpawn)
         {
             randomSpawner = LogicRandomSpawner.Load(
-                LogicCsvLoader.LoadText(randomProblemCsv, randomProblemCsvName, useStreamingAssets),
-                LogicCsvLoader.LoadText(randomNodeCsv, randomNodeCsvName, useStreamingAssets),
-                LogicCsvLoader.LoadText(randomSideCsv, randomSideCsvName, useStreamingAssets),
-                LogicCsvLoader.LoadText(randomLineCsv, randomLineCsvName, useStreamingAssets));
+                Logic(randomProblemCsv, randomProblemCsvName),
+                Logic(randomNodeCsv, randomNodeCsvName),
+                Logic(randomSideCsv, randomSideCsvName),
+                Logic(randomLineCsv, randomLineCsvName));
             if (randomSpawner != null)
             {
                 stageProblems = randomSpawner.ProblemsOf(stageNumber);
@@ -672,8 +782,34 @@ public class LogicModeScreen : MonoBehaviour
 
         if (useFixedSpawn) Debug.Log($"[出現] 指定出現（ステージ{stageNumber}・{problemCount}問）");
         else if (stageProblems != null) Debug.Log($"[出現] 確率出現（ステージ{stageNumber}・{problemCount}問）");
-        else Debug.LogError($"[出現] ステージ{stageNumber} の問題が CSV にありません。StreamingAssets の CSV と Stage Number を確認してください");
+        else Debug.LogError($"[出現] ステージ{stageNumber} の問題が CSV にありません。Resources/{logicCsvFolder} の CSV と Stage Number を確認してください");
     }
+
+    /// <summary>nodetype のステータス。nodestatus_master に無い種類は id 1（通常）の行、それも無ければ Inspector の値</summary>
+    NodeStatus StatusOf(int type)
+    {
+        if (nodeStatus != null)
+        {
+            if (nodeStatus.TryGetValue(type, out var st)) return st;
+            if (nodeStatus.TryGetValue(LogicNodeTypes.Normal, out st)) return st;
+        }
+        if (fallbackStatus == null)
+        {
+            fallbackStatus = new NodeStatus { id = 0, hp = Mathf.Abs(nodeStartGauge), value = Mathf.Abs(gaugePerSecond) };
+            for (int i = 0; i < 4; i++)
+            {
+                fallbackStatus.goodScore[i] = At(goodScore, i);
+                fallbackStatus.badScore[i] = At(badScore, i);
+                fallbackStatus.goodDamage[i] = At(goodDamage, i);
+                fallbackStatus.badDamage[i] = At(badDamage, i);
+                fallbackStatus.goodSan[i] = At(goodSan, i);
+                fallbackStatus.badSan[i] = At(badSan, i);
+            }
+        }
+        return fallbackStatus;
+    }
+
+    static T At<T>(T[] a, int i) => a != null && i < a.Length ? a[i] : default;
 
     /// <summary>基本線の名前 → lines の番号（無ければ -1）</summary>
     int FindLineIndex(string name)
@@ -770,6 +906,12 @@ public class LogicModeScreen : MonoBehaviour
 
     void ApplyHierarchyOverrides(Transform canvas)
     {
+        try { ApplyHierarchyOverridesCore(canvas); }
+        finally { if (gaugeBorder != null) gaugeBorderColor = gaugeBorder.color; }   // 点滅後に戻す色（ヒエラルキーで変えた色も含む）
+    }
+
+    void ApplyHierarchyOverridesCore(Transform canvas)
+    {
         if (hierarchyOverrides == null || hierarchyOverrides.Count == 0) return;
         var map = new Dictionary<string, HierarchyOverride>();
         foreach (var o in hierarchyOverrides)
@@ -833,7 +975,8 @@ public class LogicModeScreen : MonoBehaviour
 
     Limb CreateLimb(string name, Vector2 pos, bool isArm)
     {
-        var limb = new Limb { name = name, label = LimbLabel(name), pos = pos, isArm = isArm, hp = limbMaxHp };
+        float maxHp = Mathf.Max(1f, MaxHpOf(name));
+        var limb = new Limb { name = name, label = LimbLabel(name), pos = pos, isArm = isArm, hp = maxHp, maxHp = maxHp };
         limb.root = UIShapes.CreateRect(limbLayer, name, pos, new Vector2(80, 80));
 
         Sprite icon = isArm ? armSprite : legSprite;
@@ -850,7 +993,7 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         Vector2 barPos = new Vector2(0, isArm ? 52 : -52);
-        UIShapes.CreateImage(limb.root, "HpBg", barPos, new Vector2(74, 10),
+        var hpBg = UIShapes.CreateImage(limb.root, "HpBg", barPos, new Vector2(74, 10),
                              hpBarFrameSprite != null ? hpBarFrameSprite : UIShapes.White,
                              hpBarFrameSprite != null ? Color.white : new Color(0, 0, 0, 0.7f));
         limb.hpFill = UIShapes.CreateImage(limb.root, "HpFill", barPos, new Vector2(70, 6),
@@ -858,6 +1001,9 @@ public class LogicModeScreen : MonoBehaviour
                                            hpBarFillSprite != null ? Color.white : new Color(0.3f, 0.9f, 0.4f));
         limb.hpFill.type = Image.Type.Filled;
         limb.hpFill.fillMethod = Image.FillMethod.Horizontal;
+        // 新仕様では体力ゲージは出さない（侵食の見た目で表す）。確認用に showHpGauge で出せる
+        hpBg.gameObject.SetActive(showHpGauge);
+        limb.hpFill.gameObject.SetActive(showHpGauge);
 
         limbs.Add(limb);
         return limb;
@@ -874,25 +1020,40 @@ public class LogicModeScreen : MonoBehaviour
 
     Limb FindLimb(string name) => limbs.Find(l => l.name == name);
 
-    /// <summary>特殊ノードの札の文字</summary>
-    string TagOf(int type, string limb) => type switch
+    /// <summary>部位の最大体力（playerstatus：1 左腕 / 2 左足 / 3 右腕 / 4 右足）</summary>
+    float MaxHpOf(string name) => name switch
     {
-        TypeLimb => LimbLabel(limb),
-        TypeFast => "足早",
-        TypeHeavy => "重い",
-        TypeStop => "停止",
-        TypeCross => "交差",
-        TypeAddLine => "線追加",
-        _ => "",
+        "LeftArm" => hpLeftArm,
+        "LeftLeg" => hpLeftLeg,
+        "RightArm" => hpRightArm,
+        "RightLeg" => hpRightLeg,
+        _ => 25f,
     };
 
-    /// <summary>出現時のゲージ（交差ノードは固定値）</summary>
-    float StartGaugeOf(int type) => type == TypeCross ? crossGauge : nodeStartGauge;
+    /// <summary>特殊ノードの札の文字</summary>
+    string TagOf(int type, string limb)
+    {
+        if (IsLimbType(type)) return LimbLabel(string.IsNullOrEmpty(limb) ? LogicNodeTypes.LimbOf(type) : limb);
+        return type switch
+        {
+            TypeFast => "迅速",
+            TypeHeavy => "重圧",
+            TypeStop => "停滞",
+            TypeCross => "交錯",
+            TypeAddLine => "造線",
+            _ => "",
+        };
+    }
 
-    /// <summary>ノード生成（交差ノードはゲージ固定）</summary>
+    /// <summary>出現時のゲージの大きさ（nodestatus の hp。交錯ノードは固定値）</summary>
+    float StartGaugeOf(int type) => type == TypeCross ? crossGauge : StatusOf(type).hp;
+
+    /// <summary>ノード生成（レベルの区切りは nodestatus。交錯ノードはゲージ固定）</summary>
     ProtoNode CreateNode(ProblemNode pn)
     {
+        var st = StatusOf(pn.type);
         var n = ProtoNode.Create(nodeLayer, pn.kind, pn.gauge, font);
+        n.SetLevelThresholds(st.goodMin, st.badMin);
         if (pn.type == TypeCross) n.LockGauge(crossGauge);
         n.SetTag(TagOf(pn.type, pn.limb));
         return n;
@@ -900,6 +1061,12 @@ public class LogicModeScreen : MonoBehaviour
 
     void BuildLines()
     {
+        // ルール2 の禁止範囲（中央の円の中）。普段は透明で、触れたときだけ赤く点滅
+        centerZoneMask = UIShapes.CreateRect(lineLayer, "CenterForbidden", circleCenter, Vector2.one * circleRadius * 2f);
+        centerZoneMask.gameObject.AddComponent<RectMask2D>();   // 通れる上下の部分を切り落として表示
+        centerZone = UIShapes.CreateImage(centerZoneMask, "Zone", Vector2.zero,
+                                          Vector2.one * circleRadius * 2f * centerForbiddenRate, UIShapes.Circle, Color.clear);
+
         float lArm = 180f - armAngle, lLeg = 180f - legAngle;   // 左側の角度
         float rArm = armAngle, rLeg = legAngle;                 // 右側の角度
 
@@ -908,30 +1075,40 @@ public class LogicModeScreen : MonoBehaviour
         MakeLine("BottomLeft", leftLeg, new List<Vector2> { new Vector2(-960, -540), leftLeg.pos });
         MakeLine("BottomRight", rightLeg, new List<Vector2> { new Vector2(960, -540), rightLeg.pos });
 
-        // 左右中間 → 円に当たったら時計回り（角度が減る方向）に進む
-        //   左：180° → 左腕　／　右：0° → 右足
-        var ml = new List<Vector2> { new Vector2(-960, circleCenter.y), CirclePt(180f) };
-        AddArcPoints(ml, 180f, lArm);
-        var middleLeft = MakeLine("MiddleLeft", leftArm, ml);
+        // 中央の円の線 ⑦（180° → 左腕）・⑧（0° → 右足）。時計回り（角度が減る方向）に進む
+        var al = new List<Vector2> { CirclePt(180f) };
+        AddArcPoints(al, 180f, lArm);
+        var arcLeft = MakeLine("ArcLeft", leftArm, al);
+        arcLeft.spawnable = false;
 
-        var mr = new List<Vector2> { new Vector2(960, circleCenter.y), CirclePt(0f) };
-        AddArcPoints(mr, 0f, rLeg);
-        var middleRight = MakeLine("MiddleRight", rightLeg, mr);
+        var ar = new List<Vector2> { CirclePt(0f) };
+        AddArcPoints(ar, 0f, rLeg);
+        var arcRight = MakeLine("ArcRight", rightLeg, ar);
+        arcRight.spawnable = false;
 
-        // 円の残り（左下・右上）も基本線。時計回りに進んで中間線に合流
+        // 左右中間の直線 ②⑤ → 円に当たったら ⑦⑧ に合流（足の欠損で直線だけ消える）
+        var middleLeft = MakeLine("MiddleLeft", leftArm, new List<Vector2> { new Vector2(-960, circleCenter.y), CirclePt(180f) });
+        middleLeft.next = arcLeft;
+        middleLeft.nextDist = 0f;
+
+        var middleRight = MakeLine("MiddleRight", rightLeg, new List<Vector2> { new Vector2(960, circleCenter.y), CirclePt(0f) });
+        middleRight.next = arcRight;
+        middleRight.nextDist = 0f;
+
+        // 円の残り（左下・右上）も基本線。時計回りに進んで ⑦⑧ に合流
         var lowLeft = new List<Vector2> { CirclePt(lLeg) };
         AddArcPoints(lowLeft, lLeg, 180f);                      // 左足 → 180°
         var arcLL = MakeLine("ArcLowerLeft", leftArm, lowLeft);
         arcLL.spawnable = false;
-        arcLL.next = middleLeft;
-        arcLL.nextDist = middleLeft.cum[1];                     // 180° の点
+        arcLL.next = arcLeft;
+        arcLL.nextDist = 0f;                                    // 180° の点
 
         var upRight = new List<Vector2> { CirclePt(rArm) };
         AddArcPoints(upRight, rArm, 0f);                        // 右腕 → 0°
         var arcUR = MakeLine("ArcUpperRight", rightLeg, upRight);
         arcUR.spawnable = false;
-        arcUR.next = middleRight;
-        arcUR.nextDist = middleRight.cum[1];                    // 0° の点
+        arcUR.next = arcRight;
+        arcUR.nextDist = 0f;                                    // 0° の点
 
         // 欠損時の流れ先（時計回りで次の部位へ）
         //   右腕欠損 → 右上の円弧 → 右中間の円弧 → 右足
@@ -1034,10 +1211,10 @@ public class LogicModeScreen : MonoBehaviour
         Vector2 barPos = new Vector2(0, -505);
         Vector2 barSize = new Vector2(1000, 38);
         if (lineGaugeFrameSprite != null)
-            UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), lineGaugeFrameSprite, Color.white);
+            gaugeBorder = UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), lineGaugeFrameSprite, Color.white);
         else
         {
-            UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), UIShapes.White, new Color(0.35f, 0.65f, 0.9f));
+            gaugeBorder = UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), UIShapes.White, new Color(0.35f, 0.65f, 0.9f));
             UIShapes.CreateImage(uiLayer, "GaugeBg", barPos, barSize, UIShapes.White, new Color(0.08f, 0.1f, 0.14f));
         }
         gaugePreviewFill = CreateFill("GaugePreview", barPos, barSize, new Color(1f, 0.6f, 0.2f), Image.OriginHorizontal.Left);
@@ -1201,22 +1378,21 @@ public class LogicModeScreen : MonoBehaviour
         return list;
     }
 
-    /// <summary>type5 で部位が空欄のものに、残っている部位から 1 つ抽選して割り当てる（問題準備の表示と実行で同じ部位にするため）</summary>
+    /// <summary>帰属ノード（type6〜9）の対応部位を nodetype から決める（6 左腕 / 7 右腕 / 8 左足 / 9 右足）</summary>
     void ResolveLimbTargets(List<ProblemNode> list)
     {
-        var alive = limbs.FindAll(l => !l.lost);
-        if (alive.Count == 0) alive = limbs;
         for (int i = 0; i < list.Count; i++)
         {
             var pn = list[i];
-            if (pn.type != TypeLimb) continue;
-            if (string.IsNullOrEmpty(pn.limb) || FindLimb(pn.limb) == null)
-                pn.limb = alive[Random.Range(0, alive.Count)].name;
+            if (!IsLimbType(pn.type)) continue;
+            if (string.IsNullOrEmpty(pn.limb) || FindLimb(pn.limb) == null) pn.limb = LogicNodeTypes.LimbOf(pn.type);
             list[i] = pn;
         }
     }
 
     // ======================= 造線の描画 =======================
+
+    static bool ClickMode => GameSettings.Operation == GameSettings.OperationType.Click;
 
     void HandleDrawingInput()
     {
@@ -1229,15 +1405,31 @@ public class LogicModeScreen : MonoBehaviour
             return;
         }
 
+        bool begunNow = false;
         if (!drawing && LeftDown() && !PointerOverUI())
+        {
             TryBeginDraw(p);
+            begunNow = drawing;
+        }
 
         if (!drawing) return;
 
         var e = EvaluateDraw(p);
+        lastEval = e;
+        hasEval = true;
         ShowPreview(e);
-        if (LeftUp())
+
+        if (ClickMode)
         {
+            // クリック：2 回目のクリックで確定。基本線以外（ボタン含む）をクリックしたら解除
+            if (begunNow || !LeftDown()) return;
+            if (e.valid) { CommitDraw(e); CancelDrawing(); }
+            else if (!e.onLine || PointerOverUI()) CancelDrawing();
+            // 基本線の上だが禁止ルールに触れている → そのまま（点滅を見て置き直せる）
+        }
+        else if (LeftUp())
+        {
+            // ドラッグ&ドロップ：離したところで確定（置けなければ解除）
             if (e.valid) CommitDraw(e);
             CancelDrawing();
         }
@@ -1256,14 +1448,16 @@ public class LogicModeScreen : MonoBehaviour
         }
         if (best == null) return;
 
-        // 開始禁止範囲
+        // ルール5：既存の造線の端の開始禁止範囲（触れた範囲を 1 秒点滅）
+        flashForbidden.Clear();
         foreach (var d in drawnLines)
-        {
             if (Vector2.Distance(bestPt, d.a) < forbiddenRadius || Vector2.Distance(bestPt, d.b) < forbiddenRadius)
-            {
-                FlashHint(bestPt, "開始禁止範囲です");
-                return;
-            }
+                flashForbidden.Add(d);
+        if (flashForbidden.Count > 0)
+        {
+            flashForbiddenTime = 1f;
+            FlashHint(bestPt, "開始禁止範囲です");
+            return;
         }
 
         drawing = true;
@@ -1274,8 +1468,113 @@ public class LogicModeScreen : MonoBehaviour
         startMarker.rectTransform.anchoredPosition = bestPt;
     }
 
-    /// <summary>始点から mouse 方向へ伸ばした直線が最初に触れる線を調べる</summary>
-    DrawEval EvaluateDraw(Vector2 mouse)
+    DrawEval EvaluateDraw(Vector2 mouse) =>
+        endPointMode == EndPointMode.Extend ? EvaluateExtend(mouse) : EvaluateOnCursor(mouse);
+
+    string DropHere => ClickMode ? "別の基本線の上でクリック" : "別の基本線の上で離してください";
+
+    /// <summary>
+    /// 新仕様：終点 = カーソルの下の基本線（snapRadius 以内）。
+    /// 始点→終点の間で 基本線を跨ぐ（ルール1）/ 中央の円を通る（ルール2）/ 造線を跨ぐ（ルール4）/ ゲージ不足（ルール6）なら置けない
+    /// </summary>
+    DrawEval EvaluateOnCursor(Vector2 mouse)
+    {
+        var e = new DrawEval { end = mouse, valid = false, reason = DropHere };
+        Vector2 s = drawStart;
+
+        // 終点：始点の線以外で一番近い基本線（同じ点に複数の線が集まる所でも別の線を選べるように）
+        BasicLine best = null;
+        float bestD = snapRadius, bestAlong = 0f;
+        Vector2 bestPt = mouse;
+        bool nearStartLine = false;
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            float d = l.Closest(mouse, out var pt, out var along);
+            if (d > snapRadius) continue;
+            if (l == drawStartLine) { nearStartLine = true; continue; }
+            if (d <= bestD) { bestD = d; best = l; bestPt = pt; bestAlong = along; }
+        }
+        if (best == null)
+        {
+            if (nearStartLine) { e.onLine = true; e.reason = "同じ基本線には繋げません"; }
+            return e;
+        }
+
+        e.onLine = true;
+        e.end = bestPt;
+        e.length = Vector2.Distance(s, bestPt);
+        e.cost = e.length / pixelsPerMeter * costPerMeter;
+        if (e.length < minLineLength) { e.reason = "短すぎます"; return e; }
+
+        // 途中で跨いだ線（端の近くの接触は数えない）
+        const float ignoreEnds = 6f;
+        float firstCross = float.MaxValue;
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            for (int i = 1; i < l.pts.Count; i++)
+            {
+                if (!SegSeg(s, bestPt, l.pts[i - 1], l.pts[i], out float t, out _)) continue;
+                float a = t * e.length;
+                if (a < ignoreEnds || a > e.length - ignoreEnds || a >= firstCross) continue;
+                firstCross = a; e.crossedLine = l;
+            }
+        }
+        float firstDrawn = float.MaxValue;
+        foreach (var d in drawnLines)
+        {
+            if (!SegSeg(s, bestPt, d.a, d.b, out float t, out _)) continue;
+            float a = t * e.length;
+            if (a < ignoreEnds || a > e.length - ignoreEnds || a >= firstDrawn) continue;
+            firstDrawn = a; e.crossedDrawn = d;
+        }
+        e.hitCenter = CrossesCenter(s, bestPt);
+        e.hitGauge = e.cost > lineGauge + 0.001f;
+
+        if (e.crossedLine != null) { e.reason = "基本線を跨いで書けません"; return e; }
+        if (e.hitCenter) { e.reason = "中央には書けません"; return e; }
+        if (e.crossedDrawn != null) { e.reason = "造線を跨いで書けません"; return e; }
+        if (e.hitGauge) { e.reason = "造線ゲージが足りません"; return e; }
+
+        e.valid = true;
+        e.endLine = best;
+        e.endDist = bestAlong;
+        e.reason = "";
+        return e;
+    }
+
+    /// <summary>
+    /// ルール2：線分が中央の設置禁止範囲を通るか。
+    /// 禁止範囲 = 円（半径 × centerForbiddenRate）の中。ただし ⑨（上の円弧）がまだ無い間は両腕より上の部分、
+    /// ⑩（下の円弧）がまだ無い間は両足より下の部分は通れる（仕様の「黄色の部分」。人体図を跨いで左右を結べる）
+    /// </summary>
+    bool CrossesCenter(Vector2 a, Vector2 b)
+    {
+        if (!forbidCenter) return false;
+        float r = circleRadius * centerForbiddenRate;
+        if (DistPointSeg(circleCenter, a, b) >= r) return false;   // 円にかすりもしない
+
+        bool topOpen = !lines.Exists(l => l.alive && l.name == "TopArc");
+        bool bottomOpen = !lines.Exists(l => l.alive && l.name == "BottomArc");
+        float armY = circleCenter.y + circleRadius * Mathf.Sin(armAngle * Mathf.Deg2Rad);
+        float legY = circleCenter.y + circleRadius * Mathf.Sin(legAngle * Mathf.Deg2Rad);
+
+        float len = Vector2.Distance(a, b);
+        int steps = Mathf.Max(2, Mathf.CeilToInt(len / 4f));
+        for (int i = 1; i < steps; i++)
+        {
+            Vector2 p = Vector2.Lerp(a, b, (float)i / steps);
+            if ((p - circleCenter).sqrMagnitude >= r * r) continue;
+            if (topOpen && p.y > armY) continue;
+            if (bottomOpen && p.y < legY) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>プロト：始点から mouse 方向へ伸ばした直線が最初に触れる線を調べる</summary>
+    DrawEval EvaluateExtend(Vector2 mouse)
     {
         var e = new DrawEval { end = mouse, valid = false };
         Vector2 s = drawStart;
@@ -1305,24 +1604,30 @@ public class LogicModeScreen : MonoBehaviour
                 hitLineDist = l.cum[i - 1] + (l.cum[i] - l.cum[i - 1]) * u;
             }
         }
+        DrawnLine hitDrawn = null;
         foreach (var d in drawnLines)
         {
             if (!SegSeg(s, far, d.a, d.b, out float t, out _)) continue;
             float along = t * reach;
             if (along < ignoreNearStart || along >= bestAlong) continue;
-            bestAlong = along; hitKind = 2; hitLine = null;
+            bestAlong = along; hitKind = 2; hitLine = null; hitDrawn = d;
         }
 
         if (hitKind == 0) { e.end = mouse; e.reason = "別の基本線まで伸ばしてください"; return e; }
 
+        e.onLine = hitKind == 1;
         e.end = s + n * bestAlong;
         e.length = bestAlong;
         e.cost = bestAlong / pixelsPerMeter * costPerMeter;
+        e.crossedDrawn = hitDrawn;
+        e.hitCenter = hitKind == 1 && CrossesCenter(s, e.end);
+        e.hitGauge = e.cost > lineGauge + 0.001f;
 
-        if (hitKind == 2) { e.reason = "線を跨いで書けません"; return e; }
+        if (hitKind == 2) { e.reason = "造線を跨いで書けません"; return e; }
         if (hitLine == drawStartLine) { e.reason = "同じ基本線には繋げません"; return e; }
         if (bestAlong < minLineLength) { e.reason = "短すぎます"; return e; }
-        if (e.cost > lineGauge + 0.001f) { e.reason = "造線ゲージが足りません"; return e; }
+        if (e.hitCenter) { e.reason = "中央には書けません"; return e; }
+        if (e.hitGauge) { e.reason = "造線ゲージが足りません"; return e; }
 
         e.valid = true;
         e.endLine = hitLine;
@@ -1333,12 +1638,13 @@ public class LogicModeScreen : MonoBehaviour
 
     void ShowPreview(DrawEval e)
     {
-        Color c = e.valid ? Color.white : InvalidCol;
+        // 確定できる = 白 / 置けない = 灰色（禁止ルールに触れた所は UpdateViolationVisuals で赤く点滅）
+        Color c = e.valid ? Color.white : unplaceableColor;
         DrawDashed(drawStart, e.end, c);
         startMarker.color = c;
 
         hintText.text = e.valid ? $"-{e.cost:0}" : e.reason;
-        hintText.color = e.valid ? new Color(1f, 0.75f, 0.4f) : InvalidCol;
+        hintText.color = e.valid ? new Color(1f, 0.75f, 0.4f) : e.Forbidden ? InvalidCol : unplaceableColor;
         hintText.rectTransform.anchoredPosition = e.end + new Vector2(14, 10);
 
         UpdateGaugeUI(e.valid ? e.cost : 0f);
@@ -1378,9 +1684,10 @@ public class LogicModeScreen : MonoBehaviour
         d.forbiddenGroup.transform.SetParent(d.root, false);
         foreach (var pt in new[] { d.a, d.b })
         {
-            UIShapes.CreateImage(d.forbiddenGroup.transform, "Area", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Circle, new Color(0.8f, 0.3f, 0.3f, 0.12f));
-            UIShapes.CreateImage(d.forbiddenGroup.transform, "Ring", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Ring, new Color(0.85f, 0.4f, 0.4f, 0.5f));
+            d.forbiddenImages.Add(UIShapes.CreateImage(d.forbiddenGroup.transform, "Area", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Circle, new Color(0.8f, 0.3f, 0.3f, 0.12f)));
+            d.forbiddenImages.Add(UIShapes.CreateImage(d.forbiddenGroup.transform, "Ring", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Ring, new Color(0.85f, 0.4f, 0.4f, 0.5f)));
         }
+        foreach (var img in d.forbiddenImages) d.forbiddenColors.Add(img.color);
 
         d.body = UIShapes.CreateLine(d.root, d.a, d.b, DrawnThickness, auto ? AutoDrawnColor : DrawnColor, "Body");
 
@@ -1397,6 +1704,7 @@ public class LogicModeScreen : MonoBehaviour
     void CancelDrawing()
     {
         drawing = false;
+        hasEval = false;
         startMarker.gameObject.SetActive(false);
         hintText.text = "";
         foreach (var img in dashPool) img.gameObject.SetActive(false);
@@ -1514,13 +1822,85 @@ public class LogicModeScreen : MonoBehaviour
         if (!drawing) UpdateGaugeUI(0f);
     }
 
+    // ======================= 禁止ルールの点滅 =======================
+
+    /// <summary>禁止ルールに触れた所を赤く点滅（ルール1 基本線 / 2 中央 / 4 造線 / 5 開始禁止範囲 / 6 造線ゲージ）</summary>
+    void UpdateViolationVisuals()
+    {
+        float k = (Mathf.Sin(Time.unscaledTime * violationBlinkSpeed * Mathf.PI * 2f) + 1f) * 0.5f;
+        bool show = drawing && hasEval && CurrentPhase == Phase.Route;
+
+        // ルール1：跨いだ基本線
+        SetLineHighlight(show ? lastEval.crossedLine : null, k);
+
+        // ルール2：中央の禁止範囲（⑨⑩ が無い間は上下を切った帯）
+        if (centerZone != null)
+        {
+            if (show && lastEval.hitCenter && centerZoneMask != null)
+            {
+                float r = circleRadius;
+                bool topOpen = !lines.Exists(l => l.alive && l.name == "TopArc");
+                bool bottomOpen = !lines.Exists(l => l.alive && l.name == "BottomArc");
+                float top = topOpen ? circleCenter.y + r * Mathf.Sin(armAngle * Mathf.Deg2Rad) : circleCenter.y + r;
+                float bottom = bottomOpen ? circleCenter.y + r * Mathf.Sin(legAngle * Mathf.Deg2Rad) : circleCenter.y - r;
+                float mid = (top + bottom) * 0.5f;
+                centerZoneMask.anchoredPosition = new Vector2(circleCenter.x, mid);
+                centerZoneMask.sizeDelta = new Vector2(r * 2f, top - bottom);
+                centerZone.rectTransform.anchoredPosition = new Vector2(0f, circleCenter.y - mid);
+            }
+            var c = violationColor;
+            c.a = show && lastEval.hitCenter ? Mathf.Lerp(0.12f, 0.45f, k) : 0f;
+            centerZone.color = c;
+        }
+
+        // ルール4：跨いだ造線（色は UpdateDrawnVisuals で毎フレーム戻る）
+        if (show && lastEval.crossedDrawn != null && lastEval.crossedDrawn.body != null)
+        {
+            var b = lastEval.crossedDrawn.body;
+            b.color = Color.Lerp(b.color, violationColor, k);
+        }
+
+        // ルール6：造線ゲージ
+        if (gaugeBorder != null)
+            gaugeBorder.color = show && lastEval.hitGauge ? Color.Lerp(gaugeBorderColor, violationColor, k) : gaugeBorderColor;
+
+        // ルール5：開始禁止範囲（1 秒）
+        if (flashForbiddenTime > 0f) flashForbiddenTime -= Time.unscaledDeltaTime;
+        foreach (var d in drawnLines)
+        {
+            bool flash = flashForbiddenTime > 0f && flashForbidden.Contains(d);
+            for (int i = 0; i < d.forbiddenImages.Count; i++)
+            {
+                var baseCol = d.forbiddenColors[i];
+                var hot = violationColor; hot.a = Mathf.Max(baseCol.a, 0.6f);
+                d.forbiddenImages[i].color = flash ? Color.Lerp(baseCol, hot, k) : baseCol;
+            }
+        }
+    }
+
+    void SetLineHighlight(BasicLine l, float k)
+    {
+        if (hlLine != l)
+        {
+            if (hlLine != null)
+                for (int i = 0; i < hlLine.visuals.Count && i < hlSaved.Count; i++)
+                    if (hlLine.visuals[i] != null) hlLine.visuals[i].color = hlSaved[i];
+            hlLine = l;
+            hlSaved.Clear();
+            if (l != null) foreach (var v in l.visuals) hlSaved.Add(v != null ? v.color : Color.white);
+        }
+        if (l == null) return;
+        for (int i = 0; i < l.visuals.Count && i < hlSaved.Count; i++)
+            if (l.visuals[i] != null) l.visuals[i].color = Color.Lerp(hlSaved[i], violationColor, k);
+    }
+
     // ======================= ノード移動 =======================
 
     void SpawnMoving(ProblemNode pn)
     {
         var line = lines[pn.line];
         var record = spawnLog?.Add(problemIndex + 1, pn.order, pn.time, pn.type, pn.kind == ProtoNode.Kind.Bad,
-                                   LineLabel(line.name), pn.type == TypeLimb ? LimbLabel(pn.limb) : "");
+                                   LineLabel(line.name), IsLimbType(pn.type) ? LimbLabel(pn.limb) : "");
         if (!line.alive)
         {
             spawnLog?.SetResult(record, "出現せず（基本線が消滅）");   // 消滅した基本線からは出現しない
@@ -1534,22 +1914,23 @@ public class LogicModeScreen : MonoBehaviour
             line = line,
             dist = 0f,
             type = pn.type,
+            status = StatusOf(pn.type),
             record = record,
-            targetLimb = pn.type == TypeLimb ? FindLimb(pn.limb) : null
+            targetLimb = IsLimbType(pn.type) ? FindLimb(pn.limb) : null
         };
         RegisterSpawnOverlaps(m);   // 出現した瞬間に重なっている分は「交差」に数えない
         moving.Add(m);
 
-        // type10 線追加：出現時にランダムな位置・角度で造線を追加
+        // type11 造線：出現時にランダムな位置・角度で造線を追加
         if (pn.type == TypeAddLine)
         {
             bool ok = TryAddRandomLine();
             if (spawnLogToConsole)
-                Debug.Log(ok ? "[線追加] 造線を 1 本追加しました" : "[線追加] 条件に合う位置が見つからず、造線は追加されませんでした");
+                Debug.Log(ok ? "[造線ノード] 造線を 1 本追加しました" : "[造線ノード] 条件に合う位置が見つからず、造線は追加されませんでした");
         }
     }
 
-    // ======================= type9 交差 =======================
+    // ======================= type10 交錯 =======================
 
     bool Overlaps(MovingNode a, MovingNode b)
     {
@@ -1568,7 +1949,7 @@ public class LogicModeScreen : MonoBehaviour
         }
     }
 
-    /// <summary>交差ノードが他のノードと重なり始めたら良性⇔悪性を反転（離れるまでは再反転しない）</summary>
+    /// <summary>交錯ノードが他のノードと重なり始めたら良性⇔悪性を反転（Lv4 ⇔ Lv-4。離れるまでは再反転しない）</summary>
     void CheckCrossings()
     {
         foreach (var a in moving)
@@ -1584,7 +1965,7 @@ public class LogicModeScreen : MonoBehaviour
                     {
                         a.node.FlipKind();
                         if (spawnLogToConsole)
-                            Debug.Log($"[交差] 交差ノードが反転 → {(a.node.CurrentKind == ProtoNode.Kind.Good ? "良性" : "悪性")}");
+                            Debug.Log($"[交錯] 交錯ノードが反転 → {(a.node.CurrentKind == ProtoNode.Kind.Good ? "良性" : "悪性")}");
                     }
                 }
                 else a.touching.Remove(b);
@@ -1592,11 +1973,11 @@ public class LogicModeScreen : MonoBehaviour
         }
     }
 
-    // ======================= type10 線追加 =======================
+    // ======================= type11 造線 =======================
 
     /// <summary>
     /// ランダムな基本線上の点から、ランダムな角度で別の基本線まで造線を引く。
-    /// プレイヤーの造線と同じ条件（別の基本線に届く・造線を跨がない・同じ基本線に繋がない・最短長・開始禁止範囲）を満たすまで抽選。
+    /// プレイヤーの造線と同じ条件（別の基本線に届く・造線を跨がない・同じ基本線に繋がない・中央を通らない・最短長・開始禁止範囲）を満たすまで抽選。
     /// </summary>
     bool TryAddRandomLine()
     {
@@ -1629,6 +2010,7 @@ public class LogicModeScreen : MonoBehaviour
             if (addLineMaxLength > 0f && len > addLineMaxLength) continue;
             Vector2 e = s + dir * len;
             if (NearDrawnEnd(e)) continue;
+            if (CrossesCenter(s, e)) continue;   // ルール2：中央の円の中は通らない
 
             CreateDrawnLine(s, e, l, hitLine, dist, hitDist, len, 0f, addLineHardness, true);
             return true;
@@ -1684,10 +2066,10 @@ public class LogicModeScreen : MonoBehaviour
         for (int i = moving.Count - 1; i >= 0; i--)
         {
             var m = moving[i];
-            m.node.TickGauge(dt, gaugePerSecond);   // 停止中もゲージは進む
+            m.node.TickGauge(dt, m.status != null ? m.status.value : gaugePerSecond);   // 停止中もゲージは進む（速さは nodestatus の value）
             m.elapsed += dt;
 
-            // type8 途中停止：stopAfterSeconds 秒後から stopSeconds 秒止まる（他のノードは追い越せる）
+            // type5 停滞：stopAfterSeconds 秒後から stopSeconds 秒止まる（他のノードは追い越せる・止まっている間は灰色）
             if (m.type == TypeStop)
             {
                 bool stop = m.elapsed >= stopAfterSeconds && m.elapsed < stopAfterSeconds + stopSeconds;
@@ -1695,6 +2077,7 @@ public class LogicModeScreen : MonoBehaviour
                 {
                     m.stopped = stop;
                     m.node.SetTag(stop ? "停止中" : TagOf(TypeStop, null));
+                    m.node.SetTint(stop ? stopTint : Color.white);
                 }
                 if (stop) continue;
             }
@@ -1788,7 +2171,7 @@ public class LogicModeScreen : MonoBehaviour
         {
             if (d.state == DrawnState.VanishPending) continue;
             if (!d.lineA.alive || !d.lineB.alive) continue;
-            if (!CanPass(d, nodeType)) continue;   // 重いノードは硬さが足りない造線を通れない
+            if (!CanPass(d, nodeType)) continue;   // 重圧ノードは硬さが足りない造線を通れない
             for (int side = 0; side < 2; side++)
             {
                 bool isA = side == 0;
@@ -1804,7 +2187,7 @@ public class LogicModeScreen : MonoBehaviour
         return best;
     }
 
-    /// <summary>type7 重い：硬さ（残り通過回数）が heavyMinHardness 以上の造線だけ通れる。秒間消滅では選んだ硬さで判定</summary>
+    /// <summary>type4 重圧：硬さ（残り通過回数）が heavyMinHardness 以上の造線だけ通れる。秒間消滅では選んだ硬さで判定</summary>
     bool CanPass(DrawnLine d, int nodeType) => nodeType != TypeHeavy || d.remaining >= heavyMinHardness;
 
     void EnterDrawn(MovingNode m, DrawnLine d, bool atA)
@@ -1839,56 +2222,54 @@ public class LogicModeScreen : MonoBehaviour
             return;
         }
 
-        int lv = m.node.Level - 1;
+        // スコア・ダメージ・SAN はこのノードの種類のステータス（nodestatus_master）× 回収時のレベル
+        var st = m.status ?? StatusOf(m.type);
+        int lv = m.node.Level;                                  // 1〜4（悪性なら Lv-1〜-4）
+        bool bad = m.node.CurrentKind == ProtoNode.Kind.Bad;
         int scoreBefore = Score;
         float sanBefore = san;
-        float damage = 0f;
-        if (m.node.CurrentKind == ProtoNode.Kind.Good)
+        float rate = 1f;
+        float sanLoss = st.San(bad, lv);
+        float damage = st.Damage(bad, lv);
+        string note = "";
+
+        // 帰属（type6〜9）：良性を対応する部位 → スコア×〇 ／ 違う部位 → SAN が △＋今のレベルの SAN 減少量。悪性は通常どおり
+        if (!bad && IsLimbType(m.type) && m.targetLimb != null)
         {
-            float rate = 1f;
-            if (m.type == TypeLimb && m.targetLimb != null)
+            if (m.targetLimb == limb) { rate = limbMatchScoreRate; note = "（対応部位）"; }
+            else
             {
-                if (m.targetLimb == limb) rate = limbMatchScoreRate;   // 対応する部位：スコア倍率
-                else
-                {
-                    san = Mathf.Max(0f, san - limbMismatchSan);         // 対応しない部位：SAN 減少
-                    dangerFlash = Mathf.Max(dangerFlash, damageFlash * 0.5f);
-                }
+                sanLoss += limbMismatchSan;
+                dangerFlash = Mathf.Max(dangerFlash, damageFlash * 0.5f);
+                note = "（違う部位）";
             }
-            AddScore(Mathf.RoundToInt(goodScore[lv] * rate));
-            goodCollected[lv]++;
         }
-        else
-        {
-            // 悪性は四肢対応でも通常どおり（ダメージ＋SAN 減少）
-            AddScore(badScore[lv]);
-            san = Mathf.Max(0f, san - badSan[lv]);
-            badCollected[lv]++;
-            damage = badDamage[lv];
-            Damage(limb, damage);
-        }
+
+        AddScore(Mathf.RoundToInt(st.Score(bad, lv) * rate));
+        if (sanLoss > 0f) san = Mathf.Max(0f, san - sanLoss);
+        (bad ? badCollected : goodCollected)[lv - 1]++;
 
         if (m.record != null)
         {
             var r = m.record;
             r.collectLimb = limb.label;
-            r.collectKind = m.node.CurrentKind == ProtoNode.Kind.Good ? "良性" : "悪性";
-            r.collectLevel = lv + 1;
+            r.collectKind = bad ? "悪性" : "良性";
+            r.collectLevel = lv;
             r.score = Score - scoreBefore;
             r.damage = damage;
             r.san = sanBefore - san;
-            string note = m.type == TypeLimb && m.node.CurrentKind == ProtoNode.Kind.Good && m.targetLimb != null
-                ? (m.targetLimb == limb ? "（対応部位）" : "（違う部位）") : "";
             spawnLog?.SetResult(r, "回収" + note);
         }
         StartCoroutine(Pop(limb.root));
+
+        if (damage > 0f) Damage(limb, damage);   // 最後に（欠損 → ゲームオーバーでもログが残るように）
     }
 
     void Damage(Limb limb, float dmg)
     {
         limb.hp = Mathf.Max(0f, limb.hp - dmg);
-        limb.hpFill.fillAmount = limb.hp / limbMaxHp;
-        if (hpBarFillSprite == null) limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limbMaxHp);
+        limb.hpFill.fillAmount = limb.hp / limb.maxHp;
+        if (hpBarFillSprite == null) limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limb.maxHp);
         dangerFlash = Mathf.Max(dangerFlash, damageFlash);   // ダメージで一瞬赤くなる
         if (limb.hp <= 0f) LoseLimb(limb);
     }
@@ -1914,7 +2295,7 @@ public class LogicModeScreen : MonoBehaviour
             if (killMiddleOnLegLost)
                 KillLine(limb == leftLeg ? "MiddleLeft" : "MiddleRight");
 
-            // 右足欠損 → 下の円弧が完成。右足 → 股下 → 左足（時計回り）
+            // 左足欠損 → ② が消える ／ 右足欠損 → ⑤ が消え、下の円弧（⑩）が完成。右足 → 股下 → 左足（時計回り）
             if (limb == rightLeg)
                 AddOverflowArc(rightLeg, leftLeg, legAngle, -180f - legAngle, "BottomArc");
         }
@@ -2114,7 +2495,7 @@ public class LogicModeScreen : MonoBehaviour
         // 再生中に問題が読めなかったとき
         if (Application.isPlaying && problemCount <= 0)
         {
-            statusText.text = $"ステージ{stageNumber} の問題が CSV にありません\nStreamingAssets の CSV と Stage Number を確認してください";
+            statusText.text = $"ステージ{stageNumber} の問題が CSV にありません\nResources/{logicCsvFolder} の CSV と Stage Number を確認してください";
             statusText.color = InvalidCol;
             return;
         }
@@ -2123,7 +2504,9 @@ public class LogicModeScreen : MonoBehaviour
         statusText.text =
             $"{progress}{phase}  [{(useFixedSpawn ? "指定出現" : "確率出現")}]\n" +
             $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
-            (CurrentPhase == Phase.Route ? "基本線をドラッグで造線 / 右クリックで削除" : "");
+            (CurrentPhase == Phase.Route
+                ? (ClickMode ? "基本線をクリック → 別の基本線をクリックで造線" : "基本線からドラッグ → 別の基本線で離して造線") + " / 右クリックで削除"
+                : "");
     }
 
     // ======================= 危険演出 =======================

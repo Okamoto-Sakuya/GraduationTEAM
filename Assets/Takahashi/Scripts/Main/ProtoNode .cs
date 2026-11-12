@@ -3,12 +3,14 @@ using UnityEngine.UI;
 
 /// <summary>
 /// ノード（青＝良性 / 赤＝悪性）。
-/// ・ゲージ値 0〜100 を往復。減少 → 0で性質が反転して上昇 → 100で折り返して減少 → …（ずっと変化し続ける）
+/// ・属性値（メイン共通仕様 11/12）は −100〜+100。0 以上が良性、マイナスが悪性。
+///   内部では「大きさ Value（0〜100）＋ 性質 CurrentKind」で持つ（SignedValue = 良性なら +Value、悪性なら −Value）。
+///   +100 → 0 → −100 → 0 → +100 … と往復するのは、大きさで見ると 100→0（反転）→100→0（反転）… と同じ
 ///   例（良性出現）: 良性100→0 → 悪性0→100 → 悪性100→0 → 良性0→100 → 良性100→0 …
-/// ・レベルはゲージ値から 1(0-24) 2(25-49) 3(50-74) 4(75-100)
+/// ・レベルは大きさから。区切りは nodestatus_master の lv〇min（SetLevelThresholds）。初期値 1(0-24) 2(25-49) 3(50-74) 4(75-100)
 /// ・周りのリングが残りゲージ（良性出現は反時計回り、悪性出現は時計回り。反転しても向きは出現時のまま）
-/// ・特殊ノード（type5〜10）は下に種類の札を出す（SetTag。「右腕」「足早」「重い」「停止」「交差」「線追加」など）
-/// ・LockGauge でゲージを固定できる（交差ノード：時間で変化せず、FlipKind でのみ良性⇔悪性が入れ替わる）
+/// ・特殊ノードは下に種類の札を出す（SetTag。「右腕」「迅速」「重圧」「停滞」「交錯」「造線」など）
+/// ・LockGauge でゲージを固定できる（交錯ノード：時間で変化せず、FlipKind でのみ良性⇔悪性が入れ替わる）
 /// </summary>
 public class ProtoNode : MonoBehaviour
 {
@@ -25,10 +27,34 @@ public class ProtoNode : MonoBehaviour
 
     public Kind CurrentKind { get; private set; }
     public Kind SpawnKind { get; private set; }
-    public float Value { get; private set; }   // 0〜100
+    public float Value { get; private set; }   // 大きさ 0〜100
     public RectTransform Rect => (RectTransform)transform;
 
-    public int Level => Value < 25f ? 1 : Value < 50f ? 2 : Value < 75f ? 3 : 4;
+    /// <summary>属性値 −100〜+100（良性 = プラス、悪性 = マイナス）</summary>
+    public float SignedValue => CurrentKind == Kind.Good ? Value : -Value;
+
+    // レベルの下限（大きさ）。Lv1〜4。悪性は lv-〇min の絶対値
+    float[] goodMin = { 0f, 25f, 50f, 75f };
+    float[] badMin = { 1f, 25f, 50f, 75f };
+
+    /// <summary>今のレベル 1〜4（良性・悪性それぞれの区切りで判定）</summary>
+    public int Level
+    {
+        get
+        {
+            var mins = CurrentKind == Kind.Good ? goodMin : badMin;
+            int lv = 1;
+            for (int i = 1; i < 4 && i < mins.Length; i++) if (Value >= mins[i]) lv = i + 1;
+            return lv;
+        }
+    }
+
+    /// <summary>レベルの区切りを設定（nodestatus_master の lv〇min。悪性は絶対値で渡す）</summary>
+    public void SetLevelThresholds(float[] good, float[] bad)
+    {
+        if (good != null && good.Length >= 4) goodMin = (float[])good.Clone();
+        if (bad != null && bad.Length >= 4) badMin = (float[])bad.Clone();
+    }
 
     /// <summary>true = ゲージが時間で変化しない（交差ノード）</summary>
     public bool GaugeLocked { get; private set; }
@@ -38,6 +64,11 @@ public class ProtoNode : MonoBehaviour
     Text orderLabel, tagLabel;
     Image tagBg;
     CanvasGroup group;
+
+    Color tint = Color.white;
+
+    /// <summary>本体とリングに掛ける色（停滞ノードが止まっている間の灰色など。白で元に戻る）</summary>
+    public void SetTint(Color c) { tint = c; Refresh(); }
 
     /// <summary>消滅準備の点滅・消滅判定中の半透明に使用（0〜1）</summary>
     public void SetAlpha(float a) => group.alpha = a;
@@ -135,7 +166,7 @@ public class ProtoNode : MonoBehaviour
         Refresh();
     }
 
-    /// <summary>良性⇔悪性を入れ替える（ゲージ値はそのまま）</summary>
+    /// <summary>良性⇔悪性を入れ替える（大きさはそのまま。交錯ノードなら +100 ⇔ −100）</summary>
     public void FlipKind()
     {
         CurrentKind = CurrentKind == Kind.Good ? Kind.Bad : Kind.Good;
@@ -152,14 +183,14 @@ public class ProtoNode : MonoBehaviour
         {
             body.sprite = s;
             body.preserveAspect = true;
-            body.color = Color.white;
+            body.color = tint;
         }
         else
         {
             body.sprite = UIShapes.Circle;
-            body.color = c;
+            body.color = c * tint;
         }
-        ring.color = Color.Lerp(c, Color.white, 0.35f);
+        ring.color = Color.Lerp(c, Color.white, 0.35f) * tint;
         ring.fillAmount = Value / 100f;
     }
 }

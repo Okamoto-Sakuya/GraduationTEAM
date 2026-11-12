@@ -6,14 +6,12 @@ using UnityEngine;
 ///
 ///   logic_fixedproblem_master : stage, problem, nodecount
 ///       … ステージの問題構成。その問題で出すノードの数（2つ同時出現も 1 個と数える）
-///   logic_fixednode_master    : id, stage, problem(ploblem), nodegroup, nodetype, nodeorder, nodeposition1, nodeposition2, …
+///   logic_fixednode_master    : id, stage, problem(ploblem), nodegroup, nodetype, base, nodeorder, nodeposition1, nodeposition2, …
 ///       … 問題ごとのノード。同じ問題の中に nodegroup が複数あれば、そのうち 1 つを抽選して出す
-///         nodetype  1=良性 / 2=悪性 / 3=良性(2つ同時出現) / 4=悪性(2つ同時出現)
-///                   5=四肢対応 / 6=足早 / 7=重い / 8=途中停止（10/30 追加）
-///                   9=交差 / 10=線追加（11/07 追加）
-///         nodekind  type5〜10 の良性/悪性（1・良性・青 / 2・悪性・赤）。空欄なら良性。列ごと省略してもよい
-///         nodelimb  type5 の対応部位（右腕・左腕・右足・左足 / RA・LA・RL・LL / 1〜4 = 右腕・左腕・右足・左足）
-///                   空欄なら、問題を作るときに残っている部位から抽選
+///         nodetype  メイン共通仕様（LogicNodeTypes）
+///                   1=通常 / 2=同時出現 / 3=迅速 / 4=重圧 / 5=停滞
+///                   6=帰属(左腕) / 7=帰属(右腕) / 8=帰属(左足) / 9=帰属(右足) / 10=交錯 / 11=造線
+///         base      1=良性 / 2=悪性（列が無い・空欄なら良性。旧名 nodekind でも可）
 ///         nodeorder 何番目に出るか（同じ番号は同じ時刻に出る）
 ///         nodeposition 1=左上 2=左中 3=左下 4=右上 5=右中 6=右下（L1〜L3 / R1〜R3 でも可）
 ///             nodeposition1 から順に見て、出せる基本線が見つかった位置に出す（列はいくつ増やしてもよい）
@@ -27,7 +25,7 @@ public class LogicFixedSpawner
     {
         public int id, stage, problem, group, type, order;
         public bool bad;
-        public string limb = "";   // type5 の対応部位（LimbNames の名前。空 = 抽選）
+        public string limb = "";   // 帰属ノードの対応部位（nodetype から決まる）
         public readonly List<int> positions = new List<int>();
     }
 
@@ -38,12 +36,9 @@ public class LogicFixedSpawner
         public bool bad;      // true = 悪性
         public int order;     // 何番目に来るか（2つ同時出現は同じ番号）
         public float time;    // 実行開始から何秒後に出るか
-        public int type;      // nodetype（1〜10）
-        public string limb;   // type5 の対応部位（"RightArm" など。空 = 抽選）
+        public int type;      // nodetype（1〜11。LogicNodeTypes）
+        public string limb;   // 帰属ノードの対応部位（"RightArm" など。帰属以外は空）
     }
-
-    /// <summary>nodelimb で書ける部位（LogicModeScreen の Limb.name と同じ名前）</summary>
-    public static readonly string[] LimbNames = { "RightArm", "LeftArm", "RightLeg", "LeftLeg" };
 
     readonly List<ProblemDef> problems = new List<ProblemDef>();
     readonly List<NodeRow> nodes = new List<NodeRow>();
@@ -67,7 +62,8 @@ public class LogicFixedSpawner
             var h = table.header;
             int cId = Col(h, "id"), cStage = Col(h, "stage"), cProb = Col(h, "problem", "ploblem"),
                 cGroup = Col(h, "nodegroup"), cType = Col(h, "nodetype"), cOrder = Col(h, "nodeorder"),
-                cKind = Col(h, "nodekind", "kind"), cLimb = Col(h, "nodelimb", "limb");
+                cBase = Col(h, "base", "nodebase", "nodekind", "kind");
+            if (cBase < 0) Debug.LogWarning("[指定出現:fixednode] base 列がありません → すべて良性として扱います");
             var posCols = new List<int>();
             for (int i = 0; i < h.Length; i++)
                 if (h[i].StartsWith("nodeposition", System.StringComparison.OrdinalIgnoreCase)) posCols.Add(i);
@@ -89,14 +85,15 @@ public class LogicFixedSpawner
                     type = Int(Get(r, cType)),
                     order = Int(Get(r, cOrder))
                 };
-                if (n.type < 1 || n.type > 10)
+                if (!LogicNodeTypes.IsValid(n.type))
                 {
-                    Debug.LogWarning($"[指定出現:fixednode] id {n.id} の nodetype {Get(r, cType)} は不明 → 良性(1)として扱います");
-                    n.type = 1;
+                    Debug.LogWarning($"[指定出現:fixednode] id {n.id} の nodetype {Get(r, cType)} は不明 → 通常(1)として扱います");
+                    n.type = LogicNodeTypes.Normal;
                 }
-                // 悪性かどうか：2/4 は悪性。5〜10 は nodekind で決める（空欄なら良性）
-                n.bad = n.type == 2 || n.type == 4 || (n.type >= 5 && Kind(Get(r, cKind)) == 2);
-                if (n.type == 5) n.limb = Limb(Get(r, cLimb), n.id);
+                string b = Get(r, cBase);
+                if (!LogicNodeTypes.TryParseBase(b, out n.bad) && b.Length > 0)
+                    Debug.LogWarning($"[指定出現:fixednode] id {n.id} の base \"{b}\" は不明 → 良性として扱います");
+                n.limb = LogicNodeTypes.LimbOf(n.type);
                 foreach (int c in posCols)
                 {
                     int p = Position(Get(r, c));
@@ -142,32 +139,6 @@ public class LogicFixedSpawner
             return (v[0] == 'L' ? 0 : 3) + (v[1] - '0');
         int p = Int(v);
         return p >= 1 && p <= 6 ? p : 0;
-    }
-
-    /// <summary>nodekind：1・良性・青・good → 1 / 2・悪性・赤・bad → 2 / 空欄・不明 → 0</summary>
-    static int Kind(string v)
-    {
-        v = v.Trim();
-        if (v.Length == 0) return 0;
-        if (v == "1") return 1;
-        if (v == "2") return 2;
-        return LogicCsvLoader.TryParseKind(v, out var k) ? (k == ProtoNode.Kind.Bad ? 2 : 1) : 0;
-    }
-
-    /// <summary>nodelimb → LimbNames の名前（空欄・不明は "" ＝抽選）</summary>
-    static string Limb(string v, int id)
-    {
-        string u = v.Trim().ToUpperInvariant();
-        switch (u)
-        {
-            case "": return "";
-            case "1": case "右腕": case "RA": case "RIGHTARM": return "RightArm";
-            case "2": case "左腕": case "LA": case "LEFTARM": return "LeftArm";
-            case "3": case "右足": case "RL": case "RIGHTLEG": return "RightLeg";
-            case "4": case "左足": case "LL": case "LEFTLEG": return "LeftLeg";
-        }
-        Debug.LogWarning($"[指定出現:fixednode] id {id} の nodelimb \"{v}\" は不明 → 抽選にします");
-        return "";
     }
 
     // ======================= ステージ =======================
@@ -220,7 +191,7 @@ public class LogicFixedSpawner
 
             bool bad = n.bad;
             result.Add(new Spawn { line = line, bad = bad, order = n.order, time = (n.order - 1) * interval, type = n.type, limb = n.limb });
-            log.Append($" {n.order}{(bad ? "赤" : "青")}{(n.type >= 5 ? "(type" + n.type + (n.limb != "" ? ":" + n.limb : "") + ")" : "")}@{usedPos}");
+            log.Append($" {n.order}{(bad ? "赤" : "青")}{(n.type != LogicNodeTypes.Normal ? "(" + LogicNodeTypes.Name(n.type) + ")" : "")}@{usedPos}");
         }
 
         Debug.Log($"[指定出現] ステージ{p.stage} 問題{p.problem}（グループ{group}を抽選・{orders.Count}個）：{log}");

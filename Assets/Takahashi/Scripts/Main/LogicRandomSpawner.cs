@@ -6,13 +6,12 @@ using UnityEngine;
 ///
 ///   logic_randomproblem_master : stage, problem(ploblem), nodegroup, nodecount
 ///       … ステージの問題構成。その問題で nodegroup から nodecount 個を抽選する（2つ同時出現も 1 個と数える）
-///   logic_randomnode_master    : id, nodegroup, nodetype[, nodekind][, nodelimb]
+///   logic_randomnode_master    : id, nodegroup, nodetype, base
 ///       … グループごとのノードの抽選箱。1 行 = 1 枚のくじ（同じ種類の行が多いほど出やすい）
-///         nodetype  1=良性 / 2=悪性 / 3=良性(2つ同時出現) / 4=悪性(2つ同時出現)
-///                   5=四肢対応 / 6=足早 / 7=重い / 8=途中停止
-///                   9=交差 / 10=線追加（11/07 追加）
-///         nodekind  type5〜10 の良性/悪性（1・良性・青 / 2・悪性・赤）。空欄なら良性
-///         nodelimb  type5 の対応部位（右腕・左腕・右足・左足 など）。空欄なら残っている部位から抽選
+///         nodetype  メイン共通仕様（LogicNodeTypes）
+///                   1=通常 / 2=同時出現 / 3=迅速 / 4=重圧 / 5=停滞
+///                   6=帰属(左腕) / 7=帰属(右腕) / 8=帰属(左足) / 9=帰属(右足) / 10=交錯 / 11=造線
+///         base      1=良性 / 2=悪性（列が無い・空欄なら良性。旧名 nodekind でも可）
 ///   logic_randomside_master    : id, count, same, opposite
 ///       … 同じ側（左/右）に count 回続けて出たとき、次も同じ側に出る確率 : 反対側に出る確率
 ///         count 0 の行は最初の 1 個。"4!" のように書いた行は 4 回以上すべてに使う
@@ -30,7 +29,7 @@ public class LogicRandomSpawner
     {
         public int id, group, type;
         public bool bad;
-        public string limb = "";
+        public string limb = "";   // 帰属ノードの対応部位（nodetype から決まる）
     }
 
     struct Prob { public int count; public float same, other; }
@@ -42,8 +41,8 @@ public class LogicRandomSpawner
         public bool bad;      // true = 悪性
         public int order;     // 何番目に来るか（2つ同時出現は同じ番号）
         public float time;    // 実行開始から何秒後に出るか
-        public int type;      // nodetype（1〜10）
-        public string limb;   // type5 の対応部位（"RightArm" など。空 = 抽選）
+        public int type;      // nodetype（1〜11。LogicNodeTypes）
+        public string limb;   // 帰属ノードの対応部位（"RightArm" など。帰属以外は空）
     }
 
     readonly List<ProblemDef> problems = new List<ProblemDef>();
@@ -92,17 +91,20 @@ public class LogicRandomSpawner
         {
             var h = nt.header;
             int cId = Col(h, "id"), cGroup = Col(h, "nodegroup"), cType = Col(h, "nodetype"),
-                cKind = Col(h, "nodekind", "kind"), cLimb = Col(h, "nodelimb", "limb");
+                cBase = Col(h, "base", "nodebase", "nodekind", "kind");
+            if (cBase < 0) Debug.LogWarning("[確率出現:randomnode] base 列がありません → すべて良性として扱います");
             foreach (var r in nt.rows)
             {
                 var n = new NodeRow { id = Int(Get(r, cId)), group = Int(Get(r, cGroup)), type = Int(Get(r, cType)) };
-                if (n.type < 1 || n.type > 10)
+                if (!LogicNodeTypes.IsValid(n.type))
                 {
-                    Debug.LogWarning($"[確率出現:randomnode] id {n.id} の nodetype {Get(r, cType)} は不明 → 良性(1)として扱います");
-                    n.type = 1;
+                    Debug.LogWarning($"[確率出現:randomnode] id {n.id} の nodetype {Get(r, cType)} は不明 → 通常(1)として扱います");
+                    n.type = LogicNodeTypes.Normal;
                 }
-                n.bad = n.type == 2 || n.type == 4 || (n.type >= 5 && Kind(Get(r, cKind)) == 2);
-                if (n.type == 5) n.limb = Limb(Get(r, cLimb), n.id);
+                string b = Get(r, cBase);
+                if (!LogicNodeTypes.TryParseBase(b, out n.bad) && b.Length > 0)
+                    Debug.LogWarning($"[確率出現:randomnode] id {n.id} の base \"{b}\" は不明 → 良性として扱います");
+                n.limb = LogicNodeTypes.LimbOf(n.type);
                 s.nodes.Add(n);
             }
         }
@@ -171,7 +173,7 @@ public class LogicRandomSpawner
         for (int order = 1; order <= p.nodecount; order++)
         {
             var row = pool[Random.Range(0, pool.Count)];
-            int count = row.type == 3 || row.type == 4 ? 2 : 1;   // 2つ同時出現
+            int count = LogicNodeTypes.SpawnCount(row.type);   // 同時出現は 2 個
             int first = -1;
             for (int c = 0; c < count; c++)
             {
@@ -187,7 +189,7 @@ public class LogicRandomSpawner
                     type = row.type,
                     limb = row.limb
                 });
-                log.Append($" {order}{(row.bad ? "赤" : "青")}{(row.type >= 5 ? "(type" + row.type + ")" : "")}@{(leftLines.Contains(line) ? "L" : "R")}{line}");
+                log.Append($" {order}{(row.bad ? "赤" : "青")}{(row.type != LogicNodeTypes.Normal ? "(" + LogicNodeTypes.Name(row.type) + ")" : "")}@{(leftLines.Contains(line) ? "L" : "R")}{line}");
             }
         }
 
@@ -290,30 +292,5 @@ public class LogicRandomSpawner
     {
         float.TryParse(s.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v);
         return v;
-    }
-
-    /// <summary>nodekind：1・良性・青・good → 1 / 2・悪性・赤・bad → 2 / 空欄・不明 → 0</summary>
-    static int Kind(string v)
-    {
-        v = v.Trim();
-        if (v.Length == 0) return 0;
-        if (v == "1") return 1;
-        if (v == "2") return 2;
-        return LogicCsvLoader.TryParseKind(v, out var k) ? (k == ProtoNode.Kind.Bad ? 2 : 1) : 0;
-    }
-
-    /// <summary>nodelimb → 部位名（空欄・不明は "" ＝抽選）</summary>
-    static string Limb(string v, int id)
-    {
-        switch (v.Trim().ToUpperInvariant())
-        {
-            case "": return "";
-            case "1": case "右腕": case "RA": case "RIGHTARM": return "RightArm";
-            case "2": case "左腕": case "LA": case "LEFTARM": return "LeftArm";
-            case "3": case "右足": case "RL": case "RIGHTLEG": return "RightLeg";
-            case "4": case "左足": case "LL": case "LEFTLEG": return "LeftLeg";
-        }
-        Debug.LogWarning($"[確率出現:randomnode] id {id} の nodelimb \"{v}\" は不明 → 抽選にします");
-        return "";
     }
 }
