@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class LineManager : MonoBehaviour
 {
@@ -101,6 +102,59 @@ public class LineManager : MonoBehaviour
     [SerializeField]
     private float endpointDotSize = 0.14f;
 
+    [Header("禁止ルールに触れたときの点滅表示")]
+    [SerializeField]
+    private Color violationColor = new Color(1f, 0.15f, 0.15f, 1f);
+
+    [SerializeField]
+    private float violationBlinkSpeed = 12f;
+
+    [Tooltip("始点を置けなかったとき(禁止ルール5)に、禁止範囲を点滅させる秒数")]
+    [SerializeField]
+    private float startBlockedFlashSeconds = 1f;
+
+    [Header("設置禁止範囲(禁止ルール2・3)")]
+    [Tooltip("中央の円の設置禁止範囲が未設定(半径0)のとき、基本線⑦⑧から自動で設定する")]
+    [SerializeField] private bool autoSetCenterZone = true;
+
+    [Tooltip("中央の円をつくる基本線(⑦⑧)の、basicLines内の番号(0始まり)")]
+    [SerializeField] private int centerLineIndexA = 6;
+    [SerializeField] private int centerLineIndexB = 7;
+
+    [Tooltip("ルール2: 中央の円の中心。Sceneビューで赤い円が出る(LineManagerを選択中)")]
+    [SerializeField] private Vector2 centerZoneCenter;
+
+    [Tooltip("ルール2: 中央の円の半径。0ならルール2は無効")]
+    [SerializeField] private float centerZoneRadius = 0f;
+
+    [Tooltip("円の縁に始点・終点があっても、すぐ禁止にならないための余裕")]
+    [SerializeField] private float centerZoneTolerance = 0.15f;
+
+    [Tooltip("ルール2の例外: 黄色い枠(上)。基本線⑨が追加されたら禁止範囲になる。幅0なら自動")]
+    [SerializeField] private Rect yellowZoneTop;
+    [SerializeField] private BasicLine yellowLineTop;
+
+    [Tooltip("ルール2の例外: 黄色い枠(下)。基本線⑩が追加されたら禁止範囲になる。幅0なら自動")]
+    [SerializeField] private Rect yellowZoneBottom;
+    [SerializeField] private BasicLine yellowLineBottom;
+
+    [Tooltip("ルール3: 画面の端からこの距離の範囲には、始点を置けない")]
+    [SerializeField] private float outerMargin = 0.6f;
+
+    [Tooltip("造線を引けない(届いていない・禁止)ときの、線と終点の色")]
+    [SerializeField] private Color impossibleColor = new Color(0.55f, 0.55f, 0.55f, 1f);
+
+    [Header("マウスカーソル(空なら、コードで作った仮の画像を使う)")]
+    [Tooltip("画像を割り当てるときは、Texture TypeをCursor、Read/Writeを有効にする")]
+    [SerializeField] private Texture2D cursorNormal;
+    [SerializeField] private Texture2D cursorStartable;
+    [SerializeField] private Texture2D cursorPenImpossible;
+    [SerializeField] private Texture2D cursorPenReady;
+    [SerializeField] private Texture2D cursorForbidden;
+
+    [Tooltip("割り当てた画像の、クリックされる位置(左上からのピクセル)。仮の画像では使わない")]
+    [SerializeField] private Vector2 cursorHotspot = Vector2.zero;
+
     [Header("UI")]
     [Tooltip("造線ゲージのバー表示(LineGaugeBar)")]
     [SerializeField]
@@ -154,6 +208,41 @@ public class LineManager : MonoBehaviour
     private Material dashedMaterial;
     private Material solidMaterial;
 
+    // ===== 禁止ルールの点滅表示 =====
+    private BasicLine lastHitLine;
+
+    private bool blinkCenter;
+    private bool blinkYellowTop;
+    private bool blinkYellowBottom;
+    private bool startBlockedByFrame;
+    private LineRenderer previewEndDot;
+    private Mesh quadMesh;
+    private GameObject flashCenter, flashYellowTop, flashYellowBottom;
+    private readonly GameObject[] flashFrame = new GameObject[4];
+
+    // カーソル表示用
+    private enum CursorState { None, Normal, Startable, PenImpossible, PenReady, Forbidden }
+    private CursorState cursorState = CursorState.None;
+    private bool previewReached;
+    private bool previewValid;
+    private Texture2D genNormal, genStartable, genPenImpossible, genPenReady, genForbidden;
+
+    private readonly HashSet<BasicLine> blinkBasic = new HashSet<BasicLine>();
+    private readonly HashSet<CreatedLine> blinkCreated = new HashSet<CreatedLine>();
+    private readonly List<Vector2> blinkZones = new List<Vector2>();
+    private bool blinkGauge;
+
+    private readonly List<Vector2> startBlockedZones = new List<Vector2>();
+    private float startBlockedUntil;
+
+    private readonly Dictionary<BasicLine, Color> basicOriginalColors =
+        new Dictionary<BasicLine, Color>();
+    private readonly HashSet<CreatedLine> shownBlinkCreated = new HashSet<CreatedLine>();
+    private readonly Dictionary<Graphic, Color> gaugeOriginalColors =
+        new Dictionary<Graphic, Color>();
+    private readonly List<GameObject> zoneFlashPool = new List<GameObject>();
+    private Material zoneFlashMaterial;
+
     // 造線データ
     private class CreatedLine
     {
@@ -184,6 +273,14 @@ public class LineManager : MonoBehaviour
 
         CreatePreviewLine();
 
+        previewEndDot = CreateZoneLine(
+            transform, "PreviewEndDot", 2, endpointDotSize,
+            endpointDotColor, GetSolidMaterial(), 11);
+        previewEndDot.numCapVertices = 12;
+        previewEndDot.enabled = false;
+
+        AutoSetCenterZone();
+
         UpdateGaugeUI();
     }
 
@@ -197,10 +294,12 @@ public class LineManager : MonoBehaviour
         // ゲームオーバー中は造線を操作できない
         if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
         {
+            SetCursorState(CursorState.Normal);
             return;
         }
 
         UpdateCreatedLines();
+        ApplyViolationDisplay();
 
         // 右クリック
         if (Input.GetMouseButtonDown(1))
@@ -233,6 +332,101 @@ public class LineManager : MonoBehaviour
                 CompleteDraw();
             }
         }
+
+        UpdateCursor();
+    }
+
+    private void OnDisable()
+    {
+        Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+        cursorState = CursorState.None;
+    }
+
+    // ===== マウスカーソルの表示 =====
+    private void UpdateCursor()
+    {
+        CursorState state;
+
+        if (Time.unscaledTime < startBlockedUntil)
+        {
+            // 始点を置けなかった(禁止ルール3,5): 1秒だけ×
+            state = CursorState.Forbidden;
+        }
+        else if (isDrawing)
+        {
+            if (previewReached && !previewValid)
+            {
+                state = CursorState.Forbidden;
+            }
+            else if (previewReached && previewValid)
+            {
+                state = CursorState.PenReady;
+            }
+            else
+            {
+                state = CursorState.PenImpossible;
+            }
+        }
+        else
+        {
+            Vector2 mouse = GetMouseWorldPosition();
+            BasicLine near = GetNearestBasicLine(mouse, startSelectDistance);
+
+            bool canStart =
+                near != null && !IsInForbiddenZone(near.GetClosestPoint(mouse));
+
+            state = canStart ? CursorState.Startable : CursorState.Normal;
+        }
+
+        SetCursorState(state);
+    }
+
+    private void SetCursorState(CursorState state)
+    {
+        if (state == cursorState)
+        {
+            return;
+        }
+
+        cursorState = state;
+
+        Texture2D tex;
+        Vector2 hotspot;
+
+        switch (state)
+        {
+            case CursorState.Startable:
+                tex = cursorStartable != null ? cursorStartable
+                    : (genStartable = genStartable != null ? genStartable : CursorImages.ArrowStart());
+                hotspot = cursorStartable != null ? cursorHotspot : CursorImages.ArrowHotspot;
+                break;
+
+            case CursorState.PenImpossible:
+                tex = cursorPenImpossible != null ? cursorPenImpossible
+                    : (genPenImpossible = genPenImpossible != null ? genPenImpossible : CursorImages.Pen());
+                hotspot = cursorPenImpossible != null ? cursorHotspot : CursorImages.PenHotspot;
+                break;
+
+            case CursorState.PenReady:
+                tex = cursorPenReady != null ? cursorPenReady
+                    : (genPenReady = genPenReady != null ? genPenReady : CursorImages.PenReady());
+                hotspot = cursorPenReady != null ? cursorHotspot : CursorImages.PenHotspot;
+                break;
+
+            case CursorState.Forbidden:
+                tex = cursorForbidden != null ? cursorForbidden
+                    : (genForbidden = genForbidden != null ? genForbidden : CursorImages.Cross());
+                hotspot = cursorForbidden != null ? cursorHotspot : CursorImages.CrossHotspot;
+                break;
+
+            default:
+                tex = cursorNormal != null ? cursorNormal
+                    : (genNormal = genNormal != null ? genNormal : CursorImages.Arrow());
+                hotspot = cursorNormal != null ? cursorHotspot : CursorImages.ArrowHotspot;
+                break;
+        }
+
+        Cursor.SetCursor(tex, hotspot, CursorMode.Auto);
     }
 
     // 点線プレビューを作成
@@ -346,10 +540,27 @@ public class LineManager : MonoBehaviour
             return;
         }
 
+        // 禁止ルール3: 画面の端の範囲には始点を置けない
+        if (!GetInnerScreenRect().Contains(line.GetClosestPoint(mousePosition)))
+        {
+            Debug.Log("画面端の設置禁止範囲です。");
+
+            startBlockedZones.Clear();
+            startBlockedByFrame = true;
+            startBlockedUntil = Time.unscaledTime + startBlockedFlashSeconds;
+            return;
+        }
+
         // 既存の造線の始点・終点の禁止範囲内には始点を置けない
         if (IsInForbiddenZone(line.GetClosestPoint(mousePosition)))
         {
             Debug.Log("開始禁止範囲内です。");
+
+            // 禁止ルール5: 触れた禁止範囲を点滅させる
+            startBlockedZones.Clear();
+            startBlockedByFrame = false;
+            CollectZoneCenters(line.GetClosestPoint(mousePosition), startBlockedZones);
+            startBlockedUntil = Time.unscaledTime + startBlockedFlashSeconds;
             return;
         }
 
@@ -400,6 +611,7 @@ public class LineManager : MonoBehaviour
         end = mouse;
         reached = false;
         reason = null;
+        lastHitLine = null;
 
         Vector2 direction = mouse - startPosition;
         float mouseDistance = direction.magnitude;
@@ -423,6 +635,8 @@ public class LineManager : MonoBehaviour
             reason = "その方向に、つなげる基本線がありません。";
             return false;
         }
+
+        lastHitLine = hitLine;
 
         float hitDistance = Vector2.Distance(startPosition, hitPoint);
 
@@ -469,6 +683,13 @@ public class LineManager : MonoBehaviour
         if (CrossesExistingLines(startPosition, end, hitLine))
         {
             reason = "基本線または既存の造線を横切っています。";
+            return false;
+        }
+
+        // 禁止ルール2: 中央の設置禁止範囲を通る場合は作成できない
+        if (HitsCenterZone(startPosition, end, out _, out _, out _))
+        {
+            reason = "中央の設置禁止範囲を通っています。";
             return false;
         }
 
@@ -575,17 +796,34 @@ public class LineManager : MonoBehaviour
             out string reason
         );
 
+        UpdateViolations(endPosition, reached);
+
+        previewReached = reached;
+        previewValid = valid;
+
         // 基本線に届くまではマウスの位置まで伸び、届いたら基本線の上で止まる
         previewLine.SetPosition(0, startPosition);
         previewLine.SetPosition(1, endPosition);
 
-        // 基本線に届いたのに確定できないときだけ、色を変える
-        Color color = (reached && !valid)
-            ? invalidPreviewColor
-            : previewLineColor;
+        // 造線を引ける(基本線に届き、確定できる)ときだけ通常の色。
+        // 届いていない・禁止のときは、線と終点を灰色にする
+        bool ready = reached && valid;
+
+        Color color = ready ? previewLineColor : impossibleColor;
 
         previewLine.startColor = color;
         previewLine.endColor = color;
+
+        if (previewEndDot != null)
+        {
+            Color dotColor = ready ? endpointDotColor : impossibleColor;
+
+            previewEndDot.startColor = dotColor;
+            previewEndDot.endColor = dotColor;
+            previewEndDot.SetPosition(0, new Vector3(endPosition.x, endPosition.y, 0f));
+            previewEndDot.SetPosition(1, new Vector3(endPosition.x + 0.0001f, endPosition.y, 0f));
+            previewEndDot.enabled = true;
+        }
 
         // 消費予定量(ゲージ表示用): 伸ばした長さに応じて増える
         float newCost =
@@ -662,6 +900,12 @@ public class LineManager : MonoBehaviour
         previewLine.enabled = false;
 
         DestroyPreviewZone();
+        ClearViolations();
+
+        if (previewEndDot != null)
+        {
+            previewEndDot.enabled = false;
+        }
 
         pendingCost = 0f;
         UpdateGaugeUI();
@@ -677,6 +921,12 @@ public class LineManager : MonoBehaviour
         previewLine.enabled = false;
 
         DestroyPreviewZone();
+        ClearViolations();
+
+        if (previewEndDot != null)
+        {
+            previewEndDot.enabled = false;
+        }
 
         pendingCost = 0f;
         UpdateGaugeUI();
@@ -1053,6 +1303,699 @@ public class LineManager : MonoBehaviour
             u > epsilon && u < 1f - epsilon;
 
         return insideT && insideU;
+    }
+
+    // ===== 線追加ノード用: ランダムな造線を1本追加する =====
+    // ゲージは消費しない(cost=0)。禁止ルールに触れない線が見つかったときだけ追加する。
+    //  maxAngleDegrees: 基本線に垂直な向きからの、ずれの最大角度(度)
+    //  maxDistance    : 造線の最大の長さ(0以下なら制限なし)
+    public bool AddRandomLine(float maxAngleDegrees, float maxDistance)
+    {
+        const int maxTries = 40;
+
+        List<BasicLine> candidates = new List<BasicLine>();
+
+        foreach (BasicLine line in basicLines)
+        {
+            if (line != null && line.isActive)
+            {
+                candidates.Add(line);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        float angleLimit = Mathf.Clamp(maxAngleDegrees, 0f, 89f);
+
+        BasicLine savedStartLine = selectedStartLine;
+
+        for (int i = 0; i < maxTries; i++)
+        {
+            BasicLine startLine = candidates[Random.Range(0, candidates.Count)];
+
+            float t = Random.Range(0.05f, 0.95f);
+
+            Vector2 start = startLine.GetPointOnCurve(t);
+
+            // 曲線の接線に垂直な向きを基準にする
+            Vector2 tangent =
+                startLine.GetPointOnCurve(Mathf.Min(1f, t + 0.01f)) -
+                startLine.GetPointOnCurve(Mathf.Max(0f, t - 0.01f));
+
+            if (tangent.sqrMagnitude < 0.000001f)
+            {
+                continue;
+            }
+
+            Vector2 normal = new Vector2(-tangent.y, tangent.x).normalized;
+
+            if (Random.value < 0.5f)
+            {
+                normal = -normal;
+            }
+
+            float angle = Random.Range(-angleLimit, angleLimit);
+
+            Vector2 direction = Quaternion.Euler(0f, 0f, angle) * normal;
+
+            BasicLine hitLine = FindFirstBasicLineHit(
+                start, direction, out Vector2 end);
+
+            if (hitLine == null || hitLine == startLine)
+            {
+                continue;
+            }
+
+            float length = Vector2.Distance(start, end);
+
+            if (length < minLineLength || length < forbiddenRadius)
+            {
+                continue;
+            }
+
+            if (maxDistance > 0f && length > maxDistance)
+            {
+                continue;
+            }
+
+            if (IsInForbiddenZone(start) || IsInForbiddenZone(end))
+            {
+                continue;
+            }
+
+            if (HitsCenterZone(start, end, out _, out _, out _))
+            {
+                continue;
+            }
+
+            // 始点側の基本線は交差判定から除外される
+            selectedStartLine = startLine;
+
+            bool crosses = CrossesExistingLines(start, end, hitLine);
+
+            selectedStartLine = savedStartLine;
+
+            if (crosses)
+            {
+                continue;
+            }
+
+            CreateCreatedLine(start, end, 0f);
+
+            return true;
+        }
+
+        selectedStartLine = savedStartLine;
+
+        Debug.Log("線追加ノード: 置ける場所が見つからず、造線を追加できませんでした。");
+
+        return false;
+    }
+
+    // ===== 禁止ルールの点滅表示 =====
+
+    // 点の周りの、既存の造線の始点・終点の禁止範囲の中心を集める
+    private void CollectZoneCenters(Vector2 point, List<Vector2> result)
+    {
+        foreach (CreatedLine line in createdLines)
+        {
+            if (line == null || !line.isActive)
+            {
+                continue;
+            }
+
+            if (Vector2.Distance(point, line.start) <= forbiddenRadius)
+            {
+                result.Add(line.start);
+            }
+
+            if (Vector2.Distance(point, line.end) <= forbiddenRadius)
+            {
+                result.Add(line.end);
+            }
+        }
+    }
+
+    // 今引いている線が触れている禁止ルールを調べる(基本線に届いているときだけ)
+    //  ルール1: 跨いだ基本線 / ルール4: 跨いだ造線
+    //  ルール5: 終点が入った禁止範囲 / ルール6: ゲージ不足
+    private void UpdateViolations(Vector2 end, bool reached)
+    {
+        blinkBasic.Clear();
+        blinkCreated.Clear();
+        blinkZones.Clear();
+        blinkGauge = false;
+        blinkCenter = false;
+        blinkYellowTop = false;
+        blinkYellowBottom = false;
+
+        if (!isDrawing || !reached || lastHitLine == null)
+        {
+            return;
+        }
+
+        foreach (BasicLine line in basicLines)
+        {
+            if (line == null || !line.isActive ||
+                line == selectedStartLine || line == lastHitLine)
+            {
+                continue;
+            }
+
+            List<Vector2> poly = line.GetPolyline(basicLineCrossSamples);
+
+            for (int i = 0; i < poly.Count - 1; i++)
+            {
+                if (SegmentsCross(startPosition, end, poly[i], poly[i + 1]))
+                {
+                    blinkBasic.Add(line);
+                    break;
+                }
+            }
+        }
+
+        foreach (CreatedLine line in createdLines)
+        {
+            if (line == null || !line.isActive)
+            {
+                continue;
+            }
+
+            if (SegmentsCross(startPosition, end, line.start, line.end))
+            {
+                blinkCreated.Add(line);
+            }
+        }
+
+        CollectZoneCenters(end, blinkZones);
+
+        HitsCenterZone(
+            startPosition, end,
+            out blinkCenter, out blinkYellowTop, out blinkYellowBottom);
+
+        float length = Vector2.Distance(startPosition, end);
+
+        blinkGauge = currentLineGauge < length * lineCostPerMeter;
+    }
+
+    private void ClearViolations()
+    {
+        blinkBasic.Clear();
+        blinkCreated.Clear();
+        blinkZones.Clear();
+        blinkGauge = false;
+        blinkCenter = false;
+        blinkYellowTop = false;
+        blinkYellowBottom = false;
+    }
+
+    // 毎フレーム、点滅の表示を反映する(触れなくなったものは元に戻す)
+    private void ApplyViolationDisplay()
+    {
+        float k = (Mathf.Sin(Time.unscaledTime * violationBlinkSpeed) + 1f) * 0.5f;
+
+        // 基本線
+        List<BasicLine> restore = null;
+
+        foreach (var pair in basicOriginalColors)
+        {
+            if (!blinkBasic.Contains(pair.Key))
+            {
+                if (restore == null) restore = new List<BasicLine>();
+                restore.Add(pair.Key);
+            }
+        }
+
+        if (restore != null)
+        {
+            foreach (BasicLine line in restore)
+            {
+                if (line != null)
+                {
+                    LineRenderer lr = line.GetComponent<LineRenderer>();
+
+                    if (lr != null)
+                    {
+                        lr.startColor = basicOriginalColors[line];
+                        lr.endColor = basicOriginalColors[line];
+                    }
+                }
+
+                basicOriginalColors.Remove(line);
+            }
+        }
+
+        foreach (BasicLine line in blinkBasic)
+        {
+            if (line == null) continue;
+
+            LineRenderer lr = line.GetComponent<LineRenderer>();
+
+            if (lr == null) continue;
+
+            if (!basicOriginalColors.ContainsKey(line))
+            {
+                basicOriginalColors[line] = lr.startColor;
+            }
+
+            Color c = Color.Lerp(basicOriginalColors[line], violationColor, k);
+            lr.startColor = c;
+            lr.endColor = c;
+        }
+
+        // 造線
+        foreach (CreatedLine line in shownBlinkCreated)
+        {
+            if (!blinkCreated.Contains(line) && line != null &&
+                line.isActive && line.renderer != null)
+            {
+                Color c = createdLineColor;
+                c.a = line.isWaitingForNode ? minAlpha : 1f;
+                line.renderer.startColor = c;
+                line.renderer.endColor = c;
+            }
+        }
+
+        shownBlinkCreated.Clear();
+
+        foreach (CreatedLine line in blinkCreated)
+        {
+            if (line == null || !line.isActive || line.renderer == null) continue;
+
+            Color c = Color.Lerp(createdLineColor, violationColor, k);
+            line.renderer.startColor = c;
+            line.renderer.endColor = c;
+            shownBlinkCreated.Add(line);
+        }
+
+        // 禁止範囲(始点・終点)
+        List<Vector2> zones = new List<Vector2>(blinkZones);
+
+        if (Time.unscaledTime < startBlockedUntil)
+        {
+            zones.AddRange(startBlockedZones);
+        }
+
+        ShowZoneFlashes(zones, k);
+        ShowAreaFlashes();
+
+        // 造線ゲージ
+        ApplyGaugeBlink(k);
+    }
+
+    private void ShowZoneFlashes(List<Vector2> zones, float k)
+    {
+        if (zoneFlashMaterial == null)
+        {
+            zoneFlashMaterial = new Material(Shader.Find("Sprites/Default"));
+        }
+
+        Color c = violationColor;
+        c.a = Mathf.Lerp(0.15f, 0.8f, k);
+        zoneFlashMaterial.color = c;
+
+        while (zoneFlashPool.Count < zones.Count)
+        {
+            GameObject obj = new GameObject("ViolationZoneFlash");
+            obj.transform.SetParent(transform, false);
+            obj.transform.localScale =
+                new Vector3(forbiddenRadius, forbiddenRadius, 1f);
+
+            obj.AddComponent<MeshFilter>().sharedMesh = GetDiscMesh();
+
+            MeshRenderer mr = obj.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = zoneFlashMaterial;
+            mr.sortingOrder = 12;
+
+            zoneFlashPool.Add(obj);
+        }
+
+        for (int i = 0; i < zoneFlashPool.Count; i++)
+        {
+            GameObject obj = zoneFlashPool[i];
+
+            if (obj == null) continue;
+
+            if (i < zones.Count)
+            {
+                obj.transform.position = new Vector3(zones[i].x, zones[i].y, 0f);
+                obj.transform.localScale =
+                    new Vector3(forbiddenRadius, forbiddenRadius, 1f);
+                obj.SetActive(true);
+            }
+            else if (obj.activeSelf)
+            {
+                obj.SetActive(false);
+            }
+        }
+    }
+
+    // 禁止ルール6: 造線ゲージのUIを赤く点滅させる
+    private void ApplyGaugeBlink(float k)
+    {
+        if (lineGaugeBar == null)
+        {
+            return;
+        }
+
+        if (blinkGauge)
+        {
+            foreach (Graphic g in lineGaugeBar.GetComponentsInChildren<Graphic>(true))
+            {
+                if (g == null) continue;
+
+                if (!gaugeOriginalColors.ContainsKey(g))
+                {
+                    gaugeOriginalColors[g] = g.color;
+                }
+
+                Color target = violationColor;
+                target.a = gaugeOriginalColors[g].a;
+
+                g.color = Color.Lerp(gaugeOriginalColors[g], target, k);
+            }
+        }
+        else if (gaugeOriginalColors.Count > 0)
+        {
+            foreach (var pair in gaugeOriginalColors)
+            {
+                if (pair.Key != null)
+                {
+                    pair.Key.color = pair.Value;
+                }
+            }
+
+            gaugeOriginalColors.Clear();
+        }
+    }
+
+    // ===== 設置禁止範囲(禁止ルール2・3) =====
+
+    // 画面の中で、始点を置いてよい範囲(画面の端から outerMargin を除いた範囲)
+    private Rect GetInnerScreenRect()
+    {
+        if (targetCamera == null)
+        {
+            return new Rect(-1000f, -1000f, 2000f, 2000f);
+        }
+
+        float h = targetCamera.orthographicSize;
+        float w = h * targetCamera.aspect;
+        Vector2 c = targetCamera.transform.position;
+
+        return new Rect(
+            c.x - w + outerMargin,
+            c.y - h + outerMargin,
+            Mathf.Max(0f, 2f * (w - outerMargin)),
+            Mathf.Max(0f, 2f * (h - outerMargin)));
+    }
+
+    // 中央の円と黄色い枠を、基本線⑦⑧などから自動で設定する
+    [ContextMenu("中央の設置禁止範囲を基本線から自動設定")]
+    private void AutoSetCenterZone()
+    {
+        if (basicLines == null)
+        {
+            return;
+        }
+
+        if (autoSetCenterZone && centerZoneRadius <= 0f &&
+            centerLineIndexA >= 0 && centerLineIndexB >= 0 &&
+            centerLineIndexA < basicLines.Length &&
+            centerLineIndexB < basicLines.Length &&
+            basicLines[centerLineIndexA] != null &&
+            basicLines[centerLineIndexB] != null)
+        {
+            Vector2 min = new Vector2(float.MaxValue, float.MaxValue);
+            Vector2 max = new Vector2(float.MinValue, float.MinValue);
+
+            foreach (int index in new[] { centerLineIndexA, centerLineIndexB })
+            {
+                foreach (Vector2 p in basicLines[index].GetPolyline(basicLineCrossSamples))
+                {
+                    min = Vector2.Min(min, p);
+                    max = Vector2.Max(max, p);
+                }
+            }
+
+            centerZoneCenter = (min + max) * 0.5f;
+            centerZoneRadius = ((max.x - min.x) + (max.y - min.y)) * 0.25f;
+
+            Debug.Log(
+                $"中央の設置禁止範囲を自動設定しました。中心={centerZoneCenter} " +
+                $"半径={centerZoneRadius:F2}(違う場合はInspectorで直してください)");
+        }
+
+        if (centerZoneRadius <= 0f)
+        {
+            return;
+        }
+
+        float r = centerZoneRadius;
+        Vector2 c = centerZoneCenter;
+
+        if (yellowZoneTop.width <= 0f)
+        {
+            yellowZoneTop = new Rect(c.x - r * 0.5f, c.y + r * 0.7f, r, r * 0.5f);
+        }
+
+        if (yellowZoneBottom.width <= 0f)
+        {
+            yellowZoneBottom = new Rect(c.x - r * 0.5f, c.y - r * 1.2f, r, r * 0.5f);
+        }
+
+        if (yellowLineTop == null && basicLines.Length > 8)
+        {
+            yellowLineTop = basicLines[8];
+        }
+
+        if (yellowLineBottom == null && basicLines.Length > 9)
+        {
+            yellowLineBottom = basicLines[9];
+        }
+    }
+
+    // 線分が、中央の設置禁止範囲(円・追加済みの黄色い枠)を通るか
+    private bool HitsCenterZone(
+        Vector2 a, Vector2 b,
+        out bool circle, out bool yellowTop, out bool yellowBottom)
+    {
+        circle = false;
+        yellowTop = false;
+        yellowBottom = false;
+
+        if (centerZoneRadius <= 0f)
+        {
+            return false;
+        }
+
+        float distance = Vector2.Distance(
+            centerZoneCenter,
+            GetClosestPointOnSegment(centerZoneCenter, a, b));
+
+        circle = distance < centerZoneRadius - centerZoneTolerance;
+
+        // 黄色い枠は、「欠損」で基本線⑨⑩が追加されたあとだけ禁止範囲になる
+        yellowTop =
+            yellowLineTop != null && yellowLineTop.isActive &&
+            SegmentHitsRect(a, b, yellowZoneTop);
+
+        yellowBottom =
+            yellowLineBottom != null && yellowLineBottom.isActive &&
+            SegmentHitsRect(a, b, yellowZoneBottom);
+
+        return circle || yellowTop || yellowBottom;
+    }
+
+    private static bool SegmentHitsRect(Vector2 a, Vector2 b, Rect rect)
+    {
+        if (rect.width <= 0f || rect.height <= 0f)
+        {
+            return false;
+        }
+
+        // Liang-Barsky
+        float t0 = 0f, t1 = 1f;
+        Vector2 d = b - a;
+
+        float[] p = { -d.x, d.x, -d.y, d.y };
+        float[] q =
+        {
+            a.x - rect.xMin, rect.xMax - a.x,
+            a.y - rect.yMin, rect.yMax - a.y
+        };
+
+        for (int i = 0; i < 4; i++)
+        {
+            if (Mathf.Abs(p[i]) < 0.000001f)
+            {
+                if (q[i] < 0f) return false;
+                continue;
+            }
+
+            float t = q[i] / p[i];
+
+            if (p[i] < 0f) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+        }
+
+        return true;
+    }
+
+    private Mesh GetQuadMesh()
+    {
+        if (quadMesh != null)
+        {
+            return quadMesh;
+        }
+
+        quadMesh = new Mesh();
+        quadMesh.name = "ZoneQuad";
+        quadMesh.vertices = new[]
+        {
+            new Vector3(-0.5f, -0.5f, 0f), new Vector3(-0.5f, 0.5f, 0f),
+            new Vector3(0.5f, 0.5f, 0f), new Vector3(0.5f, -0.5f, 0f)
+        };
+        quadMesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+        quadMesh.RecalculateBounds();
+
+        return quadMesh;
+    }
+
+    private GameObject SetAreaFlash(
+        GameObject obj, Mesh mesh, bool show, Vector2 center, Vector2 scale)
+    {
+        if (obj == null)
+        {
+            if (!show)
+            {
+                return null;
+            }
+
+            obj = new GameObject("ViolationAreaFlash");
+            obj.transform.SetParent(transform, false);
+            obj.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+            MeshRenderer mr = obj.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = zoneFlashMaterial;
+            mr.sortingOrder = 12;
+        }
+
+        if (show)
+        {
+            obj.transform.position = new Vector3(center.x, center.y, 0f);
+            obj.transform.localScale = new Vector3(scale.x, scale.y, 1f);
+        }
+
+        if (obj.activeSelf != show)
+        {
+            obj.SetActive(show);
+        }
+
+        return obj;
+    }
+
+    // 禁止ルール2(中央の円・黄色い枠)、禁止ルール3(画面端の枠)の点滅
+    private void ShowAreaFlashes()
+    {
+        if (zoneFlashMaterial == null)
+        {
+            return;
+        }
+
+        flashCenter = SetAreaFlash(
+            flashCenter, GetDiscMesh(), blinkCenter,
+            centerZoneCenter, new Vector2(centerZoneRadius, centerZoneRadius));
+
+        flashYellowTop = SetAreaFlash(
+            flashYellowTop, GetQuadMesh(), blinkYellowTop,
+            yellowZoneTop.center, yellowZoneTop.size);
+
+        flashYellowBottom = SetAreaFlash(
+            flashYellowBottom, GetQuadMesh(), blinkYellowBottom,
+            yellowZoneBottom.center, yellowZoneBottom.size);
+
+        // 画面端の枠(内側の範囲の外側4辺)
+        bool showFrame =
+            startBlockedByFrame && Time.unscaledTime < startBlockedUntil;
+
+        if (targetCamera != null)
+        {
+            float h = targetCamera.orthographicSize;
+            float w = h * targetCamera.aspect;
+            Vector2 c = targetCamera.transform.position;
+            float m = outerMargin;
+
+            flashFrame[0] = SetAreaFlash(flashFrame[0], GetQuadMesh(), showFrame,
+                new Vector2(c.x, c.y + h - m * 0.5f), new Vector2(2f * w, m));
+            flashFrame[1] = SetAreaFlash(flashFrame[1], GetQuadMesh(), showFrame,
+                new Vector2(c.x, c.y - h + m * 0.5f), new Vector2(2f * w, m));
+            flashFrame[2] = SetAreaFlash(flashFrame[2], GetQuadMesh(), showFrame,
+                new Vector2(c.x - w + m * 0.5f, c.y), new Vector2(m, 2f * h - 2f * m));
+            flashFrame[3] = SetAreaFlash(flashFrame[3], GetQuadMesh(), showFrame,
+                new Vector2(c.x + w - m * 0.5f, c.y), new Vector2(m, 2f * h - 2f * m));
+        }
+    }
+
+    // Sceneビューで、設置禁止範囲を確認する(LineManagerを選択中に表示)
+    private void OnDrawGizmosSelected()
+    {
+        if (centerZoneRadius > 0f)
+        {
+            Gizmos.color = Color.red;
+
+            Vector3 prev = Vector3.zero;
+
+            for (int i = 0; i <= 64; i++)
+            {
+                float angle = i / 64f * Mathf.PI * 2f;
+
+                Vector3 p = new Vector3(
+                    centerZoneCenter.x + Mathf.Cos(angle) * centerZoneRadius,
+                    centerZoneCenter.y + Mathf.Sin(angle) * centerZoneRadius, 0f);
+
+                if (i > 0) Gizmos.DrawLine(prev, p);
+
+                prev = p;
+            }
+        }
+
+        Gizmos.color = Color.yellow;
+        DrawRectGizmo(yellowZoneTop);
+        DrawRectGizmo(yellowZoneBottom);
+
+        Camera cam = targetCamera != null ? targetCamera : Camera.main;
+
+        if (cam != null && cam.orthographic)
+        {
+            Gizmos.color = new Color(1f, 0.5f, 0f, 1f);
+
+            float h = cam.orthographicSize;
+            float w = h * cam.aspect;
+            Vector2 c = cam.transform.position;
+
+            DrawRectGizmo(new Rect(
+                c.x - w + outerMargin, c.y - h + outerMargin,
+                2f * (w - outerMargin), 2f * (h - outerMargin)));
+        }
+    }
+
+    private static void DrawRectGizmo(Rect r)
+    {
+        if (r.width <= 0f || r.height <= 0f) return;
+
+        Vector3 a = new Vector3(r.xMin, r.yMin, 0f);
+        Vector3 b = new Vector3(r.xMin, r.yMax, 0f);
+        Vector3 c = new Vector3(r.xMax, r.yMax, 0f);
+        Vector3 d = new Vector3(r.xMax, r.yMin, 0f);
+
+        Gizmos.DrawLine(a, b);
+        Gizmos.DrawLine(b, c);
+        Gizmos.DrawLine(c, d);
+        Gizmos.DrawLine(d, a);
     }
 
     // 右クリックした造線を削除
