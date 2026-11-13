@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+
 /// <summary>
 /// セレクトシーンのボタンマネージャー
 /// </summary>
@@ -11,6 +12,14 @@ public class SelectButtonManager : MonoBehaviour
     [SerializeField] private Button daughterButton;
     [SerializeField] private Button motherBackButton;
     [SerializeField] private Button daughterBackButton;
+
+    [Header("Stage Buttons")]
+    [SerializeField] private Button[] motherStageButtons;   // MotherStage01Button ～ 5個
+    [SerializeField] private Button[] daughterStageButtons; // DaughterStage01Button ～ 4個
+
+    [Header("Default Next Scene (ScenarioScene後の既定の行き先)")]
+    [SerializeField] private string rushSceneName = "RushScene";
+    [SerializeField] private string logicSceneName = "LogicScene";
 
     [Header("Panels")]
     [SerializeField] private GameObject selectPanel;
@@ -28,7 +37,22 @@ public class SelectButtonManager : MonoBehaviour
 
         motherBackButton.onClick.AddListener(() => ChangePanel(motherPanel, selectPanel));
         daughterBackButton.onClick.AddListener(() => ChangePanel(daughterPanel, selectPanel));
+
+        // ステージボタン：母 → ScenarioScene → RushScene（CSV指定があればそちら優先）
+        for (int i = 0; i < motherStageButtons.Length; i++)
+        {
+            int stageIndex = i; // クロージャ対策
+            motherStageButtons[i].onClick.AddListener(() => LoadScenario(rushSceneName, stageIndex));
+        }
+
+        // ステージボタン：娘 → ScenarioScene → LogicScene（CSV指定があればそちら優先）
+        for (int i = 0; i < daughterStageButtons.Length; i++)
+        {
+            int stageIndex = i;
+            daughterStageButtons[i].onClick.AddListener(() => LoadScenario(logicSceneName, stageIndex));
+        }
     }
+
     private void Start()
     {
         // 最初はSelectPanelだけ表示
@@ -48,12 +72,31 @@ public class SelectButtonManager : MonoBehaviour
             "はい", "いいえ",
             onYes: () => ChangePanel(selectPanel, targetPanel));
     }
+
     private void OnDestroy()
     {
         motherButton.onClick.RemoveAllListeners();
         daughterButton.onClick.RemoveAllListeners();
         motherBackButton.onClick.RemoveAllListeners();
         daughterBackButton.onClick.RemoveAllListeners();
+
+        foreach (var button in motherStageButtons)
+        {
+            if (button != null) button.onClick.RemoveAllListeners();
+        }
+        foreach (var button in daughterStageButtons)
+        {
+            if (button != null) button.onClick.RemoveAllListeners();
+        }
+    }
+
+    // ScenarioSceneを挟んで遷移する。defaultNextSceneはCSVに指定がなかった場合の行き先
+    private void LoadScenario(string defaultNextScene, int stageIndex)
+    {
+        if (isTransitioning) return; // 連打防止
+        isTransitioning = true;
+
+        SceneFlow.LoadViaScenario(defaultNextScene, stageIndex);
     }
 
     private void ChangePanel(GameObject from, GameObject to)
@@ -79,8 +122,6 @@ public class SelectButtonManager : MonoBehaviour
     }
 
     // ===== 演出はここに追加する =====
-    // 今は何もせず即座に終了。後で中身を書き換えるか、継承してoverrideする。
-
     protected virtual IEnumerator PlayTransitionOut(GameObject panel)
     {
         yield break;

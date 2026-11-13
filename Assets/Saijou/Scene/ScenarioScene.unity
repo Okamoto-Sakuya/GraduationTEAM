@@ -3839,7 +3839,7 @@ MonoBehaviour:
   buttonManager: {fileID: 1877853666}
   logView: {fileID: 1073148920}
   startId: 1
-  nextSceneName: CharacterSelectScene
+  nextSceneName: RushScene
   characterInterval: 0.1
   skipInterval: 0.1
 --- !u!4 &1877853665
