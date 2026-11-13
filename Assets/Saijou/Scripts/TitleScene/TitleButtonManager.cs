@@ -1,10 +1,12 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
 /// タイトル画面のボタン管理。
-/// 現状は表示/非表示とシーン移動のみ。
+/// タイトル演出(TitleLogoAnimator)が終わったら「Click on the screen」を点滅表示し、
+/// クリックされたらテキストを消してメニューボタンを表示する。
 /// 演出を追加したい箇所には「【演出追加】」コメントを入れてある。
 /// （Ctrl+F で「演出追加」と検索すると全箇所が見つかる）
 /// </summary>
@@ -31,6 +33,13 @@ public class TitleButtonManager : MonoBehaviour
     [SerializeField] private Button achievementCloseButton; // 実績ウィンドウの戻る
     [SerializeField] private Button helpCloseButton;        // ヘルプウィンドウの戻る
 
+    [Header("クリック待ち表示")]
+    [SerializeField] private CanvasGroup clickPromptGroup;   // 「Click on the screen」のCanvasGroup
+    [SerializeField] private GameObject menuButtonsRoot;     // メニューボタンの親オブジェクト
+    [SerializeField] private float promptDelay = 0.5f;       // タイトル演出終了後、プロンプトが出るまでの待ち
+    [SerializeField] private float fadeDuration = 1.0f;      // フェード片道の秒数
+    [SerializeField] private float minAlpha = 0.2f;          // 一番薄い時のアルファ
+
     [Header("画面・ウィンドウ")]
     [SerializeField] private GameObject titleScreen;        // タイトル画面
     [SerializeField] private GameObject zukanPanel;         // 図鑑Panel
@@ -40,6 +49,13 @@ public class TitleButtonManager : MonoBehaviour
 
     [Header("開始ボタンで移動するシーン名")]
     [SerializeField] private string nextSceneName = "CharacterSelect";
+
+    // ========================================
+    // 内部状態
+    // ========================================
+
+    private bool waitingForClick = false;
+    private float fadeTimer = 0f;
 
     // ========================================
     // Unity イベント
@@ -54,8 +70,34 @@ public class TitleButtonManager : MonoBehaviour
         HideObject(achievementWindow);
         HideObject(helpWindow);
 
-        // 【演出追加】タイトル画面が最初に表示される時の演出
-        //   （例：ロゴのフェードイン、ボタンが順番に出てくる、など）
+        // メニューボタンとクリック待ちテキストは、タイトル演出が終わるまで隠しておく
+        HideObject(menuButtonsRoot);
+        if (clickPromptGroup != null)
+        {
+            clickPromptGroup.alpha = 0f;
+            clickPromptGroup.gameObject.SetActive(false);
+        }
+
+        waitingForClick = false;   // 演出が終わるまではクリックを受け付けない
+    }
+
+    private void Update()
+    {
+        if (!waitingForClick) return;
+
+        // フェードの往復(PingPongで 0→1→0 を繰り返す)
+        if (clickPromptGroup != null)
+        {
+            fadeTimer += Time.unscaledDeltaTime;
+            float t = Mathf.PingPong(fadeTimer / fadeDuration, 1f);
+            clickPromptGroup.alpha = Mathf.Lerp(minAlpha, 1f, t);
+        }
+
+        // 画面のどこかをクリック/タッチしたら
+        if (Input.GetMouseButtonDown(0))
+        {
+            OnClickAnywhere();
+        }
     }
 
     private void OnEnable()
@@ -82,6 +124,44 @@ public class TitleButtonManager : MonoBehaviour
         RemoveListener(settingBackButton, OnClickSettingBack);
         RemoveListener(achievementCloseButton, OnClickAchievementClose);
         RemoveListener(helpCloseButton, OnClickHelpClose);
+    }
+
+    // ========================================
+    // タイトル演出 → Click on the screen → メニュー
+    // ========================================
+
+    /// <summary>
+    /// TitleLogoAnimator の onFinished から呼ぶ。
+    /// </summary>
+    public void OnTitleIntroFinished()
+    {
+        StartCoroutine(ShowPromptAfterDelay());
+    }
+
+    private IEnumerator ShowPromptAfterDelay()
+    {
+        yield return new WaitForSecondsRealtime(promptDelay);
+
+        if (clickPromptGroup != null)
+        {
+            clickPromptGroup.gameObject.SetActive(true);
+            clickPromptGroup.alpha = 0f;
+        }
+        fadeTimer = 0f;
+        waitingForClick = true;   // ここからクリック受付 & 点滅開始
+    }
+
+    private void OnClickAnywhere()
+    {
+        waitingForClick = false;
+
+        // クリック待ちテキストを消す
+        if (clickPromptGroup != null) clickPromptGroup.gameObject.SetActive(false);
+
+        // メニューボタンを表示
+        ShowObject(menuButtonsRoot);
+
+        // 【演出追加】決定SEやメニューボタンのフェードインなど
     }
 
     // ========================================

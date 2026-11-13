@@ -694,7 +694,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -21, y: -126}
+  m_AnchoredPosition: {x: -21, y: -48}
   m_SizeDelta: {x: 170, y: 35}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &200854523
@@ -927,7 +927,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 07db65eb704bbec48bd0b706a71168bc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::IdleVideoPlayer
-  idleTimeSeconds: 5
+  idleTimeSeconds: 30
   videoPlayer: {fileID: 1530109841}
   videoDisplay: {fileID: 118137000}
   loopVideo: 1
@@ -1093,6 +1093,7 @@ GameObject:
   - component: {fileID: 346748135}
   - component: {fileID: 346748137}
   - component: {fileID: 346748136}
+  - component: {fileID: 346748138}
   m_Layer: 5
   m_Name: CliclText
   m_TagString: Untagged
@@ -1116,7 +1117,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 87, y: -393}
+  m_AnchoredPosition: {x: 106, y: -393}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &346748136
@@ -1219,6 +1220,18 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 346748134}
   m_CullTransparentMesh: 1
+--- !u!225 &346748138
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 346748134}
+  m_Enabled: 1
+  m_Alpha: 1
+  m_Interactable: 1
+  m_BlocksRaycasts: 1
+  m_IgnoreParentGroups: 0
 --- !u!1 &453441896
 GameObject:
   m_ObjectHideFlags: 0
@@ -1615,7 +1628,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -21, y: -256}
+  m_AnchoredPosition: {x: -21, y: -178}
   m_SizeDelta: {x: 170, y: 35}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &501107120
@@ -1819,7 +1832,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -217, y: -23}
+  m_AnchoredPosition: {x: -206, y: -23}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &635470161
@@ -2657,7 +2670,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 423, y: -48}
+  m_AnchoredPosition: {x: 429, y: -48}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &849075544
@@ -3242,7 +3255,19 @@ MonoBehaviour:
   playOnStart: 1
   onFinished:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2080142831}
+        m_TargetAssemblyTypeName: TitleButtonManager, Assembly-CSharp
+        m_MethodName: OnTitleIntroFinished
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!4 &1437840298
 Transform:
   m_ObjectHideFlags: 0
@@ -3498,7 +3523,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -74, y: -146}
+  m_AnchoredPosition: {x: -68, y: -146}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1609697879
@@ -3925,7 +3950,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 0.5}
   m_AnchorMax: {x: 1, y: 0.5}
-  m_AnchoredPosition: {x: 14, y: -0}
+  m_AnchoredPosition: {x: -32, y: -84}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!225 &1738286182
@@ -4545,7 +4570,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -36, y: -204}
+  m_AnchoredPosition: {x: -10, y: -204}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1988349186
@@ -4562,8 +4587,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TitleMenu
   container: {fileID: 1738286181}
   spacing: 70
-  dropDistance: 500
-  duration: 0.5
+  dropDistance: 100
+  duration: 0.4
   stagger: 0.03
   openOnLeftClick: 1
   clickEnabled: 1
@@ -5025,7 +5050,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -21, y: -189}
+  m_AnchoredPosition: {x: -21, y: -111}
   m_SizeDelta: {x: 170, y: 35}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &2075009471
@@ -5207,6 +5232,11 @@ MonoBehaviour:
   settingBackButton: {fileID: 487555992}
   achievementCloseButton: {fileID: 2098381180}
   helpCloseButton: {fileID: 2027746472}
+  clickPromptGroup: {fileID: 346748138}
+  menuButtonsRoot: {fileID: 1738286180}
+  promptDelay: 0.1
+  fadeDuration: 1
+  minAlpha: 0.2
   titleScreen: {fileID: 133187498}
   zukanPanel: {fileID: 516406551}
   settingScreen: {fileID: 937481765}
