@@ -1,4 +1,5 @@
 
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -41,35 +42,35 @@ public class BGMController : MonoBehaviour
     //============================================================
 
     [SerializeField]
-    private List<BGMData> bgmList = new();
+    List<BGMData> bgmList = new();
 
     // ロード済みのAudioClip
-    private Dictionary<BGMType, AudioClip> bgmDictionary = new();
+    Dictionary<BGMType, AudioClip> bgmDictionary = new();
 
     // Addressablesのロードハンドル
-    private Dictionary<BGMType, AsyncOperationHandle<AudioClip>>
+    Dictionary<BGMType, AsyncOperationHandle<AudioClip>>
         bgmHandles = new();
 
     // ロード中のBGM
-    private HashSet<BGMType> loadingBGM = new();
+    HashSet<BGMType> loadingBGM = new();
 
     // ロード中に要求されたBGM
-    private BGMType? pendingBGM = null;
+    BGMType? pendingBGM = null;
 
     // 現在再生中のBGM
-    private BGMType? currentBGM = null;
+    BGMType? currentBGM = null;
 
     //============================================================
     // AudioSource
     //============================================================
 
-    private AudioSource audioSource;
+    AudioSource audioSource;
 
     //============================================================
     // 初期化
     //============================================================
 
-    private void Awake()
+    void Awake()
     {
         if (instance != null && instance != this)
         {
@@ -102,7 +103,7 @@ public class BGMController : MonoBehaviour
     /// <summary>
     /// Inspectorで設定したBGMをすべて非同期ロードする
     /// </summary>
-    private void LoadAllBGM()
+    void LoadAllBGM()
     {
         HashSet<BGMType> registeredTypes = new();
 
@@ -167,7 +168,7 @@ public class BGMController : MonoBehaviour
     // Start
     //============================================================
 
-    private void Start()
+    void Start()
     {
         // 初期BGM
         PlayBGM(BGMType.Title);
@@ -177,7 +178,7 @@ public class BGMController : MonoBehaviour
     // Update
     //============================================================
 
-    private void Update()
+    void Update()
     {
         if (audioSource == null)
             return;
@@ -269,7 +270,7 @@ public class BGMController : MonoBehaviour
     // 終了処理・Addressables解放
     //============================================================
 
-    private void OnDestroy()
+    void OnDestroy()
     {
         if (instance != this)
             return;
@@ -298,5 +299,45 @@ public class BGMController : MonoBehaviour
         currentBGM = null;
 
         instance = null;
+    }
+
+    //============================================================
+    // フェードイン・アウト
+    //============================================================
+
+    public static IEnumerator Fade(float duration, bool isIn)
+    {
+        float elapsed = 0;
+
+        if (isIn)
+        {
+            AudioManager.bgmVolume = 0f;
+
+            while(elapsed > duration)
+            {
+                elapsed += Time.deltaTime;
+
+                float t = Mathf.Clamp01(elapsed / duration);
+                AudioManager.bgmVolume = Mathf.Lerp(0f,1f,t);
+
+                yield return null;
+            }
+        }
+        else
+        {
+            float startVol = AudioManager.bgmVolume;
+
+            while (elapsed > duration)
+            {
+                elapsed += Time.deltaTime;
+
+                float t = Mathf.Clamp01(elapsed / duration);
+                AudioManager.bgmVolume = Mathf.Lerp(startVol, 0f, t);
+
+                yield return null;
+            }
+        }
+
+        yield break;
     }
 }
