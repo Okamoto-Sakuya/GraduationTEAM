@@ -359,7 +359,7 @@ public class ScenarioPlayer : MonoBehaviour
         switch (storyType)
         {
             case "intro":
-                sceneName = "MainScene";
+                sceneName = "RushScene";
                 break;
 
             case "stageEnd":

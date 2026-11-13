@@ -3400,6 +3400,18 @@ MonoBehaviour:
   daughterButton: {fileID: 1204418917}
   motherBackButton: {fileID: 285162241}
   daughterBackButton: {fileID: 433000147}
+  motherStageButtons:
+  - {fileID: 212114076}
+  - {fileID: 1563067241}
+  - {fileID: 455228320}
+  - {fileID: 1369613255}
+  daughterStageButtons:
+  - {fileID: 1713642477}
+  - {fileID: 527307535}
+  - {fileID: 285061684}
+  - {fileID: 772285462}
+  rushSceneName: RushScene
+  logicSceneName: LogicScene
   selectPanel: {fileID: 93711584}
   motherPanel: {fileID: 2112595724}
   daughterPanel: {fileID: 883279191}
