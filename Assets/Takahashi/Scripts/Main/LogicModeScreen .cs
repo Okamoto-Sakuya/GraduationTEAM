@@ -67,7 +67,9 @@ using UnityEngine.InputSystem.UI;
 ///   クリック          : 基本線の上でクリック → カーソルを動かす → 別の基本線の上でクリック（基本線以外をクリックで解除）
 ///   終点は endPointMode：OnCursor = カーソルの下の基本線（新仕様）/ Extend = 始点から伸ばして最初に触れた基本線（プロト）
 ///   描画中は点線（白=確定可能 / 灰=置けない）。禁止ルールに触れたら、触れた所を赤く点滅
-///     ルール1 基本線を跨ぐ / ルール2 中央の円の中を通る / ルール4 造線を跨ぐ / ルール5 造線の端の禁止範囲から始める / ルール6 ゲージ不足
+///     ルール1 基本線を跨ぐ / ルール2 中央の円の中を通る（女の子の後ろで赤い丸が点滅） / ルール3 画面の端（赤枠）から始める（画面の縁に赤枠）
+///     ルール4 造線を跨ぐ / ルール5 造線の端の禁止範囲から始める / ルール6 ゲージ不足
+///     置けないときはカーソルの位置に赤い ✕ を出す
 ///   右クリック : 描画キャンセル / 造線の削除（ゲージ返却）※プロト用
 /// </summary>
 [ExecuteAlways]
@@ -297,6 +299,12 @@ public class LogicModeScreen : MonoBehaviour
     public Color unplaceableColor = new Color(0.55f, 0.55f, 0.55f);   // 置けないときの点線の色（灰色）
     public Color violationColor = new Color(1f, 0.2f, 0.2f);          // 禁止ルールに触れた所を点滅させる色
     public float violationBlinkSpeed = 4f;               // 禁止ルールの点滅の速さ（往復/秒）
+    [Range(0f, 1f)] public float centerZoneAlpha = 0.42f; // ルール2：女の子の後ろに出す赤い丸の濃さ（控えめ）
+    public Color centerZoneColor = new Color(0.59f, 0.03f, 0.06f);   // ルール2：赤い丸の色（暗めの赤）
+    public float centerBlinkSpeed = 2.5f;                // ルール2：赤い丸の点滅の速さ（回/秒。パッパッと点いたり消えたり）
+    public float startEdgeMargin = 60f;                  // ルール3：画面の端からこの幅（px）は始点を置けない（赤枠）
+    public float edgeFrameSeconds = 0.8f;                // ルール3：赤枠を出しておく秒数
+    public float crossMarkSize = 40f;                    // 置けないときにカーソルに出す ✕ の大きさ（px）
 
     [Header("ノード移動・出現")]
     public float nodeSpeed = 160f;                       // ノードの移動速度（px/秒）
@@ -476,8 +484,7 @@ public class LogicModeScreen : MonoBehaviour
     Text scoreText, timerText, statusText, gaugeText, hintText;
     Image gaugeFill, gaugePreviewFill, gaugeLostFill;
     Image gaugeBorder; Color gaugeBorderColor;   // ルール6 の点滅用
-    Image centerZone;                            // ルール2 の禁止範囲（普段は透明）
-    RectTransform centerZoneMask;                // 禁止範囲の表示を上下で切る枠
+    Image centerZone;                            // ルール2 の赤い丸（女の子の後ろ。普段は透明）
     readonly List<Button> hardnessButtons = new List<Button>();
     Button executeButton;
 
@@ -500,6 +507,11 @@ public class LogicModeScreen : MonoBehaviour
     readonly List<Color> hlSaved = new List<Color>();
     readonly List<DrawnLine> flashForbidden = new List<DrawnLine>();   // ルール5 で点滅中の造線
     float flashForbiddenTime;
+    readonly List<Image> edgeFrame = new List<Image>();   // ルール3 の赤枠（上下左右の 4 本）
+    float edgeFrameTime;
+    RectTransform crossMark;                               // 置けないときの ✕
+    Image[] crossBars;
+    float crossTime; Vector2 crossPos;                     // 一瞬だけ出す ✕（ルール3・5）
 
     // 危険演出
     Image dangerVignette;
@@ -706,6 +718,9 @@ public class LogicModeScreen : MonoBehaviour
         hlLine = null;
         hlSaved.Clear();
         flashForbidden.Clear();
+        edgeFrame.Clear();
+        edgeFrameTime = 0f;
+        crossTime = 0f;
     }
 
     void LoadCsv()
@@ -1062,10 +1077,11 @@ public class LogicModeScreen : MonoBehaviour
     void BuildLines()
     {
         // ルール2 の禁止範囲（中央の円の中）。普段は透明で、触れたときだけ赤く点滅
-        centerZoneMask = UIShapes.CreateRect(lineLayer, "CenterForbidden", circleCenter, Vector2.one * circleRadius * 2f);
-        centerZoneMask.gameObject.AddComponent<RectMask2D>();   // 通れる上下の部分を切り落として表示
-        centerZone = UIShapes.CreateImage(centerZoneMask, "Zone", Vector2.zero,
-                                          Vector2.one * circleRadius * 2f * centerForbiddenRate, UIShapes.Circle, Color.clear);
+        // 女の子（centerImage）のすぐ後ろに置く
+        Transform zoneParent = centerImage != null ? centerImage.transform.parent : lineLayer;
+        centerZone = UIShapes.CreateImage(zoneParent, "CenterForbidden", circleCenter,
+                                          Vector2.one * circleRadius * 2f, UIShapes.Circle, Color.clear);
+        if (centerImage != null) centerZone.transform.SetSiblingIndex(centerImage.transform.GetSiblingIndex());
 
         float lArm = 180f - armAngle, lLeg = 180f - legAngle;   // 左側の角度
         float rArm = armAngle, rLeg = legAngle;                 // 右側の角度
@@ -1158,6 +1174,25 @@ public class LogicModeScreen : MonoBehaviour
 
     void BuildUI()
     {
+        // ルール3：画面の端の赤枠（普段は透明）
+        float m = startEdgeMargin;
+        foreach (var (name, pos, size) in new[] {
+            ("EdgeTop", new Vector2(0, 540 - m * 0.5f), new Vector2(1920, m)),
+            ("EdgeBottom", new Vector2(0, -540 + m * 0.5f), new Vector2(1920, m)),
+            ("EdgeLeft", new Vector2(-960 + m * 0.5f, 0), new Vector2(m, 1080 - m * 2f)),
+            ("EdgeRight", new Vector2(960 - m * 0.5f, 0), new Vector2(m, 1080 - m * 2f)) })
+            edgeFrame.Add(UIShapes.CreateImage(uiLayer, name, pos, size, UIShapes.White, Color.clear));
+
+        // 置けないときの ✕
+        crossMark = UIShapes.CreateRect(uiLayer, "CrossMark", Vector2.zero, Vector2.one * crossMarkSize);
+        crossBars = new Image[2];
+        for (int i = 0; i < 2; i++)
+        {
+            crossBars[i] = UIShapes.CreateImage(crossMark, "Bar" + i, Vector2.zero, new Vector2(crossMarkSize, crossMarkSize * 0.16f), UIShapes.White, violationColor);
+            crossBars[i].rectTransform.localRotation = Quaternion.Euler(0, 0, i == 0 ? 45f : -45f);
+        }
+        crossMark.gameObject.SetActive(false);
+
         // 右上：スコア
         scoreText = UIShapes.CreateText(uiLayer, "Score", "", font, 40, Color.white, TextAnchor.UpperRight,
                                         new Vector2(700, 525), new Vector2(400, 50), new Vector2(1f, 1f));
@@ -1448,6 +1483,15 @@ public class LogicModeScreen : MonoBehaviour
         }
         if (best == null) return;
 
+        // ルール3：画面の端（赤枠）からは始められない
+        if (Mathf.Abs(bestPt.x) > 960f - startEdgeMargin || Mathf.Abs(bestPt.y) > 540f - startEdgeMargin)
+        {
+            edgeFrameTime = edgeFrameSeconds;
+            ShowCross(p);
+            FlashHint(bestPt, "設置禁止範囲です");
+            return;
+        }
+
         // ルール5：既存の造線の端の開始禁止範囲（触れた範囲を 1 秒点滅）
         flashForbidden.Clear();
         foreach (var d in drawnLines)
@@ -1456,6 +1500,7 @@ public class LogicModeScreen : MonoBehaviour
         if (flashForbidden.Count > 0)
         {
             flashForbiddenTime = 1f;
+            ShowCross(p);
             FlashHint(bestPt, "開始禁止範囲です");
             return;
         }
@@ -1742,6 +1787,9 @@ public class LogicModeScreen : MonoBehaviour
         }
     }
 
+    /// <summary>✕ を一瞬（0.6 秒）出す</summary>
+    void ShowCross(Vector2 at) { crossTime = 0.6f; crossPos = at; }
+
     Coroutine hintRoutine;
     void FlashHint(Vector2 at, string msg)
     {
@@ -1824,7 +1872,7 @@ public class LogicModeScreen : MonoBehaviour
 
     // ======================= 禁止ルールの点滅 =======================
 
-    /// <summary>禁止ルールに触れた所を赤く点滅（ルール1 基本線 / 2 中央 / 4 造線 / 5 開始禁止範囲 / 6 造線ゲージ）</summary>
+    /// <summary>禁止ルールに触れた所を赤く点滅（ルール1 基本線 / 2 中央の円 / 3 画面の端の赤枠 / 4 造線 / 5 開始禁止範囲 / 6 造線ゲージ）＋ ✕</summary>
     void UpdateViolationVisuals()
     {
         float k = (Mathf.Sin(Time.unscaledTime * violationBlinkSpeed * Mathf.PI * 2f) + 1f) * 0.5f;
@@ -1833,23 +1881,12 @@ public class LogicModeScreen : MonoBehaviour
         // ルール1：跨いだ基本線
         SetLineHighlight(show ? lastEval.crossedLine : null, k);
 
-        // ルール2：中央の禁止範囲（⑨⑩ が無い間は上下を切った帯）
+        // ルール2：女の子の後ろに赤い丸を点滅（パッパッと点いたり消えたり）
         if (centerZone != null)
         {
-            if (show && lastEval.hitCenter && centerZoneMask != null)
-            {
-                float r = circleRadius;
-                bool topOpen = !lines.Exists(l => l.alive && l.name == "TopArc");
-                bool bottomOpen = !lines.Exists(l => l.alive && l.name == "BottomArc");
-                float top = topOpen ? circleCenter.y + r * Mathf.Sin(armAngle * Mathf.Deg2Rad) : circleCenter.y + r;
-                float bottom = bottomOpen ? circleCenter.y + r * Mathf.Sin(legAngle * Mathf.Deg2Rad) : circleCenter.y - r;
-                float mid = (top + bottom) * 0.5f;
-                centerZoneMask.anchoredPosition = new Vector2(circleCenter.x, mid);
-                centerZoneMask.sizeDelta = new Vector2(r * 2f, top - bottom);
-                centerZone.rectTransform.anchoredPosition = new Vector2(0f, circleCenter.y - mid);
-            }
-            var c = violationColor;
-            c.a = show && lastEval.hitCenter ? Mathf.Lerp(0.12f, 0.45f, k) : 0f;
+            bool blinkOn = Mathf.Repeat(Time.unscaledTime * centerBlinkSpeed, 1f) < 0.5f;
+            var c = centerZoneColor;
+            c.a = show && lastEval.hitCenter && blinkOn ? centerZoneAlpha : 0f;
             centerZone.color = c;
         }
 
@@ -1863,6 +1900,27 @@ public class LogicModeScreen : MonoBehaviour
         // ルール6：造線ゲージ
         if (gaugeBorder != null)
             gaugeBorder.color = show && lastEval.hitGauge ? Color.Lerp(gaugeBorderColor, violationColor, k) : gaugeBorderColor;
+
+        // ルール3：画面の端の赤枠（出た直後が一番濃く、だんだん消える）
+        if (edgeFrameTime > 0f) edgeFrameTime -= Time.unscaledDeltaTime;
+        float ea = edgeFrameTime > 0f ? Mathf.Clamp01(edgeFrameTime / Mathf.Max(0.01f, edgeFrameSeconds)) * Mathf.Lerp(0.6f, 0.9f, k) : 0f;
+        foreach (var img in edgeFrame) { var ec = violationColor; ec.a = ea; img.color = ec; }
+
+        // 置けないときの ✕（描画中に禁止ルールに触れている間はカーソルに、ルール3・5 は一瞬だけ）
+        if (crossTime > 0f) crossTime -= Time.unscaledDeltaTime;
+        if (crossMark != null)
+        {
+            bool onDraw = show && lastEval.Forbidden;
+            bool on = onDraw || crossTime > 0f;
+            crossMark.gameObject.SetActive(on);
+            if (on)
+            {
+                crossMark.anchoredPosition = onDraw ? MouseLocal() : crossPos;
+                float pop = crossTime > 0f && !onDraw ? 1f + 0.4f * Mathf.Clamp01((crossTime - 0.45f) / 0.15f) : 1f;
+                crossMark.localScale = Vector3.one * pop;
+                foreach (var bar in crossBars) bar.color = violationColor;
+            }
+        }
 
         // ルール5：開始禁止範囲（1 秒）
         if (flashForbiddenTime > 0f) flashForbiddenTime -= Time.unscaledDeltaTime;
