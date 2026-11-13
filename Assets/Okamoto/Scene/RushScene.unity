@@ -4463,10 +4463,10 @@ MonoBehaviour:
   - {fileID: 1541976200}
   stage: 1
   startOnStart: 1
-  baselineTable: {fileID: 0}
-  sideTable: {fileID: 0}
-  nodeGroupTable: {fileID: 0}
-  stageTable: {fileID: 0}
+  baselineTable: {fileID: 4900000, guid: 3f18be5c9edcec8499fa6ca1690f7569, type: 3}
+  sideTable: {fileID: 4900000, guid: ce1e51fc52653e1438a6ac440f054614, type: 3}
+  nodeGroupTable: {fileID: 4900000, guid: 00238479bb811b64c8529cfda5c97345, type: 3}
+  stageTable: {fileID: 4900000, guid: 8a40bbdcb49cb3441aa7203041f96249, type: 3}
   rateUnitSeconds: 60
   speedScale: 0.1
   maxNodeCount: 30
