@@ -1,7 +1,7 @@
-
 using UnityEngine;
 using System.Collections.Generic;
 
+[ExecuteAlways]
 [RequireComponent(typeof(LineRenderer))]
 public class BasicLine : MonoBehaviour
 {
@@ -40,9 +40,38 @@ public class BasicLine : MonoBehaviour
         get { return endPoint.position; }
     }
 
+    // 材質を指定しなかったときに使う共通の材質(エディタ上で増やさないため、共有する)
+    private static Material defaultMaterial;
+
     private void Awake()
     {
-        lineRenderer = GetComponent<LineRenderer>();
+        SetupRenderer();
+    }
+
+    // ゲーム開始前(エディタ上)でも、線が見えるようにする
+    private void OnEnable()
+    {
+        SetupRenderer();
+        UpdateLine();
+    }
+
+    private void OnValidate()
+    {
+        SetupRenderer();
+        UpdateLine();
+    }
+
+    private void SetupRenderer()
+    {
+        if (lineRenderer == null)
+        {
+            lineRenderer = GetComponent<LineRenderer>();
+        }
+
+        if (lineRenderer == null)
+        {
+            return;
+        }
 
         lineRenderer.useWorldSpace = true;
         lineRenderer.startWidth = lineWidth;
@@ -55,13 +84,17 @@ public class BasicLine : MonoBehaviour
 
         if (lineMaterial != null)
         {
-            lineRenderer.material = lineMaterial;
+            lineRenderer.sharedMaterial = lineMaterial;
         }
         else
         {
-            lineRenderer.material = new Material(
-                Shader.Find("Sprites/Default")
-            );
+            if (defaultMaterial == null)
+            {
+                defaultMaterial = new Material(Shader.Find("Sprites/Default"));
+                defaultMaterial.hideFlags = HideFlags.HideAndDontSave;
+            }
+
+            lineRenderer.sharedMaterial = defaultMaterial;
         }
 
         lineRenderer.numCapVertices = 8;
@@ -81,6 +114,16 @@ public class BasicLine : MonoBehaviour
     // 曲線を描画し、判定用の座標も更新する
     private void UpdateLine()
     {
+        if (lineRenderer == null)
+        {
+            lineRenderer = GetComponent<LineRenderer>();
+
+            if (lineRenderer == null)
+            {
+                return;
+            }
+        }
+
         if (startPoint == null || endPoint == null)
         {
             lineRenderer.enabled = false;
