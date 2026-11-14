@@ -2137,6 +2137,15 @@ public class LineManager : MonoBehaviour
         UpdateGaugeUI();
     }
 
+    // ステージ開始時: 最大ゲージを設定して、満タンにする
+    public void InitLineGauge(float value)
+    {
+        maxLineGauge = Mathf.Max(0, value);
+        currentLineGauge = maxLineGauge;
+
+        UpdateGaugeUI();
+    }
+
     // 現在のゲージを取得
     public float GetCurrentLineGauge()
     {

@@ -19,22 +19,25 @@ public class NodeRow
 {
     public int id;
     public int group;        // どのノードグループか
-    public int type;         // 1=良性 2=悪性 3=良性(2つ同時) 4=悪性(2つ同時)
-                             // 5=四肢対応(左腕) 6=四肢対応(左足) 7=四肢対応(右腕) 8=四肢対応(右足)
-                             // 9=足早ノード 10=交差ノード 11=線追加ノード
+    public int baseType;     // 基本属性: 1=良性 2=悪性(0=列がない古い形式)
+    public int type;         // ノードの種類
+                             //  1=通常 2=同時出現 3=迅速 4=重圧 5=停滞
+                             //  6=左腕 7=右腕 8=左足 9=右足(帰属)
+                             //  10=交錯 11=造線
 }
 
-// ステージの表の1行
+// ステージの表の1行(1行 = 1レベル)
 public class StageRow
 {
     public int stage;
-    public int time;         // 経過時間(100 = 10.0秒)
+    public int lineGauge;    // 造線ゲージの最大量
     public int level;
+    public int nodeCount;    // このレベルで出現するノード数
     public int group;        // 出現するノードグループ
     public int rate;         // 出現するノードの頻度
     public int speed;        // 出現したノードのスピード
 
-    // 前のレベルから、この行のスピード・頻度へ変えていく秒数(7列目。なければ-1)
+    // 前のレベルから、この行のスピード・頻度へ変えていく秒数(8列目。なければ-1)
     // -1のときは、StageNodeSpawnerのDefault Transition Secondsを使う
     public float transition = -1f;
 }
@@ -88,14 +91,21 @@ public static class SpawnTables
 
         foreach (string[] cells in ReadRows(text))
         {
-            // id, group, type
-            if (cells.Length < 3) continue;
+            // id, group, base, type
+            if (cells.Length < 4) continue;
 
             if (TryInt(cells[0], out int id) &&
                 TryInt(cells[1], out int group) &&
-                TryInt(cells[2], out int type))
+                TryInt(cells[2], out int baseType) &&
+                TryInt(cells[3], out int type))
             {
-                rows.Add(new NodeRow { id = id, group = group, type = type });
+                rows.Add(new NodeRow
+                {
+                    id = id,
+                    group = group,
+                    baseType = baseType,
+                    type = type
+                });
             }
         }
 
@@ -108,20 +118,21 @@ public static class SpawnTables
 
         foreach (string[] cells in ReadRows(text))
         {
-            // stage, time, level, group, rate, speed
-            if (cells.Length < 6) continue;
+            // stage, linegauge, level, nodecount, group, rate, speed, [transition]
+            if (cells.Length < 7) continue;
 
             if (TryInt(cells[0], out int stage) &&
-                TryInt(cells[1], out int time) &&
+                TryInt(cells[1], out int lineGauge) &&
                 TryInt(cells[2], out int level) &&
-                TryInt(cells[3], out int group) &&
-                TryInt(cells[4], out int rate) &&
-                TryInt(cells[5], out int speed))
+                TryInt(cells[3], out int nodeCount) &&
+                TryInt(cells[4], out int group) &&
+                TryInt(cells[5], out int rate) &&
+                TryInt(cells[6], out int speed))
             {
-                // 7列目(任意): スピード・頻度を変えていく秒数
+                // 8列目(任意): スピード・頻度を変えていく秒数
                 float transition = -1f;
 
-                if (cells.Length >= 7 && TryFloat(cells[6], out float parsed))
+                if (cells.Length >= 8 && TryFloat(cells[7], out float parsed))
                 {
                     transition = parsed;
                 }
@@ -129,8 +140,9 @@ public static class SpawnTables
                 rows.Add(new StageRow
                 {
                     stage = stage,
-                    time = time,
+                    lineGauge = lineGauge,
                     level = level,
+                    nodeCount = nodeCount,
                     group = group,
                     rate = rate,
                     speed = speed,
@@ -235,86 +247,53 @@ public static class SpawnTableDefaults
 4,3,20,80
 5,4!,0,100";
 
-    // id, nodegroup, nodetype
-    //  1=良性 2=悪性 3=良性2つ 4=悪性2つ
-    //  5=左腕 6=左足 7=右腕 8=右足(四肢対応)  9=足早  10=交差
+    // id, group, base(1=良性 2=悪性), type
+    //  1=通常 2=同時出現 3=迅速 4=重圧 5=停滞 6=左腕 7=右腕 8=左足 9=右足 10=交錯 11=造線
     public const string NodeGroup =
-@"1,1,1
-2,1,1
-3,1,1
-4,1,1
-5,1,1
-6,1,2
-7,1,2
-8,1,2
-9,1,2
-10,1,2
-11,2,1
-12,2,1
-13,2,1
-14,2,1
-15,2,1
-16,2,2
-17,2,2
-18,2,2
-19,2,2
-20,2,2
-21,2,3
-22,2,3
-23,2,4
-24,2,4
-25,3,1
-26,3,1
-27,3,1
-28,3,1
-29,3,2
-30,3,2
-31,3,2
-32,3,2
-33,3,3
-34,3,3
-35,3,3
-36,3,3
-37,3,4
-38,3,4
-39,3,4
-40,3,4
-41,1,5
-42,1,6
-43,1,7
-44,1,8
-45,1,9
-46,2,5
-47,2,6
-48,2,7
-49,2,8
-50,2,9
-51,3,5
-52,3,6
-53,3,7
-54,3,8
-55,3,9
-56,2,5
-57,2,6
-58,2,7
-59,2,8
-60,2,9
-61,3,5
-62,3,6
-63,3,7
-64,3,8
-65,3,9
-66,2,10
-67,3,10
-68,2,11
-69,3,11";
+@"1,1,1,1
+2,1,1,1
+3,1,1,1
+4,1,2,1
+5,1,2,1
+6,1,1,2
+7,1,1,2
+8,1,2,2
+9,1,2,2
+10,1,2,2
+11,2,1,1
+12,2,1,1
+13,2,1,1
+14,2,2,1
+15,2,2,1
+16,2,1,2
+17,2,1,2
+18,2,1,2
+19,2,2,2
+20,2,2,2
+21,2,1,3
+22,2,2,3
+23,2,1,1
+24,2,1,1
+25,3,1,1
+26,3,2,1
+27,3,2,1
+28,3,2,1
+29,3,1,2
+30,3,2,2
+31,3,1,2
+32,3,2,2
+33,3,1,3
+34,3,1,3
+35,3,2,3
+36,3,2,3
+37,3,1,1
+38,3,2,1
+39,3,1,1
+40,3,2,1";
 
-    // stage, time(100=10.0秒), level, nodegroup, rate, speed, [transition(秒・任意)]
+    // stage, linegauge, level, nodecount, group, rate, speed, [transition(秒・任意)]
     public const string Stage =
-@"1,0,1,1,10,10
-1,100,2,1,11,10
-1,200,2,2,12,10
-1,300,3,2,13,12
-1,400,5,3,14,12
-1,500,6,3,15,14";
+@"1,1000,1,10,1,10,10
+1,1000,2,14,2,15,15
+1,1000,3,16,3,20,20";
 }

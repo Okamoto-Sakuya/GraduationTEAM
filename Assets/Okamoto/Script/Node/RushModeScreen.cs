@@ -1,0 +1,2840 @@
+#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
+#define NEW_INPUT_ONLY
+#endif
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
+using UnityEngine.Serialization;
+#if NEW_INPUT_ONLY
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+#endif
+
+/// <summary>
+/// 「ラッシュ」モード。
+/// 空の GameObject にアタッチして再生するだけで、Canvas 以下の画面一式をコードで構築します。
+/// 非再生中もプレビュー画面を構築するので、ゲームビューで確認できます（シーンには保存されません）。
+/// シーンビューでは円の中心・半径・回収点をハンドルでドラッグ編集できます（RushModeScreenInspector）。
+///
+/// ラッシュの流れ
+///   制限時間（rushSeconds）のカウントダウンの間、造線を引きながら、基本線の端から次々にノードが流れてくる。
+///   出現はステージ表のレベルごとに「間隔・速度倍率・使うグループ」が決まり、グループの中からランダムにノードを選ぶ（RushSpawner）。
+///   レベルは経過時間で上がる。時間が 0 になったら新しいノードは出さず、流れているノードが回収されたらクリア。
+///   全部位が欠損したらゲームオーバー。
+///
+/// 画面構成（1920×1080 基準）
+///   中央   : 人体図（UI Image。centerSprite に画像を設定）
+///   円     : 人体を囲む円。回収点 4 つはこの円の上
+///   四肢   : 回収点（三角）＋体力ゲージ
+///   線     : 基本線 6 本 ＋ プレイヤーが描く造線
+///   上中央 : 造線の硬さ 1/2/3（ノードが通れる回数）
+///   左上   : 残り時間＋状態表示
+///   右上   : スコア
+///   下     : 造線ゲージ
+///
+/// ノードは円の上では常に時計回りに進む
+///   左中間 → 180° → 左腕 ／ 右中間 → 0° → 右足
+///   左下の円弧（左足 → 180°）は左中間に合流、右上の円弧（右腕 → 0°）は右中間に合流
+/// 欠損時
+///   左腕欠損 → 上の円弧が完成し、左腕に届いたノードは頭上を回って右腕へ
+///   右足欠損 → 下の円弧が完成し、右足に届いたノードは股下を回って左足へ
+///   右腕欠損 → 右腕に届いたノードは円の右側を下って右足へ
+///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
+///   流れ先も欠損していれば、さらに時計回りに次の部位へ
+///   左足欠損 → 左中間の直線（②）が消える ／ 右足欠損 → 右中間の直線（⑤）が消える（中央の円の線 ⑦⑧ は残る）
+/// ノードの種類（nodetype。LogicNodeTypes）… 良性・悪性は base 列（1 良性 / 2 悪性）
+///   1 通常 / 2 同時出現 / 3 迅速 / 4 重圧 / 5 停滞 / 6?9 帰属（左腕・右腕・左足・右足）/ 10 交錯 / 11 造線
+/// ノードのステータス（ゲージ・レベル・スコア・ダメージ・SAN）は nodestatus_master（nodetype ごと。無い種類は id 1 の行）
+/// プレイヤーのステータス（部位ごとの HP・SAN・造線ゲージ）は playerstatus_master
+/// 出現ログ : 出たノードの種類・順番・位置・結果を Console と CSV（Excel 用）に出す（LogicSpawnLog）。「問題」列にはレベルが入る
+/// リザルト : 取得スコア / スコアランク(S?D) / 取得ノード（良性・悪性 × Lv1?4）
+/// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる
+///
+/// 造線の操作（プレイ中いつでも）… 操作タイプは GameSettings.Operation
+///   ドラッグ&ドロップ : 基本線の上で左ボタンを押す → ドラッグ → 別の基本線の上で離す
+///   クリック          : 基本線の上でクリック → カーソルを動かす → 別の基本線の上でクリック（基本線以外をクリックで解除）
+///   禁止ルール 1 基本線を跨ぐ / 2 中央の円の中を通る / 3 画面の端から始める / 4 造線を跨ぐ / 5 造線の端の禁止範囲から始める / 6 ゲージ不足
+///   右クリック : 描画キャンセル / 造線の削除（ゲージ返却）
+/// </summary>
+[ExecuteAlways]
+public class RushModeScreen : MonoBehaviour
+{
+    // ======================= Inspector =======================
+
+    [Header("中央の人体図（UI Image）")]
+    public Sprite centerSprite;                          // 中央に表示する人体図の画像。未設定なら仮の板＋文字を表示
+    public Vector2 centerSize = new Vector2(820, 820);   // 人体図の表示サイズ（px。画面は 1920×1080 基準）
+    public Vector2 centerOffset = new Vector2(0, 20);    // 画面中央からのずらし量（px。右・上が正）
+    public bool preserveAspect = true;                   // true = 画像の縦横比を保って centerSize 内に収める
+
+    [Header("人体を囲む円（シーンビューでドラッグ編集可）")]
+    public Vector2 circleCenter = new Vector2(0, 20);    // 円の中心（centerOffset と揃えるのが基本）
+    public float circleRadius = 285f;                    // 円の半径（px）。回収点（四肢の三角）はこの円の上に並ぶ
+    [Range(0.1f, 89.9f)] public float armAngle = 36f;    // 右腕の角度（度。右=0、上が正）。左腕は左右反転した位置
+    [Range(-89.9f, -0.1f)] public float legAngle = -67f; // 右足の角度（度。下がマイナス）。左足は左右反転した位置
+    public int arcSegments = 96;                         // 円1周あたりの分割数（多いほど滑らか。円弧の当たり判定もこの細かさ）
+
+    [Header("画像差し替え（空欄なら仮の図形のまま。画像は Texture Type を Sprite (2D and UI) に）")]
+    public Sprite backgroundSprite;                      // 背景（画面全体 1920×1080 に引き伸ばし）
+    public Sprite armSprite;                             // 腕の回収点（今は ▼）
+    public Sprite legSprite;                             // 足の回収点（今は ▲）
+    public Vector2 limbIconSize = new Vector2(78, 78);   // 回収点の画像サイズ（px）
+    public Sprite hpBarFrameSprite;                      // 部位の体力ゲージの枠
+    public Sprite hpBarFillSprite;                       // 部位の体力ゲージの中身（入れると緑→赤の色変化はしない）
+    public Sprite nodeGoodSprite;                        // 良性ノード本体（今は青い丸）
+    public Sprite nodeBadSprite;                         // 悪性ノード本体（今は赤い丸）
+    public Sprite nodeRingSprite;                        // ノードの周りのゲージリング（良性/悪性の色が乗る）
+    public float nodeSize = 60f;                         // ノードの大きさ（px）
+    public Sprite[] hardnessSprites = new Sprite[3];     // 硬さ 1/2/3 ボタン（入れるとその丸の表示は消える。選択中以外は暗く表示）
+    public Sprite executeSprite;                         // （ラッシュでは実行ボタンを出さないので未使用）
+    public Sprite lineGaugeFrameSprite;                  // 造線ゲージの枠
+    public Sprite lineGaugeFillSprite;                   // 造線ゲージの中身
+    public Sprite dangerSprite;                          // 危険演出の赤枠（中心が透明・外周が不透明な白い画像。色は dangerColor が乗る）
+
+    [Header("四肢欠損の彼岸花演出（素材が無ければ従来どおり）")]
+    public bool useLimbBloom = true;                     // true = 欠損した部位の手足を消して彼岸花を咲かせる
+    public string limbBloomResources = "Higanbana";      // 素材を置いた Resources 以下のフォルダ（Assets/Resources/Higanbana）
+    public HiganbanaLimbs.Direction bloomDirection = HiganbanaLimbs.Direction.FromTip;   // FromTip = 指先・つま先から / FromRoot = 付け根から
+    public Sprite baseNoLimbsSprite;                     // 四肢を消した人体図。空欄なら Resources の base_no_limbs
+    public Sprite[] limbSprites = new Sprite[4];         // 手足の切り抜き（左腕・右腕・左足・右足 の順。画面上の左右）。空欄なら Resources の limb_*
+    public Sprite flowerSheet;                           // 花の画像（flower_bloom_sheet.png をドラッグ）。空欄なら Resources の flower_bloom_sheet
+    public HiganbanaLimbs.Settings bloomSettings = new HiganbanaLimbs.Settings();   // 咲く速さ・花の大きさ・密度・脈・火の粉
+
+    /// <summary>ヒエラルキー上で変更した Image・表示状態の記録（1オブジェクト1件）</summary>
+    [System.Serializable]
+    public class HierarchyOverride
+    {
+        public string path;              // Canvas からのパス（同名が並ぶ場合は 名前#番号）
+        public bool overrideSprite;
+        public Sprite sprite;
+        public bool overrideColor;
+        public Color color = Color.white;
+        public bool overrideActive;
+        public bool active = true;
+    }
+
+    [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
+    public List<HierarchyOverride> hierarchyOverrides = new List<HierarchyOverride>();
+
+    [Header("ステージ")]
+    [FormerlySerializedAs("clearStageNumber")]
+    public int stageNumber = 1;                          // 何ステージ目か。ステージ表（rush_stage）の stage 列とクリア記録の両方に使う
+
+    [Header("クリア記録（キャラセレクトに反映）")]
+    public bool markClearedOnClear = true;               // true = ステージクリア時に FogStageController.MarkCleared を呼ぶ
+    public string clearCharacter = "Daughter";           // どのキャラのステージか（FogStageController と同じ名前）
+
+    [Header("デバッグ")]
+    public bool debugKeys = true;                        // true = P キーで即ゲームオーバー / O キーで即クリア（リリース前に外す）
+
+    [Header("出現ログ（出たノードの種類・順番・結果）")]
+    public bool writeSpawnLog = true;                    // true = CSV（Excel 用）に書き出す。エディタはプロジェクト直下、ビルドは persistentDataPath の下
+    public bool spawnLogToConsole = true;                // true = Unity の Console にも 1 体ずつ出す
+    public string spawnLogFolder = "SpawnLogs";          // CSV を置くフォルダ名
+
+    [Header("リザルト画面（クリア / ゲームオーバー）")]
+    public ResultScreen resultScreen;                    // 空欄ならシーンから探し、無ければ自動で追加（イラスト等は ResultScreen 側で設定）
+
+    [Header("フォント（未設定ならビルトインフォント）")]
+    public Font uiFont;                                  // UI の文字に使うフォント。日本語が化ける場合はここに日本語フォントを設定
+
+    [Header("ラッシュ（出現・レベル）")]
+    public float rushSeconds = 60f;                      // 全体の制限時間（秒）
+    public float firstSpawnDelay = 1f;                   // 最初のノードが出るまでの秒数
+    [Range(0f, 0.5f)] public float spawnJitter = 0.15f;  // 出現間隔のばらつき（±割合）
+    public float defaultLevelSeconds = 12f;              // ステージ表に starttime が無いときの 1 レベルの長さ（秒）
+
+    [Header("CSV（Resources → StreamingAssets → TextAsset → どれも無ければInspectorの値）")]
+    public string commonCsvFolder = "MasterData/Main/Common";   // メイン共通の CSV（Resources 以下）。nodestatus / playerstatus / miscparams
+    public string logicCsvFolder = "MasterData/Main/Logic";     // 旧形式の参照数値 CSV の置き場所（Resources 以下）
+    public string rushCsvFolder = "MasterData/Main/Rush";       // ラッシュの CSV（Resources 以下）
+    public bool useDebugCsv = false;                     // true = {名前}_debug があればそちらを優先（デバッグ用データ）
+    public bool useStreamingAssets = true;               // true = Resources に無ければ StreamingAssets の CSV を読む（旧置き場所）
+    public string paramsCsvName = "logic_params.csv";    // 参照数値の CSV ファイル名。読めた値は下の Inspector 値を上書き
+    public string nodeTableCsvName = "node_table.csv";   // ノード表（スコア・ダメージ等の Lv 別テーブル）の CSV ファイル名
+    public TextAsset paramsCsv;                          // 見つからないときに使う参照数値 CSV
+    public TextAsset nodeTableCsv;                       // 見つからないときに使うノード表 CSV
+
+    [Header("メイン共通のマスター CSV（commonCsvFolder）")]
+    public string nodeStatusCsvName = "nodestatus_master.csv";       // ノードの種類ごとのステータス（id = nodetype）
+    public string playerStatusCsvName = "playerstatus_master.csv";   // 部位ごとの HP・最大 SAN・造線ゲージ・1m の消費量
+    public string miscParamsCsvName = "miscparams_master.csv";       // その他の数値（key, value）
+    public TextAsset nodeStatusCsv;
+    public TextAsset playerStatusCsv;
+    public TextAsset miscParamsCsv;
+
+    [Header("ラッシュのマスター CSV（rushCsvFolder。ファイル名は実際のものに合わせる）")]
+    public string rushStageCsvName = "rush_stage_master.csv";           // レベルごとの設定（stage, level, starttime, interval, speed, nodegroup）
+    public string rushNodeGroupCsvName = "rush_nodegroup_master.csv";   // グループの中身（nodegroup, nodetype, base, weight）
+    public string rushSideCsvName = "rush_sidespawn_master.csv";        // 左右の確率（count, same, opposite）
+    public string rushLineCsvName = "rush_linespawn_master.csv";        // 基本線の確率（count, sameline, differentline）
+    public TextAsset rushStageCsv;
+    public TextAsset rushNodeGroupCsv;
+    public TextAsset rushSideCsv;
+    public TextAsset rushLineCsv;
+
+    [Header("参照数値：体力・SAN")]
+    public float hpLeftArm = 25f;                        // 左腕の最大体力（playerstatus id1）。0 になるとその部位は欠損
+    public float hpLeftLeg = 25f;                        // 左足の最大体力（playerstatus id2）
+    public float hpRightArm = 25f;                       // 右腕の最大体力（playerstatus id3）
+    public float hpRightLeg = 25f;                       // 右足の最大体力（playerstatus id4）
+    public bool showHpGauge = false;                     // true = 回収点に体力ゲージを出す（確認用）
+    public bool killMiddleOnLegLost = true;              // true = 足が欠損したら同じ側の中間の直線（左足 → ② / 右足 → ⑤）を消す
+    public float maxSan = 40f;                           // 正気度の最大値。悪性ノード回収で減る（現状、0 になっても効果なし）
+
+    [Header("参照数値：造線")]
+    public float maxLineGauge = 1000f;                   // 造線ゲージの最大値（playerstatus id6。造線を引くと消費、消すと返却）
+    public float armLostGaugePenalty = 500f;             // 腕が1本欠損するごとに造線ゲージの上限が減る量
+    public float costPerMeter = 100f;                    // 造線 1m あたりのゲージ消費量（playerstatus id7）
+    public float pixelsPerMeter = 100f;                  // 1m を何 px とみなすか（仮）。コスト = 長さ(px) ÷ これ × costPerMeter
+    public enum VanishMode { Count, Seconds }            // 造線の消え方：Count = ノード通過回数 / Seconds = 経過秒数
+    public VanishMode vanishMode = VanishMode.Seconds;   // ラッシュは秒数で消える（動画では 7 秒）
+    public float vanishSeconds = 7f;                     // Seconds 時の造線の寿命（秒）
+    public float warnBeforeSeconds = 2f;                 // Seconds 時、残りこの秒数以下で点滅（消滅準備）
+    public int warnBeforeCount = 1;                      // Count 時、残り通過回数がこれ以下で点滅（消滅準備）
+    public float blinkSpeed = 1.5f;                      // 消滅準備の点滅速度（往復/秒）
+    [Range(0f, 1f)] public float vanishAlpha = 0.3f;     // 点滅の最低不透明度。消滅待ち（ノードが乗ったまま寿命切れ）の造線もこの濃さ
+
+    [Header("参照数値：ノード・スコア")]
+    // ↓ nodestatus_master が読めないときの値（読めたときは nodetype ごとの行を使う）
+    public float nodeStartGauge = 100f;                  // ノード出現時のゲージの大きさ（良性 +100 / 悪性 ?100 で出る）
+    public float gaugePerSecond = 10f;                   // ノードのゲージが 1 秒あたりに増減する量
+    public int[] goodScore = { 1000, 1500, 2000, 3000 }; // 良性ノード回収時のスコア（Lv1?4）
+    public int[] badScore = { 50, 200, 350, 500 };       // 悪性ノード回収時のスコア（Lv-1?-4）
+    public float[] goodDamage = { 0, 0, 0, 0 };          // 良性ノード回収時のダメージ（Lv1?4）
+    public float[] badDamage = { 5, 7, 10, 15 };         // 悪性ノード回収時に、その部位が受けるダメージ（Lv-1?-4）
+    public float[] goodSan = { 0, 0, 0, 0 };             // 良性ノード回収時の SAN 減少量（Lv1?4）
+    public float[] badSan = { 3, 5, 8, 10 };             // 悪性ノード回収時の SAN 減少量（Lv-1?-4）
+    public int scoreDigits = 8;                          // スコアの表示桁数（ゼロ埋め）。この桁の最大値で頭打ち
+
+    [Header("参照数値：特殊ノード（miscparams_master が届くまでの仮の値）")]
+    public float fastSpeedRate = 2f;                     // type3 迅速：通常ノードに対する移動速度の倍率
+    public int heavyMinHardness = 2;                     // type4 重圧：通れる造線の硬さ（残り通過回数）の下限
+    public int heavyHardnessCost = 2;                    // type4 重圧：通ったときに減る硬さ
+    public float stopAfterSeconds = 2f;                  // type5 停滞：移動開始から止まるまでの秒数
+    public float stopSeconds = 2f;                       // type5 停滞：止まっている秒数（その間もゲージは進む）
+    public Color stopTint = new Color(0.55f, 0.55f, 0.55f);   // type5 停滞：止まっている間のノードの色（灰色）
+    public float limbMatchScoreRate = 1.5f;              // type6?9 帰属：良性を対応する部位に運んだときのスコア倍率
+    public float limbMismatchSan = 5f;                   // type6?9 帰属：良性を違う部位に運んだときの SAN 減少量
+    public float crossGauge = 100f;                      // type10 交錯：固定するゲージの大きさ（100 = Lv4 / Lv-4）
+    public float crossHitRate = 0.8f;                    // type10 交錯：中心間の距離が nodeSize × これ以下で「交錯」とみなす
+    public enum AngleBase { Line, Screen }
+    public AngleBase addLineAngleBase = AngleBase.Line;  // type11 造線：角度の基準（Line = 基本線の向きから / Screen = 画面の右=0°・反時計回り）
+    public float addLineAngleMin = 30f;                  // type11 造線：生成角度の下限（度）
+    public float addLineAngleMax = 150f;                 // type11 造線：生成角度の上限（度）。Line のとき 90 = 基本線に直角
+    public int addLineHardness = 1;                      // type11 造線：追加する造線の硬さ（通れる回数）
+    public float addLineMaxLength = 600f;                // type11 造線：造線の最大長さ（px）。0 = 制限なし
+    public float addLineEndMargin = 40f;                 // type11 造線：基本線の端からこの距離（px）以内には始点を置かない
+    public int addLineTries = 50;                        // type11 造線：条件を満たす線が見つかるまでの抽選回数
+
+    [Header("参照数値：スコアランク（リザルト。この点以上でそのランク、どれも満たさなければ D）")]
+    public int rankScoreS = 60000;
+    public int rankScoreA = 45000;
+    public int rankScoreB = 30000;
+    public int rankScoreC = 15000;
+
+    [Header("危険演出（画面の外周から内側へ赤くなる）")]
+    public Color dangerColor = new Color(0.85f, 0f, 0f, 0.85f); // 赤さの色。α が最大時の濃さ
+    [Range(0f, 1f)] public float lostLimbDanger = 0.25f;       // 部位が1か所欠損するごとに加算される赤さ（SAN分と合計、最大1）
+    [Range(0f, 1f)] public float damageFlash = 0.35f;          // ダメージを受けた瞬間に一時的に強まる量（欠損時はこの2倍）
+    public float dangerFadeSpeed = 1.5f;                       // 赤さが目標値へ追従する速さ（/秒）
+    public float flashDecay = 2f;                              // 一時的な強まりが引く速さ（/秒）
+    [Range(1f, 4f)] public float dangerStartScale = 2.2f;      // 赤さ0のときの赤枠の大きさ（画面比）
+    [Range(0f, 1f)] public float previewDanger = 0f;           // 非再生中のプレビュー用。見た目の確認・調整に使う
+
+    // 設定の版。古い版のまま保存されていたら、新仕様で変わった値を一度だけ直す
+    [SerializeField, HideInInspector] int settingsVersion = 0;
+    const int CurrentSettingsVersion = 1;
+
+    /// <summary>11/12 仕様：造線ゲージ 2000→1000、悪性スコアの向き、足欠損で中間線を消す</summary>
+    void MigrateSettings()
+    {
+        if (settingsVersion >= CurrentSettingsVersion) return;
+        if (Mathf.Approximately(maxLineGauge, 2000f)) maxLineGauge = 1000f;
+        if (badScore != null && badScore.Length == 4 && badScore[0] == 500 && badScore[3] == 50) badScore = new[] { 50, 200, 350, 500 };
+        if (goodDamage == null || goodDamage.Length < 4) goodDamage = new float[4];
+        if (goodSan == null || goodSan.Length < 4) goodSan = new float[4];
+        killMiddleOnLegLost = true;
+        settingsVersion = CurrentSettingsVersion;
+        Debug.Log("[RushMode] 設定を 11/12 仕様に更新しました（造線ゲージ最大 1000 / 悪性スコア lv-1→-4 = 50→500 / 足欠損で中間線を消す）");
+#if UNITY_EDITOR
+        if (!Application.isPlaying) UnityEditor.EditorUtility.SetDirty(this);
+#endif
+    }
+
+    [Header("造線の操作")]
+    public float snapRadius = 22f;                       // 基本線をクリックできる距離（px）。終点判定の伸ばし分にも使用
+    public float forbiddenRadius = 45f;                  // 既存の造線の両端からこの距離（px）以内では新しい造線を始められない
+    public float minLineLength = 30f;                    // 造線の最短長（px）。これより短いと確定できない
+    public enum EndPointMode { OnCursor, Extend }
+    public EndPointMode endPointMode = EndPointMode.OnCursor;   // 終点：OnCursor = カーソルの下の基本線 / Extend = 始点から伸ばして最初に触れた基本線
+    public bool forbidCenter = true;                     // ルール2：中央の円の中を通る造線は置けない
+    [Range(0.5f, 1f)] public float centerForbiddenRate = 0.98f;   // ルール2：禁止範囲の半径（円の半径 × これ）
+    public Color unplaceableColor = new Color(0.55f, 0.55f, 0.55f);   // 置けないときの点線の色（灰色）
+    public Color violationColor = new Color(1f, 0.2f, 0.2f);          // 禁止ルールに触れた所を点滅させる色
+    public float violationBlinkSpeed = 4f;               // 禁止ルールの点滅の速さ（往復/秒）
+    [Range(0f, 1f)] public float centerZoneAlpha = 0.42f; // ルール2：女の子の後ろに出す赤い丸の濃さ
+    public Color centerZoneColor = new Color(0.59f, 0.03f, 0.06f);   // ルール2：赤い丸の色
+    public float centerBlinkSpeed = 2.5f;                // ルール2：赤い丸の点滅の速さ（回/秒）
+    public float startEdgeMargin = 60f;                  // ルール3：画面の端からこの幅（px）は始点を置けない（赤枠）
+    public float edgeFrameSeconds = 0.8f;                // ルール3：赤枠を出しておく秒数
+    public float crossMarkSize = 40f;                    // 置けないときにカーソルに出す ? の大きさ（px）
+
+    [Header("ノード移動")]
+    public float nodeSpeed = 160f;                       // ノードの基本移動速度（px/秒）。レベルごとの倍率（ステージ表の speed）が掛かる
+
+    // ======================= 公開状態 =======================
+
+    public enum Phase { Preview, Route, Execute, Clear, GameOver }   // ラッシュでは Route = プレイ中、Execute = 時間切れ後の回収待ち
+    public Phase CurrentPhase { get; private set; }
+    public int SelectedHardness { get; private set; } = 1;
+    public int Score { get; private set; }
+
+    /// <summary>画面のルート（エディタのハンドルが座標変換に使用）</summary>
+    public RectTransform CanvasRoot => root;
+
+    // ======================= 内部データ =======================
+
+    class Limb
+    {
+        public string name;
+        public string label;         // 表示名（左腕など）
+        public Vector2 pos;
+        public bool isArm;
+        public float hp;
+        public bool lost;
+        public float maxHp;          // この部位の最大体力（playerstatus）
+        public RectTransform root;
+        public Image hpFill;
+        public BasicLine overflow;   // 欠損後、ここに届いたノードが流れる先（円弧）
+        public Image limbImage;      // 彼岸花演出：人体図に重ねた手足の切り抜き
+        public RectTransform bloomLayer;   // 彼岸花演出：花・脈・火の粉の入れ物
+    }
+
+    class BasicLine
+    {
+        public string name;
+        public Limb target;
+        public bool alive = true;
+        public bool spawnable = true;   // false = ノードの出現元にしない（円弧用）
+        public BasicLine next;          // 終点まで来たら合流する線（null なら回収点）
+        public float nextDist;          // 合流先の線上の位置
+        public readonly List<Vector2> pts = new List<Vector2>();
+        public readonly List<float> cum = new List<float>();
+        public readonly List<Graphic> visuals = new List<Graphic>();
+        public float length;
+
+        public void Bake()
+        {
+            cum.Clear(); cum.Add(0f); length = 0f;
+            for (int i = 1; i < pts.Count; i++) { length += Vector2.Distance(pts[i - 1], pts[i]); cum.Add(length); }
+        }
+
+        public Vector2 Sample(float d)
+        {
+            d = Mathf.Clamp(d, 0f, length);
+            for (int i = 1; i < pts.Count; i++)
+            {
+                if (d <= cum[i])
+                {
+                    float seg = cum[i] - cum[i - 1];
+                    return Vector2.Lerp(pts[i - 1], pts[i], seg > 0.0001f ? (d - cum[i - 1]) / seg : 0f);
+                }
+            }
+            return pts[pts.Count - 1];
+        }
+
+        /// <summary>点 p に最も近い線上の点と、その点の始点からの距離</summary>
+        public float Closest(Vector2 p, out Vector2 point, out float along)
+        {
+            float best = float.MaxValue; point = pts[0]; along = 0f;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                Vector2 a = pts[i - 1], b = pts[i], ab = b - a;
+                float t = ab.sqrMagnitude > 0.0001f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+                Vector2 q = a + ab * t;
+                float d = Vector2.Distance(p, q);
+                if (d < best) { best = d; point = q; along = cum[i - 1] + ab.magnitude * t; }
+            }
+            return best;
+        }
+    }
+
+    enum DrawnState { Solid, Warning, VanishPending }
+
+    class DrawnLine
+    {
+        public Vector2 a, b;
+        public BasicLine lineA, lineB;
+        public float distA, distB, length, cost;
+        public int remaining;
+        public float lifeLeft;
+        public DrawnState state;
+        public int occupants;
+        public RectTransform root;
+        public Image body;
+        public Text label;
+        public GameObject forbiddenGroup;
+        public bool auto;     // true = 造線ノードが引いた造線（右クリックで消せない・色が違う）
+        public readonly List<Image> forbiddenImages = new List<Image>();   // 開始禁止範囲の円（ルール5の点滅用）
+        public readonly List<Color> forbiddenColors = new List<Color>();
+    }
+
+    struct ProblemNode
+    {
+        public int line; public RushModeNode.Kind kind; public float gauge; public float time; public int order;
+        public int type;      // nodetype（1?11。LogicNodeTypes）
+        public string limb;   // 帰属ノードの対応部位（Limb.name）
+    }
+
+    // nodetype
+    const int TypeFast = LogicNodeTypes.Fast, TypeHeavy = LogicNodeTypes.Heavy, TypeStop = LogicNodeTypes.Stop,
+              TypeCross = LogicNodeTypes.Cross, TypeAddLine = LogicNodeTypes.AddLine;
+    static bool IsLimbType(int t) => LogicNodeTypes.IsLimb(t);
+
+    Dictionary<int, NodeStatus> nodeStatus;   // nodestatus_master（id = nodetype）
+    NodeStatus fallbackStatus;                // nodestatus_master が無いとき（Inspector の値）
+
+    RushSpawner rushSpawner;                  // ラッシュの出現抽選（CSV のグループから）
+    RushSpawner.LevelDef currentLevel;        // 今のレベル
+    int levelIndex = -1;                      // 今のレベルの番号（0 始まり）
+    int spawnCount;                           // 出したノードの数（出現ログの「順番」）
+    float speedRate = 1f;                     // 今のレベルの移動速度倍率
+    float rushElapsed;                        // ラッシュ開始からの経過秒
+    float nextSpawn;                          // 次の出現までの秒数
+
+    int problemCount;     // レベル数（出現ログ・状態表示用）
+
+    class MovingNode
+    {
+        public RushModeNode node;
+        public BasicLine line;
+        public float dist;
+        public DrawnLine onDrawn;
+        public bool fromA;
+        public float drawnPos;
+        public int type;          // nodetype（1?11）
+        public NodeStatus status; // このノードのステータス（nodestatus_master）
+        public Limb targetLimb;   // 帰属ノードの対応部位
+        public float elapsed;     // 移動開始からの秒数（停滞用）
+        public bool stopped;      // 停滞：停止中
+        public readonly HashSet<MovingNode> touching = new HashSet<MovingNode>();   // 交錯：いま重なっているノード
+        public LogicSpawnLog.Record record;   // 出現ログの行
+    }
+
+    struct DrawEval
+    {
+        public bool valid;
+        public Vector2 end;
+        public BasicLine endLine;
+        public float endDist, length, cost;
+        public string reason;
+        public bool onLine;             // 終点が基本線の上
+        public BasicLine crossedLine;   // ルール1：跨いだ基本線
+        public DrawnLine crossedDrawn;  // ルール4：跨いだ造線
+        public bool hitCenter;          // ルール2：中央の円の中を通る
+        public bool hitGauge;           // ルール6：造線ゲージが足りない
+        public bool Forbidden => crossedLine != null || crossedDrawn != null || hitCenter || hitGauge;
+    }
+
+    // 色
+    static readonly Color LineColor = Color.white;
+    static readonly Color DrawnColor = new Color(0.75f, 0.92f, 1f);
+    static readonly Color AutoDrawnColor = new Color(0.85f, 0.65f, 1f);   // 造線ノードが引いた造線
+    static readonly Color InvalidCol = new Color(1f, 0.35f, 0.3f);
+    static readonly Color LimbFill = new Color(0.94f, 0.66f, 0.55f);
+    static readonly Color LimbOutline = new Color(0.10f, 0.16f, 0.22f);
+    static readonly Color BtnOff = new Color(0.12f, 0.33f, 0.45f);
+    static readonly Color BtnOn = new Color(0.25f, 0.62f, 0.85f);
+    const float LineThickness = 4f;
+    const float DrawnThickness = 6f;
+
+    const string RuntimeCanvasName = "LogicModeCanvas";
+    const string PreviewCanvasName = "LogicModePreview";
+
+    Font font;
+    RectTransform root, lineLayer, drawnLayer, limbLayer, nodeLayer, uiLayer;
+    Image centerImage;
+    Text scoreText, timerText, statusText, gaugeText, hintText;
+    Image gaugeFill, gaugePreviewFill, gaugeLostFill;
+    Image gaugeBorder; Color gaugeBorderColor;   // ルール6 の点滅用
+    Image centerZone;                            // ルール2 の赤い丸（女の子の後ろ。普段は透明）
+    readonly List<Button> hardnessButtons = new List<Button>();
+    Button executeButton;
+
+    Limb leftArm, rightArm, leftLeg, rightLeg;
+    readonly List<Limb> limbs = new List<Limb>();
+    readonly List<BasicLine> lines = new List<BasicLine>();
+    readonly List<DrawnLine> drawnLines = new List<DrawnLine>();
+    readonly List<MovingNode> moving = new List<MovingNode>();
+
+    // 描画中
+    bool drawing;
+    BasicLine drawStartLine;
+    float drawStartDist;
+    Vector2 drawStart;
+    readonly List<Image> dashPool = new List<Image>();
+    Image startMarker;
+    bool hasEval;            // lastEval が今の描画のものか
+    DrawEval lastEval;       // 直近の判定（禁止ルールの点滅に使う）
+    BasicLine hlLine;        // ルール1 で点滅中の基本線
+    readonly List<Color> hlSaved = new List<Color>();
+    readonly List<DrawnLine> flashForbidden = new List<DrawnLine>();   // ルール5 で点滅中の造線
+    float flashForbiddenTime;
+    readonly List<Image> edgeFrame = new List<Image>();   // ルール3 の赤枠（上下左右の 4 本）
+    float edgeFrameTime;
+    RectTransform crossMark;                               // 置けないときの ?
+    Image[] crossBars;
+    float crossTime; Vector2 crossPos;                     // 一瞬だけ出す ?（ルール3・5）
+
+    // 危険演出
+    Image dangerVignette;
+    float dangerLevel, dangerFlash;
+    static Sprite vignetteSprite;
+
+    LogicSpawnLog spawnLog;   // 出現ログ（再生中のみ）
+    float san, currentMaxLineGauge, lineGauge, timeLeft;
+    readonly int[] goodCollected = new int[4];   // 取得した良性ノードの数（Lv1?4）… リザルト用
+    readonly int[] badCollected = new int[4];    // 取得した悪性ノードの数（Lv1?4）
+    int problemIndex;                            // 出現ログの「問題」列。ラッシュではレベルの番号を入れる
+
+    // ======================= ライフサイクル =======================
+
+    void Start()
+    {
+        if (!Application.isPlaying) return;
+
+        MigrateSettings();
+        DestroyPreview();
+        ClearBuiltState();
+
+        // 設定（操作タイプ）：シーンに GameSettingsInspector が無ければ自動で追加（保存済みの設定を使う）
+        if (FindObjectOfType<GameSettingsInspector>() == null)
+        {
+            GameSettingsInspector.adoptSavedOnNextAwake = true;
+            gameObject.AddComponent<GameSettingsInspector>();
+        }
+
+        Time.timeScale = 1f;
+        font = ResolveFont();
+        LoadCsv();
+        san = maxSan;
+        currentMaxLineGauge = maxLineGauge;
+        lineGauge = maxLineGauge;
+
+        EnsureEventSystem();
+        BuildScreen(RuntimeCanvasName);
+
+        // ヘルプ：シーンに HelpWindow が無ければ自動で追加（「？」ボタンが出る）
+        if (FindObjectOfType<HelpWindow>() == null) gameObject.AddComponent<HelpWindow>();
+
+        if (rushSpawner == null || problemCount <= 0) return;
+
+        spawnLog = new LogicSpawnLog(stageNumber, "ラッシュ", spawnLogFolder, spawnLogToConsole);
+        if (writeSpawnLog) Debug.Log($"[出現ログ] CSV の保存先：{spawnLog.FilePath}");
+
+        StartCoroutine(RushLoop());
+    }
+
+    void OnDestroy()
+    {
+        // 途中で再生を止めたときも、そこまでのログを残す
+        if (Application.isPlaying) SaveSpawnLog();
+    }
+
+    void SaveSpawnLog()
+    {
+        if (spawnLog != null && writeSpawnLog) spawnLog.Save();
+    }
+
+    void FinishSpawnLog(string result)
+    {
+        if (spawnLog == null) return;
+        spawnLog.Finish(result, Score);
+        SaveSpawnLog();
+    }
+
+    /// <summary>基本線の表示名（ログ用）</summary>
+    static string LineLabel(string name) => name switch
+    {
+        "TopLeft" => "左上",
+        "MiddleLeft" => "左中",
+        "BottomLeft" => "左下",
+        "TopRight" => "右上",
+        "MiddleRight" => "右中",
+        "BottomRight" => "右下",
+        "ArcLeft" => "左円(⑦)",
+        "ArcRight" => "右円(⑧)",
+        "ArcLowerLeft" => "左下円",
+        "ArcUpperRight" => "右上円",
+        "TopArc" => "上円(⑨)",
+        "BottomArc" => "下円(⑩)",
+        _ => name,
+    };
+
+    void Update()
+    {
+        if (!Application.isPlaying) return;
+
+        // ヘルプを開いている間は操作を受け付けない（ゲームは HelpWindow 側で一時停止）
+        if (HelpWindow.IsOpen)
+        {
+            if (drawing) CancelDrawing();
+            return;
+        }
+
+        // デバッグ：O キーで即クリア（クリア記録の確認用）
+        if (debugKeys && DebugClearPressed() &&
+            CurrentPhase != Phase.GameOver && CurrentPhase != Phase.Clear)
+        {
+            StopAllCoroutines();
+            if (drawing) CancelDrawing();
+            StageClear();
+            return;
+        }
+
+        // デバッグ：P キーで即ゲームオーバー
+        if (debugKeys && DebugGameOverPressed() &&
+            CurrentPhase != Phase.GameOver && CurrentPhase != Phase.Clear)
+        {
+            StopAllCoroutines();   // 進行中の演出を止める
+            if (drawing) CancelDrawing();
+            GameOver();
+            return;
+        }
+
+        if (CurrentPhase == Phase.Route) HandleDrawingInput();
+        else if (drawing) CancelDrawing();
+
+        UpdateDrawnVisuals();
+        UpdateViolationVisuals();
+        UpdateStatus();
+        UpdateDanger(Time.unscaledDeltaTime);   // ゲームオーバー中（timeScale=0）も動かす
+    }
+
+    // ======================= 編集用プレビュー（非再生中） =======================
+
+#if UNITY_EDITOR
+    void OnEnable()
+    {
+        if (!Application.isPlaying) SchedulePreviewRebuild();
+    }
+
+    void OnDisable()
+    {
+        if (!Application.isPlaying) DestroyPreview();
+    }
+
+    void OnValidate()
+    {
+        MigrateSettings();
+        if (!Application.isPlaying) SchedulePreviewRebuild();
+    }
+
+    void SchedulePreviewRebuild()
+    {
+        // OnValidate / OnEnable 中は生成・破棄ができないので次フレームで行う
+        UnityEditor.EditorApplication.delayCall += () =>
+        {
+            if (this != null && isActiveAndEnabled && !Application.isPlaying) RebuildPreview();
+        };
+    }
+#endif
+
+    /// <summary>非再生中のプレビュー画面を作り直す（シーンには保存されない）</summary>
+    public void RebuildPreview()
+    {
+        if (Application.isPlaying) return;
+        DestroyPreview();
+        ClearBuiltState();
+
+        font = ResolveFont();
+        san = maxSan;
+        currentMaxLineGauge = maxLineGauge;
+        lineGauge = maxLineGauge;
+        CurrentPhase = Phase.Preview;
+
+        BuildScreen(PreviewCanvasName);
+        UpdateStatus();
+        dangerLevel = previewDanger;   // Inspector のスライダーで見た目を確認
+        ApplyDanger();
+
+        var canvas = transform.Find(PreviewCanvasName);
+        if (canvas != null)
+            foreach (var t in canvas.GetComponentsInChildren<Transform>(true))
+                t.gameObject.hideFlags = HideFlags.DontSave;
+    }
+
+    void DestroyPreview()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            var c = transform.GetChild(i);
+            if (c.name != PreviewCanvasName) continue;
+            if (Application.isPlaying) Destroy(c.gameObject);
+            else DestroyImmediate(c.gameObject);
+        }
+        root = null;
+    }
+
+    void ClearBuiltState()
+    {
+        hardnessButtons.Clear();
+        limbs.Clear();
+        lines.Clear();
+        drawnLines.Clear();
+        moving.Clear();
+        dashPool.Clear();
+        drawing = false;
+        hasEval = false;
+        hlLine = null;
+        hlSaved.Clear();
+        flashForbidden.Clear();
+        edgeFrame.Clear();
+        edgeFrameTime = 0f;
+        crossTime = 0f;
+    }
+
+    /// <summary>playerstatus_master を反映（1 左腕 / 2 左足 / 3 右腕 / 4 右足 / 5 最大SAN / 6 造線ゲージ最大 / 7 1m消費）</summary>
+    void ApplyPlayerStatusCsv(string csv)
+    {
+        var tb = LogicCsvLoader.ReadTable(csv, new[] { "id", "value" }, "playerstatus");
+        if (tb == null) return;
+        int cId = tb.Col("id"), cValue = tb.Col("value"), applied = 0;
+        foreach (var r in tb.rows)
+        {
+            if (!int.TryParse(LogicCsvLoader.Table.Get(r, cId), out int id)) continue;
+            if (!float.TryParse(LogicCsvLoader.Table.Get(r, cValue),
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out float v)) continue;
+            switch (id)
+            {
+                case 1: hpLeftArm = v; break;
+                case 2: hpLeftLeg = v; break;
+                case 3: hpRightArm = v; break;
+                case 4: hpRightLeg = v; break;
+                case 5: maxSan = v; break;
+                case 6: maxLineGauge = v; break;
+                case 7: costPerMeter = v; break;
+                default: Debug.LogWarning($"[CSV:playerstatus] 不明な id: {id}"); continue;
+            }
+            applied++;
+        }
+        Debug.Log($"[CSV:playerstatus] {applied} 項目を反映");
+    }
+
+    /// <summary>旧形式 node_table.csv を反映</summary>
+    void ApplyNodeTableCsv(string csv)
+    {
+        int applied = 0;
+        foreach (var row in CsvUtil.ParseWithHeader(csv))
+        {
+            if (!LogicCsvLoader.TryParseKind(row.Get("kind"), out var kind)) continue;
+            if (!int.TryParse(row.Get("level"), out int lv) || lv < 1 || lv > 4) continue;
+            int i = lv - 1;
+
+            int.TryParse(row.Get("score", "0"), out int score);
+            if (kind == ProtoNode.Kind.Good)
+            {
+                goodScore[i] = score;
+            }
+            else
+            {
+                float.TryParse(row.Get("damage", "0"), System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out float dmg);
+                float.TryParse(row.Get("san", "0"), System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out float san0);
+                badScore[i] = score;
+                badDamage[i] = dmg;
+                badSan[i] = san0;
+            }
+            applied++;
+        }
+        Debug.Log($"[CSV:node_table] {applied} 行を反映");
+    }
+
+    void LoadCsv()
+    {
+        string Logic(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, logicCsvFolder, useDebugCsv);
+        string Common(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, commonCsvFolder, useDebugCsv);
+        string Rush(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, rushCsvFolder, useDebugCsv);
+
+        // 旧形式（あれば）
+        string t = Logic(paramsCsv, paramsCsvName);
+        if (t != null) LogicCsvLoader.ApplyParams(this, t, "logic_params");
+        t = Logic(nodeTableCsv, nodeTableCsvName);
+        if (t != null) ApplyNodeTableCsv(t);
+
+        // メイン共通
+        t = Common(playerStatusCsv, playerStatusCsvName);
+        if (t != null) ApplyPlayerStatusCsv(t);
+        else Debug.LogWarning("[CSV] playerstatus_master が見つかりません → Inspector の値（部位HP・SAN・造線ゲージ）を使います");
+        t = Common(miscParamsCsv, miscParamsCsvName);
+        if (t != null) LogicCsvLoader.ApplyParams(this, t, "miscparams");
+        t = Common(nodeStatusCsv, nodeStatusCsvName);
+        nodeStatus = t != null ? LogicCsvLoader.LoadNodeStatus(t) : new Dictionary<int, NodeStatus>();
+        if (nodeStatus.Count == 0) Debug.LogWarning("[CSV] nodestatus_master が読めません → Inspector の値（スコア・ダメージ・SAN）を使います");
+        fallbackStatus = null;
+
+        // ラッシュ：ステージ表・ノードグループ・左右・基本線
+        rushSpawner = RushSpawner.Load(
+            Rush(rushStageCsv, rushStageCsvName),
+            Rush(rushNodeGroupCsv, rushNodeGroupCsvName),
+            Rush(rushSideCsv, rushSideCsvName),
+            Rush(rushLineCsv, rushLineCsvName),
+            stageNumber, defaultLevelSeconds);
+        problemCount = rushSpawner.Levels.Count;
+        Debug.Log($"[出現] ラッシュ（ステージ{stageNumber}・{problemCount}レベル）");
+    }
+
+    /// <summary>nodetype のステータス。nodestatus_master に無い種類は id 1（通常）の行、それも無ければ Inspector の値</summary>
+    NodeStatus StatusOf(int type)
+    {
+        if (nodeStatus != null)
+        {
+            if (nodeStatus.TryGetValue(type, out var st)) return st;
+            if (nodeStatus.TryGetValue(LogicNodeTypes.Normal, out st)) return st;
+        }
+        if (fallbackStatus == null)
+        {
+            fallbackStatus = new NodeStatus { id = 0, hp = Mathf.Abs(nodeStartGauge), value = Mathf.Abs(gaugePerSecond) };
+            for (int i = 0; i < 4; i++)
+            {
+                fallbackStatus.goodScore[i] = At(goodScore, i);
+                fallbackStatus.badScore[i] = At(badScore, i);
+                fallbackStatus.goodDamage[i] = At(goodDamage, i);
+                fallbackStatus.badDamage[i] = At(badDamage, i);
+                fallbackStatus.goodSan[i] = At(goodSan, i);
+                fallbackStatus.badSan[i] = At(badSan, i);
+            }
+        }
+        return fallbackStatus;
+    }
+
+    static T At<T>(T[] a, int i) => a != null && i < a.Length ? a[i] : default;
+
+    public void SetCenterSprite(Sprite s)
+    {
+        centerSprite = s;
+        if (centerImage != null)
+        {
+            centerImage.sprite = s;
+            centerImage.color = s != null ? Color.white : new Color(0.93f, 0.87f, 0.72f);
+        }
+    }
+
+    // ======================= 画面構築 =======================
+
+    void BuildScreen(string canvasName)
+    {
+        var canvasGo = new GameObject(canvasName, typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        canvasGo.transform.SetParent(transform, false);
+        canvasGo.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+        var scaler = canvasGo.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        root = UIShapes.CreateRect(canvasGo.transform, "GameScreen", Vector2.zero, new Vector2(1920, 1080));
+        root.gameObject.AddComponent<RectMask2D>();
+        UIShapes.CreateImage(root, "Background", Vector2.zero, new Vector2(1920, 1080),
+                             backgroundSprite != null ? backgroundSprite : UIShapes.White,
+                             backgroundSprite != null ? Color.white : Color.black);
+
+        // ノードの見た目（RushModeNode が参照）
+        RushModeNode.GoodSprite = nodeGoodSprite;
+        RushModeNode.BadSprite = nodeBadSprite;
+        RushModeNode.RingSprite = nodeRingSprite;
+        RushModeNode.DefaultSize = nodeSize;
+
+        centerImage = UIShapes.CreateImage(root, "CenterImage", centerOffset, centerSize, centerSprite, Color.white);
+        centerImage.preserveAspect = preserveAspect;
+        if (centerSprite == null)
+        {
+            centerImage.sprite = UIShapes.White;
+            centerImage.color = new Color(0.93f, 0.87f, 0.72f);
+            UIShapes.CreateText(centerImage.transform, "Placeholder", "Center Image\n(centerSprite を設定)", font, 32,
+                                new Color(0.4f, 0.32f, 0.2f), TextAnchor.MiddleCenter, Vector2.zero, centerSize, new Vector2(0.5f, 0.5f));
+        }
+
+        // 危険演出（人体図の上、線・ノード・UI の下）
+        dangerVignette = UIShapes.CreateImage(root, "DangerVignette", Vector2.zero, new Vector2(1920, 1080), dangerSprite != null ? dangerSprite : GetVignetteSprite(), dangerColor);
+        dangerVignette.raycastTarget = false;
+        dangerLevel = 0f;
+        dangerFlash = 0f;
+        ApplyDanger();
+
+        lineLayer = UIShapes.CreateRect(root, "Lines", Vector2.zero, new Vector2(1920, 1080));
+        drawnLayer = UIShapes.CreateRect(root, "DrawnLines", Vector2.zero, new Vector2(1920, 1080));
+        limbLayer = UIShapes.CreateRect(root, "Limbs", Vector2.zero, new Vector2(1920, 1080));
+        nodeLayer = UIShapes.CreateRect(root, "Nodes", Vector2.zero, new Vector2(1920, 1080));
+        uiLayer = UIShapes.CreateRect(root, "UI", Vector2.zero, new Vector2(1920, 1080));
+
+        BuildLimbs();
+        BuildLines();
+        BuildUI();
+
+        ApplyHierarchyOverrides(canvasGo.transform);
+        BuildLimbBloom();   // 人体図を「四肢なし＋手足の切り抜き」に組み替える（ヒエラルキーの差し替えより後）
+    }
+
+    // ======================= ヒエラルキー変更の記録・反映 =======================
+
+    /// <summary>Canvas からのパス。同じ親の下に同名が並ぶ場合は 名前#番号（2個目以降）</summary>
+    public static string PathOf(Transform t, Transform canvas)
+    {
+        var parts = new List<string>();
+        while (t != null && t != canvas)
+        {
+            var p = t.parent;
+            int idx = 0;
+            if (p != null)
+                for (int i = 0; i < t.GetSiblingIndex(); i++)
+                    if (p.GetChild(i).name == t.name) idx++;
+            parts.Add(idx == 0 ? t.name : t.name + "#" + idx);
+            t = p;
+        }
+        parts.Reverse();
+        return string.Join("/", parts);
+    }
+
+    void ApplyHierarchyOverrides(Transform canvas)
+    {
+        try { ApplyHierarchyOverridesCore(canvas); }
+        finally { if (gaugeBorder != null) gaugeBorderColor = gaugeBorder.color; }   // 点滅後に戻す色（ヒエラルキーで変えた色も含む）
+    }
+
+    void ApplyHierarchyOverridesCore(Transform canvas)
+    {
+        if (hierarchyOverrides == null || hierarchyOverrides.Count == 0) return;
+        var map = new Dictionary<string, HierarchyOverride>();
+        foreach (var o in hierarchyOverrides)
+            if (o != null && !string.IsNullOrEmpty(o.path)) map[o.path] = o;
+
+        foreach (var t in canvas.GetComponentsInChildren<Transform>(true))
+        {
+            if (!map.TryGetValue(PathOf(t, canvas), out var o)) continue;
+            var img = t.GetComponent<Image>();
+            if (img != null)
+            {
+                if (o.overrideSprite) img.sprite = o.sprite;
+                if (o.overrideColor) img.color = o.color;
+            }
+            if (o.overrideActive) t.gameObject.SetActive(o.active);
+        }
+    }
+
+#if UNITY_EDITOR
+    /// <summary>プレビュー画面上の t の変更を記録（エディタの自動記録から呼ばれる）</summary>
+    public void RecordHierarchyChange(Transform t, bool sprite, bool color, bool active)
+    {
+        var canvas = transform.Find(PreviewCanvasName);
+        if (canvas == null || t == null || t == canvas || !t.IsChildOf(canvas)) return;
+
+        string path = PathOf(t, canvas);
+        var o = hierarchyOverrides.Find(x => x != null && x.path == path);
+        if (o == null) { o = new HierarchyOverride { path = path }; hierarchyOverrides.Add(o); }
+
+        var img = t.GetComponent<Image>();
+        if (sprite && img != null)
+        {
+            // コードで作った仮の図形は保存できないので、アセットの画像（または空）のときだけ記録
+            if (img.sprite == null || UnityEditor.AssetDatabase.Contains(img.sprite))
+            {
+                o.overrideSprite = true;
+                o.sprite = img.sprite;
+            }
+        }
+        if (color && img != null)
+        {
+            o.overrideColor = true;
+            o.color = img.color;
+        }
+        if (active)
+        {
+            o.overrideActive = true;
+            o.active = t.gameObject.activeSelf;
+        }
+    }
+#endif
+
+    void BuildLimbs()
+    {
+        // 回収点は円の上。画面上の左右で命名
+        leftArm = CreateLimb("LeftArm", CirclePt(180f - armAngle), true);
+        rightArm = CreateLimb("RightArm", CirclePt(armAngle), true);
+        leftLeg = CreateLimb("LeftLeg", CirclePt(180f - legAngle), false);
+        rightLeg = CreateLimb("RightLeg", CirclePt(legAngle), false);
+    }
+
+    Limb CreateLimb(string name, Vector2 pos, bool isArm)
+    {
+        float maxHp = Mathf.Max(1f, MaxHpOf(name));
+        var limb = new Limb { name = name, label = LimbLabel(name), pos = pos, isArm = isArm, hp = maxHp, maxHp = maxHp };
+        limb.root = UIShapes.CreateRect(limbLayer, name, pos, new Vector2(80, 80));
+
+        Sprite icon = isArm ? armSprite : legSprite;
+        if (icon != null)
+        {
+            var img = UIShapes.CreateImage(limb.root, "Icon", Vector2.zero, limbIconSize, icon, Color.white);
+            img.preserveAspect = true;
+        }
+        else
+        {
+            Sprite tri = isArm ? UIShapes.TriDown : UIShapes.TriUp;
+            UIShapes.CreateImage(limb.root, "Outline", Vector2.zero, new Vector2(78, 78), tri, LimbOutline);
+            UIShapes.CreateImage(limb.root, "Fill", Vector2.zero, new Vector2(62, 62), tri, LimbFill);
+        }
+
+        Vector2 barPos = new Vector2(0, isArm ? 52 : -52);
+        var hpBg = UIShapes.CreateImage(limb.root, "HpBg", barPos, new Vector2(74, 10),
+                             hpBarFrameSprite != null ? hpBarFrameSprite : UIShapes.White,
+                             hpBarFrameSprite != null ? Color.white : new Color(0, 0, 0, 0.7f));
+        limb.hpFill = UIShapes.CreateImage(limb.root, "HpFill", barPos, new Vector2(70, 6),
+                                           hpBarFillSprite != null ? hpBarFillSprite : UIShapes.White,
+                                           hpBarFillSprite != null ? Color.white : new Color(0.3f, 0.9f, 0.4f));
+        limb.hpFill.type = Image.Type.Filled;
+        limb.hpFill.fillMethod = Image.FillMethod.Horizontal;
+        // 体力ゲージは出さない（侵食の見た目で表す）。確認用に showHpGauge で出せる
+        hpBg.gameObject.SetActive(showHpGauge);
+        limb.hpFill.gameObject.SetActive(showHpGauge);
+
+        limbs.Add(limb);
+        return limb;
+    }
+
+    static string LimbLabel(string name) => name switch
+    {
+        "LeftArm" => "左腕",
+        "RightArm" => "右腕",
+        "LeftLeg" => "左足",
+        "RightLeg" => "右足",
+        _ => name,
+    };
+
+    Limb FindLimb(string name) => limbs.Find(l => l.name == name);
+
+    /// <summary>部位の最大体力（playerstatus：1 左腕 / 2 左足 / 3 右腕 / 4 右足）</summary>
+    float MaxHpOf(string name) => name switch
+    {
+        "LeftArm" => hpLeftArm,
+        "LeftLeg" => hpLeftLeg,
+        "RightArm" => hpRightArm,
+        "RightLeg" => hpRightLeg,
+        _ => 25f,
+    };
+
+    /// <summary>特殊ノードの札の文字</summary>
+    string TagOf(int type, string limb)
+    {
+        if (IsLimbType(type)) return LimbLabel(string.IsNullOrEmpty(limb) ? LogicNodeTypes.LimbOf(type) : limb);
+        return type switch
+        {
+            TypeFast => "迅速",
+            TypeHeavy => "重圧",
+            TypeStop => "停滞",
+            TypeCross => "交錯",
+            TypeAddLine => "造線",
+            _ => "",
+        };
+    }
+
+    /// <summary>出現時のゲージの大きさ（nodestatus の hp。交錯ノードは固定値）</summary>
+    float StartGaugeOf(int type) => type == TypeCross ? crossGauge : StatusOf(type).hp;
+
+    /// <summary>ノード生成（Canvas の nodeLayer の下に UI Image として作る。レベルの区切りは nodestatus。交錯ノードはゲージ固定）</summary>
+    RushModeNode CreateNode(ProblemNode pn)
+    {
+        var st = StatusOf(pn.type);
+        var n = RushModeNode.Create(nodeLayer, pn.kind, pn.gauge, font);
+        n.SetLevelThresholds(st.goodMin, st.badMin);
+        if (pn.type == TypeCross) n.LockGauge(crossGauge);
+        n.SetTag(TagOf(pn.type, pn.limb));
+        return n;
+    }
+
+    void BuildLines()
+    {
+        // ルール2 の禁止範囲（中央の円の中）。普段は透明で、触れたときだけ赤く点滅
+        // 女の子（centerImage）のすぐ後ろに置く
+        Transform zoneParent = centerImage != null ? centerImage.transform.parent : lineLayer;
+        centerZone = UIShapes.CreateImage(zoneParent, "CenterForbidden", circleCenter,
+                                          Vector2.one * circleRadius * 2f, UIShapes.Circle, Color.clear);
+        if (centerImage != null) centerZone.transform.SetSiblingIndex(centerImage.transform.GetSiblingIndex());
+
+        float lArm = 180f - armAngle, lLeg = 180f - legAngle;   // 左側の角度
+        float rArm = armAngle, rLeg = legAngle;                 // 右側の角度
+
+        MakeLine("TopLeft", leftArm, new List<Vector2> { new Vector2(-960, 540), leftArm.pos });
+        MakeLine("TopRight", rightArm, new List<Vector2> { new Vector2(960, 540), rightArm.pos });
+        MakeLine("BottomLeft", leftLeg, new List<Vector2> { new Vector2(-960, -540), leftLeg.pos });
+        MakeLine("BottomRight", rightLeg, new List<Vector2> { new Vector2(960, -540), rightLeg.pos });
+
+        // 中央の円の線 ⑦（180° → 左腕）・⑧（0° → 右足）。時計回り（角度が減る方向）に進む
+        var al = new List<Vector2> { CirclePt(180f) };
+        AddArcPoints(al, 180f, lArm);
+        var arcLeft = MakeLine("ArcLeft", leftArm, al);
+        arcLeft.spawnable = false;
+
+        var ar = new List<Vector2> { CirclePt(0f) };
+        AddArcPoints(ar, 0f, rLeg);
+        var arcRight = MakeLine("ArcRight", rightLeg, ar);
+        arcRight.spawnable = false;
+
+        // 左右中間の直線 ②⑤ → 円に当たったら ⑦⑧ に合流（足の欠損で直線だけ消える）
+        var middleLeft = MakeLine("MiddleLeft", leftArm, new List<Vector2> { new Vector2(-960, circleCenter.y), CirclePt(180f) });
+        middleLeft.next = arcLeft;
+        middleLeft.nextDist = 0f;
+
+        var middleRight = MakeLine("MiddleRight", rightLeg, new List<Vector2> { new Vector2(960, circleCenter.y), CirclePt(0f) });
+        middleRight.next = arcRight;
+        middleRight.nextDist = 0f;
+
+        // 円の残り（左下・右上）も基本線。時計回りに進んで ⑦⑧ に合流
+        var lowLeft = new List<Vector2> { CirclePt(lLeg) };
+        AddArcPoints(lowLeft, lLeg, 180f);                      // 左足 → 180°
+        var arcLL = MakeLine("ArcLowerLeft", leftArm, lowLeft);
+        arcLL.spawnable = false;
+        arcLL.next = arcLeft;
+        arcLL.nextDist = 0f;                                    // 180° の点
+
+        var upRight = new List<Vector2> { CirclePt(rArm) };
+        AddArcPoints(upRight, rArm, 0f);                        // 右腕 → 0°
+        var arcUR = MakeLine("ArcUpperRight", rightLeg, upRight);
+        arcUR.spawnable = false;
+        arcUR.next = arcRight;
+        arcUR.nextDist = 0f;                                    // 0° の点
+
+        // 欠損時の流れ先（時計回りで次の部位へ）
+        //   右腕欠損 → 右上の円弧 → 右中間の円弧 → 右足
+        //   左足欠損 → 左下の円弧 → 左中間の円弧 → 左腕
+        //   左腕・右足は欠損時に上下の円弧を追加（LoseLimb）
+        rightArm.overflow = arcUR;
+        leftLeg.overflow = arcLL;
+    }
+
+    BasicLine MakeLine(string name, Limb target, List<Vector2> pts, int visibleSegments = -1)
+    {
+        var l = new BasicLine { name = name, target = target };
+        l.pts.AddRange(pts);
+        l.Bake();
+        int segs = visibleSegments < 0 ? pts.Count - 1 : visibleSegments;
+        for (int i = 0; i < segs; i++)
+            l.visuals.Add(UIShapes.CreateLine(lineLayer, pts[i], pts[i + 1], LineThickness, LineColor, name));
+        lines.Add(l);
+        return l;
+    }
+
+    /// <summary>欠損した部位 from から時計回りに to まで続く円弧の基本線を追加</summary>
+    void AddOverflowArc(Limb from, Limb to, float fromDeg, float toDeg, string name)
+    {
+        var pts = new List<Vector2> { CirclePt(fromDeg) };
+        AddArcPoints(pts, fromDeg, toDeg);
+        var l = MakeLine(name, to, pts);
+        l.spawnable = false;
+        from.overflow = l;
+    }
+
+    /// <summary>円周上の点（角度は度。右=0、反時計回りが正）</summary>
+    public Vector2 CirclePt(float deg)
+    {
+        float r = deg * Mathf.Deg2Rad;
+        return circleCenter + new Vector2(Mathf.Cos(r), Mathf.Sin(r)) * circleRadius;
+    }
+
+    int ArcSegCount(float spanDeg) => Mathf.Max(2, Mathf.CeilToInt(Mathf.Abs(spanDeg) / 360f * Mathf.Max(8, arcSegments)));
+
+    /// <summary>from → to の円弧上の点を追加（from 自体は含まない）</summary>
+    void AddArcPoints(List<Vector2> list, float fromDeg, float toDeg)
+    {
+        int n = ArcSegCount(toDeg - fromDeg);
+        for (int i = 1; i <= n; i++) list.Add(CirclePt(Mathf.Lerp(fromDeg, toDeg, (float)i / n)));
+    }
+
+    void BuildUI()
+    {
+        // ルール3：画面の端の赤枠（普段は透明）
+        float m = startEdgeMargin;
+        foreach (var (name, pos, size) in new[] {
+            ("EdgeTop", new Vector2(0, 540 - m * 0.5f), new Vector2(1920, m)),
+            ("EdgeBottom", new Vector2(0, -540 + m * 0.5f), new Vector2(1920, m)),
+            ("EdgeLeft", new Vector2(-960 + m * 0.5f, 0), new Vector2(m, 1080 - m * 2f)),
+            ("EdgeRight", new Vector2(960 - m * 0.5f, 0), new Vector2(m, 1080 - m * 2f)) })
+            edgeFrame.Add(UIShapes.CreateImage(uiLayer, name, pos, size, UIShapes.White, Color.clear));
+
+        // 置けないときの ?
+        crossMark = UIShapes.CreateRect(uiLayer, "CrossMark", Vector2.zero, Vector2.one * crossMarkSize);
+        crossBars = new Image[2];
+        for (int i = 0; i < 2; i++)
+        {
+            crossBars[i] = UIShapes.CreateImage(crossMark, "Bar" + i, Vector2.zero, new Vector2(crossMarkSize, crossMarkSize * 0.16f), UIShapes.White, violationColor);
+            crossBars[i].rectTransform.localRotation = Quaternion.Euler(0, 0, i == 0 ? 45f : -45f);
+        }
+        crossMark.gameObject.SetActive(false);
+
+        // 右上：スコア
+        scoreText = UIShapes.CreateText(uiLayer, "Score", "", font, 40, Color.white, TextAnchor.UpperRight,
+                                        new Vector2(700, 525), new Vector2(400, 50), new Vector2(1f, 1f));
+
+        // 左上：残り時間＋状態
+        timerText = UIShapes.CreateText(uiLayer, "Timer", "", font, 40, Color.white, TextAnchor.UpperLeft,
+                                        new Vector2(-940, 528), new Vector2(500, 50), new Vector2(0f, 1f));
+        statusText = UIShapes.CreateText(uiLayer, "Status", "", font, 22, new Color(1, 1, 1, 0.8f), TextAnchor.UpperLeft,
+                                         new Vector2(-940, 476), new Vector2(600, 120), new Vector2(0f, 1f));
+
+        // 上中央：硬さボタン 1 / 2 / 3
+        for (int i = 0; i < 3; i++)
+        {
+            int hardness = i + 1;
+            var btn = CreateButton("Hardness" + hardness, new Vector2(-110 + i * 110, 512), new Vector2(100, 38), BtnOff);
+            Sprite hs = HardnessSprite(i);
+            if (hs != null)
+            {
+                var bimg = (Image)btn.targetGraphic;
+                bimg.sprite = hs;
+                bimg.preserveAspect = true;
+            }
+            else
+            {
+                for (int d = 0; d < hardness; d++)
+                {
+                    float x = (d - (hardness - 1) * 0.5f) * 22f;
+                    UIShapes.CreateImage(btn.transform, "Dot", new Vector2(x, 0), new Vector2(16, 16), UIShapes.Circle, Color.white);
+                }
+            }
+            btn.onClick.AddListener(() => SelectHardness(hardness));
+            hardnessButtons.Add(btn);
+        }
+
+        // 実行ボタン：ラッシュでは使わないので作るだけ作って隠す（SetRouteInteractable が参照するため）
+        executeButton = CreateButton("Execute", new Vector2(0, 466), new Vector2(70, 38), BtnOff);
+        executeButton.gameObject.SetActive(false);
+
+        // 下：造線ゲージ
+        Vector2 barPos = new Vector2(0, -505);
+        Vector2 barSize = new Vector2(1000, 38);
+        if (lineGaugeFrameSprite != null)
+            gaugeBorder = UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), lineGaugeFrameSprite, Color.white);
+        else
+        {
+            gaugeBorder = UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), UIShapes.White, new Color(0.35f, 0.65f, 0.9f));
+            UIShapes.CreateImage(uiLayer, "GaugeBg", barPos, barSize, UIShapes.White, new Color(0.08f, 0.1f, 0.14f));
+        }
+        gaugePreviewFill = CreateFill("GaugePreview", barPos, barSize, new Color(1f, 0.6f, 0.2f), Image.OriginHorizontal.Left);
+        gaugeFill = CreateFill("GaugeFill", barPos, barSize, Color.white, Image.OriginHorizontal.Left);
+        if (lineGaugeFillSprite != null) gaugeFill.sprite = lineGaugeFillSprite;
+        gaugeLostFill = CreateFill("GaugeLost", barPos, barSize, new Color(0.45f, 0.05f, 0.05f), Image.OriginHorizontal.Right);
+        gaugeText = UIShapes.CreateText(uiLayer, "GaugeText", "", font, 26, new Color(0.1f, 0.1f, 0.1f), TextAnchor.MiddleCenter,
+                                        barPos, barSize, new Vector2(0.5f, 0.5f));
+        gaugeText.gameObject.AddComponent<Outline>().effectColor = new Color(1, 1, 1, 0.9f);
+
+        // 描画中の補助
+        startMarker = UIShapes.CreateImage(uiLayer, "DrawStart", Vector2.zero, new Vector2(16, 16), UIShapes.Circle, Color.white);
+        startMarker.gameObject.SetActive(false);
+        hintText = UIShapes.CreateText(uiLayer, "Hint", "", font, 22, InvalidCol, TextAnchor.LowerLeft,
+                                       Vector2.zero, new Vector2(400, 30), new Vector2(0f, 0f));
+        hintText.gameObject.AddComponent<Outline>().effectColor = Color.black;
+
+        SelectHardness(1);
+        SetRouteInteractable(false);
+        UpdateGaugeUI(0f);
+        UpdateScore();
+    }
+
+    Image CreateFill(string name, Vector2 pos, Vector2 size, Color c, Image.OriginHorizontal origin)
+    {
+        var img = UIShapes.CreateImage(uiLayer, name, pos, size, UIShapes.White, c);
+        img.type = Image.Type.Filled;
+        img.fillMethod = Image.FillMethod.Horizontal;
+        img.fillOrigin = (int)origin;
+        return img;
+    }
+
+    Button CreateButton(string name, Vector2 pos, Vector2 size, Color color)
+    {
+        var img = UIShapes.CreateImage(uiLayer, name, pos, size, UIShapes.White, color);
+        img.raycastTarget = true;
+        var btn = img.gameObject.AddComponent<Button>();
+        btn.targetGraphic = img;
+        var cb = btn.colors;
+        cb.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.5f);
+        btn.colors = cb;
+        return btn;
+    }
+
+    // ======================= ラッシュ進行 =======================
+
+    IEnumerator RushLoop()
+    {
+        CurrentPhase = Phase.Route;   // ラッシュでは Route を「プレイ中」（造線を引ける状態）として使う
+        rushElapsed = 0f;
+        levelIndex = -1;
+        spawnCount = 0;
+        timeLeft = rushSeconds;
+        nextSpawn = firstSpawnDelay;
+        SetRouteInteractable(true);
+
+        while (timeLeft > 0f)
+        {
+            if (CurrentPhase == Phase.GameOver) yield break;
+            float dt = Time.deltaTime;
+            timeLeft = Mathf.Max(0f, timeLeft - dt);
+            rushElapsed += dt;
+
+            UpdateRushLevel();
+
+            nextSpawn -= dt;
+            while (nextSpawn <= 0f)
+            {
+                SpawnRush();
+                float j = 1f + Random.Range(-spawnJitter, spawnJitter);
+                nextSpawn += Mathf.Max(0.2f, currentLevel.interval * j);
+            }
+
+            UpdateMoving(dt);
+            yield return null;
+        }
+
+        // 時間切れ：新しいノードは出さず、流れているノードが回収されるまで待つ
+        CurrentPhase = Phase.Execute;
+        SetRouteInteractable(false);
+        if (drawing) CancelDrawing();
+        while (moving.Count > 0)
+        {
+            if (CurrentPhase == Phase.GameOver) yield break;
+            UpdateMoving(Time.deltaTime);
+            yield return null;
+        }
+        if (CurrentPhase == Phase.GameOver) yield break;
+        SaveSpawnLog();
+        yield return new WaitForSeconds(0.8f);
+        StageClear();
+    }
+
+    /// <summary>経過時間から今のレベルを決め、速度倍率を反映</summary>
+    void UpdateRushLevel()
+    {
+        var lv = rushSpawner.Levels;
+        int idx = 0;
+        for (int i = 0; i < lv.Count; i++) if (rushElapsed >= lv[i].startTime) idx = i;
+        if (idx == levelIndex) return;
+
+        levelIndex = idx;
+        currentLevel = lv[idx];
+        speedRate = currentLevel.speedRate;
+        problemIndex = idx;   // 出現ログの「問題」列にはレベルの番号を入れる
+        Debug.Log($"[ラッシュ] LEVEL {currentLevel.level}  速度×{speedRate:0.00}  間隔 {currentLevel.interval:0.0}s");
+    }
+
+    /// <summary>CSV のグループからランダムに選んで 1 回出現（同時出現は 2 個）</summary>
+    void SpawnRush()
+    {
+        var leftLines = new List<int>();
+        var rightLines = new List<int>();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var l = lines[i];
+            if (!l.alive || !l.spawnable) continue;   // 円弧からは出さない
+            if (l.name.EndsWith("Left")) leftLines.Add(i);
+            else if (l.name.EndsWith("Right")) rightLines.Add(i);
+        }
+
+        foreach (var sp in rushSpawner.Next(currentLevel, leftLines, rightLines))
+        {
+            spawnCount++;
+            SpawnMoving(new ProblemNode
+            {
+                line = sp.line,
+                kind = sp.bad ? RushModeNode.Kind.Bad : RushModeNode.Kind.Good,
+                gauge = StartGaugeOf(sp.type),
+                time = rushElapsed,
+                order = spawnCount,
+                type = sp.type,
+                limb = LogicNodeTypes.LimbOf(sp.type)   // 帰属ノード(6?9)の対応部位。それ以外は ""
+            });
+        }
+    }
+
+    // ======================= 造線の描画 =======================
+
+    static bool ClickMode => GameSettings.Operation == GameSettings.OperationType.Click;
+
+    void HandleDrawingInput()
+    {
+        Vector2 p = MouseLocal();
+
+        if (RightDown())
+        {
+            if (drawing) CancelDrawing();
+            else TryDeleteDrawn(p);
+            return;
+        }
+
+        bool begunNow = false;
+        if (!drawing && LeftDown() && !PointerOverUI())
+        {
+            TryBeginDraw(p);
+            begunNow = drawing;
+        }
+
+        if (!drawing) return;
+
+        var e = EvaluateDraw(p);
+        lastEval = e;
+        hasEval = true;
+        ShowPreview(e);
+
+        if (ClickMode)
+        {
+            // クリック：2 回目のクリックで確定。基本線以外（ボタン含む）をクリックしたら解除
+            if (begunNow || !LeftDown()) return;
+            if (e.valid) { CommitDraw(e); CancelDrawing(); }
+            else if (!e.onLine || PointerOverUI()) CancelDrawing();
+            // 基本線の上だが禁止ルールに触れている → そのまま（点滅を見て置き直せる）
+        }
+        else if (LeftUp())
+        {
+            // ドラッグ&ドロップ：離したところで確定（置けなければ解除）
+            if (e.valid) CommitDraw(e);
+            CancelDrawing();
+        }
+    }
+
+    void TryBeginDraw(Vector2 p)
+    {
+        BasicLine best = null;
+        float bestD = snapRadius, bestAlong = 0f;
+        Vector2 bestPt = Vector2.zero;
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            float d = l.Closest(p, out var pt, out var along);
+            if (d <= bestD) { bestD = d; best = l; bestPt = pt; bestAlong = along; }
+        }
+        if (best == null) return;
+
+        // ルール3：画面の端（赤枠）からは始められない
+        if (Mathf.Abs(bestPt.x) > 960f - startEdgeMargin || Mathf.Abs(bestPt.y) > 540f - startEdgeMargin)
+        {
+            edgeFrameTime = edgeFrameSeconds;
+            ShowCross(p);
+            FlashHint(bestPt, "設置禁止範囲です");
+            return;
+        }
+
+        // ルール5：既存の造線の端の開始禁止範囲（触れた範囲を 1 秒点滅）
+        flashForbidden.Clear();
+        foreach (var d in drawnLines)
+            if (Vector2.Distance(bestPt, d.a) < forbiddenRadius || Vector2.Distance(bestPt, d.b) < forbiddenRadius)
+                flashForbidden.Add(d);
+        if (flashForbidden.Count > 0)
+        {
+            flashForbiddenTime = 1f;
+            ShowCross(p);
+            FlashHint(bestPt, "開始禁止範囲です");
+            return;
+        }
+
+        drawing = true;
+        drawStartLine = best;
+        drawStartDist = bestAlong;
+        drawStart = bestPt;
+        startMarker.gameObject.SetActive(true);
+        startMarker.rectTransform.anchoredPosition = bestPt;
+    }
+
+    DrawEval EvaluateDraw(Vector2 mouse) =>
+        endPointMode == EndPointMode.Extend ? EvaluateExtend(mouse) : EvaluateOnCursor(mouse);
+
+    string DropHere => ClickMode ? "別の基本線の上でクリック" : "別の基本線の上で離してください";
+
+    /// <summary>
+    /// 終点 = カーソルの下の基本線（snapRadius 以内）。
+    /// 始点→終点の間で 基本線を跨ぐ（ルール1）/ 中央の円を通る（ルール2）/ 造線を跨ぐ（ルール4）/ ゲージ不足（ルール6）なら置けない
+    /// </summary>
+    DrawEval EvaluateOnCursor(Vector2 mouse)
+    {
+        var e = new DrawEval { end = mouse, valid = false, reason = DropHere };
+        Vector2 s = drawStart;
+
+        // 終点：始点の線以外で一番近い基本線（同じ点に複数の線が集まる所でも別の線を選べるように）
+        BasicLine best = null;
+        float bestD = snapRadius, bestAlong = 0f;
+        Vector2 bestPt = mouse;
+        bool nearStartLine = false;
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            float d = l.Closest(mouse, out var pt, out var along);
+            if (d > snapRadius) continue;
+            if (l == drawStartLine) { nearStartLine = true; continue; }
+            if (d <= bestD) { bestD = d; best = l; bestPt = pt; bestAlong = along; }
+        }
+        if (best == null)
+        {
+            if (nearStartLine) { e.onLine = true; e.reason = "同じ基本線には繋げません"; }
+            return e;
+        }
+
+        e.onLine = true;
+        e.end = bestPt;
+        e.length = Vector2.Distance(s, bestPt);
+        e.cost = e.length / pixelsPerMeter * costPerMeter;
+        if (e.length < minLineLength) { e.reason = "短すぎます"; return e; }
+
+        // 途中で跨いだ線（端の近くの接触は数えない）
+        const float ignoreEnds = 6f;
+        float firstCross = float.MaxValue;
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            for (int i = 1; i < l.pts.Count; i++)
+            {
+                if (!SegSeg(s, bestPt, l.pts[i - 1], l.pts[i], out float t, out _)) continue;
+                float a = t * e.length;
+                if (a < ignoreEnds || a > e.length - ignoreEnds || a >= firstCross) continue;
+                firstCross = a; e.crossedLine = l;
+            }
+        }
+        float firstDrawn = float.MaxValue;
+        foreach (var d in drawnLines)
+        {
+            if (!SegSeg(s, bestPt, d.a, d.b, out float t, out _)) continue;
+            float a = t * e.length;
+            if (a < ignoreEnds || a > e.length - ignoreEnds || a >= firstDrawn) continue;
+            firstDrawn = a; e.crossedDrawn = d;
+        }
+        e.hitCenter = CrossesCenter(s, bestPt);
+        e.hitGauge = e.cost > lineGauge + 0.001f;
+
+        if (e.crossedLine != null) { e.reason = "基本線を跨いで書けません"; return e; }
+        if (e.hitCenter) { e.reason = "中央には書けません"; return e; }
+        if (e.crossedDrawn != null) { e.reason = "造線を跨いで書けません"; return e; }
+        if (e.hitGauge) { e.reason = "造線ゲージが足りません"; return e; }
+
+        e.valid = true;
+        e.endLine = best;
+        e.endDist = bestAlong;
+        e.reason = "";
+        return e;
+    }
+
+    /// <summary>
+    /// ルール2：線分が中央の設置禁止範囲を通るか。
+    /// 禁止範囲 = 円（半径 × centerForbiddenRate）の中。ただし ⑨（上の円弧）がまだ無い間は両腕より上の部分、
+    /// ⑩（下の円弧）がまだ無い間は両足より下の部分は通れる（人体図を跨いで左右を結べる）
+    /// </summary>
+    bool CrossesCenter(Vector2 a, Vector2 b)
+    {
+        if (!forbidCenter) return false;
+        float r = circleRadius * centerForbiddenRate;
+        if (DistPointSeg(circleCenter, a, b) >= r) return false;   // 円にかすりもしない
+
+        bool topOpen = !lines.Exists(l => l.alive && l.name == "TopArc");
+        bool bottomOpen = !lines.Exists(l => l.alive && l.name == "BottomArc");
+        float armY = circleCenter.y + circleRadius * Mathf.Sin(armAngle * Mathf.Deg2Rad);
+        float legY = circleCenter.y + circleRadius * Mathf.Sin(legAngle * Mathf.Deg2Rad);
+
+        float len = Vector2.Distance(a, b);
+        int steps = Mathf.Max(2, Mathf.CeilToInt(len / 4f));
+        for (int i = 1; i < steps; i++)
+        {
+            Vector2 p = Vector2.Lerp(a, b, (float)i / steps);
+            if ((p - circleCenter).sqrMagnitude >= r * r) continue;
+            if (topOpen && p.y > armY) continue;
+            if (bottomOpen && p.y < legY) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>プロト：始点から mouse 方向へ伸ばした直線が最初に触れる線を調べる</summary>
+    DrawEval EvaluateExtend(Vector2 mouse)
+    {
+        var e = new DrawEval { end = mouse, valid = false };
+        Vector2 s = drawStart;
+        Vector2 dir = mouse - s;
+        float len = dir.magnitude;
+        if (len < 1f) { e.end = s; e.reason = ""; return e; }
+
+        Vector2 n = dir / len;
+        float reach = len + snapRadius;
+        Vector2 far = s + n * reach;
+        const float ignoreNearStart = 6f;
+
+        float bestAlong = float.MaxValue;
+        int hitKind = 0;               // 0=なし 1=基本線 2=跨げない
+        BasicLine hitLine = null;
+        float hitLineDist = 0f;
+
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            for (int i = 1; i < l.pts.Count; i++)
+            {
+                if (!SegSeg(s, far, l.pts[i - 1], l.pts[i], out float t, out float u)) continue;
+                float along = t * reach;
+                if (along < ignoreNearStart || along >= bestAlong) continue;
+                bestAlong = along; hitKind = 1; hitLine = l;
+                hitLineDist = l.cum[i - 1] + (l.cum[i] - l.cum[i - 1]) * u;
+            }
+        }
+        DrawnLine hitDrawn = null;
+        foreach (var d in drawnLines)
+        {
+            if (!SegSeg(s, far, d.a, d.b, out float t, out _)) continue;
+            float along = t * reach;
+            if (along < ignoreNearStart || along >= bestAlong) continue;
+            bestAlong = along; hitKind = 2; hitLine = null; hitDrawn = d;
+        }
+
+        if (hitKind == 0) { e.end = mouse; e.reason = "別の基本線まで伸ばしてください"; return e; }
+
+        e.onLine = hitKind == 1;
+        e.end = s + n * bestAlong;
+        e.length = bestAlong;
+        e.cost = bestAlong / pixelsPerMeter * costPerMeter;
+        e.crossedDrawn = hitDrawn;
+        e.hitCenter = hitKind == 1 && CrossesCenter(s, e.end);
+        e.hitGauge = e.cost > lineGauge + 0.001f;
+
+        if (hitKind == 2) { e.reason = "造線を跨いで書けません"; return e; }
+        if (hitLine == drawStartLine) { e.reason = "同じ基本線には繋げません"; return e; }
+        if (bestAlong < minLineLength) { e.reason = "短すぎます"; return e; }
+        if (e.hitCenter) { e.reason = "中央には書けません"; return e; }
+        if (e.hitGauge) { e.reason = "造線ゲージが足りません"; return e; }
+
+        e.valid = true;
+        e.endLine = hitLine;
+        e.endDist = hitLineDist;
+        e.reason = "";
+        return e;
+    }
+
+    void ShowPreview(DrawEval e)
+    {
+        // 確定できる = 白 / 置けない = 灰色（禁止ルールに触れた所は UpdateViolationVisuals で赤く点滅）
+        Color c = e.valid ? Color.white : unplaceableColor;
+        DrawDashed(drawStart, e.end, c);
+        startMarker.color = c;
+
+        hintText.text = e.valid ? $"-{e.cost:0}" : e.reason;
+        hintText.color = e.valid ? new Color(1f, 0.75f, 0.4f) : e.Forbidden ? InvalidCol : unplaceableColor;
+        hintText.rectTransform.anchoredPosition = e.end + new Vector2(14, 10);
+
+        UpdateGaugeUI(e.valid ? e.cost : 0f);
+    }
+
+    void CommitDraw(DrawEval e)
+    {
+        CreateDrawnLine(drawStart, e.end, drawStartLine, e.endLine, drawStartDist, e.endDist,
+                        e.length, e.cost, SelectedHardness, false);
+        lineGauge -= e.cost;
+    }
+
+    /// <summary>造線を作って登録（プレイヤーの造線・造線ノードの造線で共通）</summary>
+    DrawnLine CreateDrawnLine(Vector2 a, Vector2 b, BasicLine lineA, BasicLine lineB, float distA, float distB,
+                              float length, float cost, int hardness, bool auto)
+    {
+        var d = new DrawnLine
+        {
+            a = a,
+            b = b,
+            lineA = lineA,
+            lineB = lineB,
+            distA = distA,
+            distB = distB,
+            length = length,
+            cost = cost,
+            remaining = Mathf.Max(1, hardness),
+            lifeLeft = vanishSeconds,
+            state = DrawnState.Solid,
+            auto = auto
+        };
+
+        d.root = UIShapes.CreateRect(drawnLayer, "DrawnLine", Vector2.zero, Vector2.zero);
+
+        // 開始禁止範囲の表示（プレイ中のみ）
+        d.forbiddenGroup = new GameObject("Forbidden", typeof(RectTransform));
+        d.forbiddenGroup.transform.SetParent(d.root, false);
+        foreach (var pt in new[] { d.a, d.b })
+        {
+            d.forbiddenImages.Add(UIShapes.CreateImage(d.forbiddenGroup.transform, "Area", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Circle, new Color(0.8f, 0.3f, 0.3f, 0.12f)));
+            d.forbiddenImages.Add(UIShapes.CreateImage(d.forbiddenGroup.transform, "Ring", pt, Vector2.one * forbiddenRadius * 2f, UIShapes.Ring, new Color(0.85f, 0.4f, 0.4f, 0.5f)));
+        }
+        foreach (var img in d.forbiddenImages) d.forbiddenColors.Add(img.color);
+
+        d.body = UIShapes.CreateLine(d.root, d.a, d.b, DrawnThickness, auto ? AutoDrawnColor : DrawnColor, "Body");
+
+        Vector2 mid = (d.a + d.b) * 0.5f;
+        UIShapes.CreateImage(d.root, "LabelBg", mid, new Vector2(30, 30), UIShapes.Circle, new Color(0.1f, 0.2f, 0.3f, 0.9f));
+        d.label = UIShapes.CreateText(d.root, "Label", "", font, 20, Color.white, TextAnchor.MiddleCenter,
+                                      mid, new Vector2(30, 30), new Vector2(0.5f, 0.5f));
+
+        drawnLines.Add(d);
+        RefreshDrawnState(d);
+        return d;
+    }
+
+    void CancelDrawing()
+    {
+        drawing = false;
+        hasEval = false;
+        startMarker.gameObject.SetActive(false);
+        hintText.text = "";
+        foreach (var img in dashPool) img.gameObject.SetActive(false);
+        UpdateGaugeUI(0f);
+    }
+
+    void TryDeleteDrawn(Vector2 p)
+    {
+        for (int i = drawnLines.Count - 1; i >= 0; i--)
+        {
+            var d = drawnLines[i];
+            if (d.auto) continue;   // 造線ノードの造線は消せない
+            if (DistPointSeg(p, d.a, d.b) <= 14f) { RemoveDrawn(d); return; }
+        }
+    }
+
+    void DrawDashed(Vector2 a, Vector2 b, Color c)
+    {
+        const float dash = 14f, gap = 9f;
+        float len = Vector2.Distance(a, b);
+        Vector2 n = len > 0.001f ? (b - a) / len : Vector2.zero;
+        int count = Mathf.CeilToInt(len / (dash + gap));
+        while (dashPool.Count < count)
+            dashPool.Add(UIShapes.CreateLine(uiLayer, Vector2.zero, Vector2.right, 4f, Color.white, "Dash"));
+
+        for (int i = 0; i < dashPool.Count; i++)
+        {
+            var img = dashPool[i];
+            if (i >= count) { img.gameObject.SetActive(false); continue; }
+            float s0 = i * (dash + gap);
+            float s1 = Mathf.Min(s0 + dash, len);
+            img.gameObject.SetActive(true);
+            img.color = c;
+            UIShapes.SetLine(img, a + n * s0, a + n * s1, 4f, false);
+        }
+    }
+
+    /// <summary>? を一瞬（0.6 秒）出す</summary>
+    void ShowCross(Vector2 at) { crossTime = 0.6f; crossPos = at; }
+
+    Coroutine hintRoutine;
+    void FlashHint(Vector2 at, string msg)
+    {
+        if (hintRoutine != null) StopCoroutine(hintRoutine);
+        hintRoutine = StartCoroutine(FlashHintCo(at, msg));
+    }
+
+    IEnumerator FlashHintCo(Vector2 at, string msg)
+    {
+        hintText.text = msg;
+        hintText.color = InvalidCol;
+        hintText.rectTransform.anchoredPosition = at + new Vector2(14, 10);
+        yield return new WaitForSeconds(1f);
+        if (!drawing) hintText.text = "";
+    }
+
+    // ======================= 造線の状態・消滅 =======================
+
+    void RefreshDrawnState(DrawnLine d)
+    {
+        if (d.state == DrawnState.VanishPending) return;
+        bool warn = vanishMode == VanishMode.Count
+            ? d.remaining <= warnBeforeCount
+            : d.lifeLeft <= warnBeforeSeconds;
+        d.state = warn ? DrawnState.Warning : DrawnState.Solid;
+    }
+
+    void TickDrawnLifetimes(float dt)
+    {
+        for (int i = drawnLines.Count - 1; i >= 0; i--)
+        {
+            var d = drawnLines[i];
+            if (d.state == DrawnState.VanishPending) continue;
+            d.lifeLeft -= dt;
+            if (d.lifeLeft <= 0f) Vanish(d);
+            else RefreshDrawnState(d);
+        }
+    }
+
+    /// <summary>消滅判定：上にノードが無ければ即削除、あれば α30 で固定し、通過後に削除</summary>
+    void Vanish(DrawnLine d)
+    {
+        if (d.occupants <= 0) RemoveDrawn(d);
+        else d.state = DrawnState.VanishPending;
+    }
+
+    void RemoveDrawn(DrawnLine d)
+    {
+        if (!drawnLines.Remove(d)) return;
+        if (d.root != null) Destroy(d.root.gameObject);
+        lineGauge = Mathf.Min(currentMaxLineGauge, lineGauge + d.cost);   // ゲージ返却
+    }
+
+    float BlinkAlpha()
+    {
+        float w = (Mathf.Cos(Time.time * blinkSpeed * Mathf.PI * 2f) + 1f) * 0.5f;
+        return Mathf.Lerp(vanishAlpha, 1f, w);
+    }
+
+    float AlphaOf(DrawnLine d) =>
+        d.state == DrawnState.Warning ? BlinkAlpha() :
+        d.state == DrawnState.VanishPending ? vanishAlpha : 1f;
+
+    void UpdateDrawnVisuals()
+    {
+        bool showForbidden = CurrentPhase == Phase.Route;
+        foreach (var d in drawnLines)
+        {
+            float a = AlphaOf(d);
+            var c = d.auto ? AutoDrawnColor : DrawnColor; c.a = a;
+            d.body.color = c;
+            d.label.text = vanishMode == VanishMode.Count ? d.remaining.ToString() : Mathf.CeilToInt(d.lifeLeft).ToString();
+            d.forbiddenGroup.SetActive(showForbidden);
+        }
+        foreach (var m in moving)
+            m.node.SetAlpha(m.onDrawn != null ? AlphaOf(m.onDrawn) : 1f);
+
+        if (!drawing) UpdateGaugeUI(0f);
+    }
+
+    // ======================= 禁止ルールの点滅 =======================
+
+    /// <summary>禁止ルールに触れた所を赤く点滅（ルール1 基本線 / 2 中央の円 / 3 画面の端の赤枠 / 4 造線 / 5 開始禁止範囲 / 6 造線ゲージ）＋ ?</summary>
+    void UpdateViolationVisuals()
+    {
+        float k = (Mathf.Sin(Time.unscaledTime * violationBlinkSpeed * Mathf.PI * 2f) + 1f) * 0.5f;
+        bool show = drawing && hasEval && CurrentPhase == Phase.Route;
+
+        // ルール1：跨いだ基本線
+        SetLineHighlight(show ? lastEval.crossedLine : null, k);
+
+        // ルール2：女の子の後ろに赤い丸を点滅（パッパッと点いたり消えたり）
+        if (centerZone != null)
+        {
+            bool blinkOn = Mathf.Repeat(Time.unscaledTime * centerBlinkSpeed, 1f) < 0.5f;
+            var c = centerZoneColor;
+            c.a = show && lastEval.hitCenter && blinkOn ? centerZoneAlpha : 0f;
+            centerZone.color = c;
+        }
+
+        // ルール4：跨いだ造線（色は UpdateDrawnVisuals で毎フレーム戻る）
+        if (show && lastEval.crossedDrawn != null && lastEval.crossedDrawn.body != null)
+        {
+            var b = lastEval.crossedDrawn.body;
+            b.color = Color.Lerp(b.color, violationColor, k);
+        }
+
+        // ルール6：造線ゲージ
+        if (gaugeBorder != null)
+            gaugeBorder.color = show && lastEval.hitGauge ? Color.Lerp(gaugeBorderColor, violationColor, k) : gaugeBorderColor;
+
+        // ルール3：画面の端の赤枠（出た直後が一番濃く、だんだん消える）
+        if (edgeFrameTime > 0f) edgeFrameTime -= Time.unscaledDeltaTime;
+        float ea = edgeFrameTime > 0f ? Mathf.Clamp01(edgeFrameTime / Mathf.Max(0.01f, edgeFrameSeconds)) * Mathf.Lerp(0.6f, 0.9f, k) : 0f;
+        foreach (var img in edgeFrame) { var ec = violationColor; ec.a = ea; img.color = ec; }
+
+        // 置けないときの ?（描画中に禁止ルールに触れている間はカーソルに、ルール3・5 は一瞬だけ）
+        if (crossTime > 0f) crossTime -= Time.unscaledDeltaTime;
+        if (crossMark != null)
+        {
+            bool onDraw = show && lastEval.Forbidden;
+            bool on = onDraw || crossTime > 0f;
+            crossMark.gameObject.SetActive(on);
+            if (on)
+            {
+                crossMark.anchoredPosition = onDraw ? MouseLocal() : crossPos;
+                float pop = crossTime > 0f && !onDraw ? 1f + 0.4f * Mathf.Clamp01((crossTime - 0.45f) / 0.15f) : 1f;
+                crossMark.localScale = Vector3.one * pop;
+                foreach (var bar in crossBars) bar.color = violationColor;
+            }
+        }
+
+        // ルール5：開始禁止範囲（1 秒）
+        if (flashForbiddenTime > 0f) flashForbiddenTime -= Time.unscaledDeltaTime;
+        foreach (var d in drawnLines)
+        {
+            bool flash = flashForbiddenTime > 0f && flashForbidden.Contains(d);
+            for (int i = 0; i < d.forbiddenImages.Count; i++)
+            {
+                var baseCol = d.forbiddenColors[i];
+                var hot = violationColor; hot.a = Mathf.Max(baseCol.a, 0.6f);
+                d.forbiddenImages[i].color = flash ? Color.Lerp(baseCol, hot, k) : baseCol;
+            }
+        }
+    }
+
+    void SetLineHighlight(BasicLine l, float k)
+    {
+        if (hlLine != l)
+        {
+            if (hlLine != null)
+                for (int i = 0; i < hlLine.visuals.Count && i < hlSaved.Count; i++)
+                    if (hlLine.visuals[i] != null) hlLine.visuals[i].color = hlSaved[i];
+            hlLine = l;
+            hlSaved.Clear();
+            if (l != null) foreach (var v in l.visuals) hlSaved.Add(v != null ? v.color : Color.white);
+        }
+        if (l == null) return;
+        for (int i = 0; i < l.visuals.Count && i < hlSaved.Count; i++)
+            if (l.visuals[i] != null) l.visuals[i].color = Color.Lerp(hlSaved[i], violationColor, k);
+    }
+
+    // ======================= ノード移動 =======================
+
+    void SpawnMoving(ProblemNode pn)
+    {
+        var line = lines[pn.line];
+        var record = spawnLog?.Add(problemIndex + 1, pn.order, pn.time, pn.type, pn.kind == RushModeNode.Kind.Bad,
+                                   LineLabel(line.name), IsLimbType(pn.type) ? LimbLabel(pn.limb) : "");
+        if (!line.alive)
+        {
+            spawnLog?.SetResult(record, "出現せず（基本線が消滅）");   // 消滅した基本線からは出現しない
+            return;
+        }
+        var n = CreateNode(pn);
+        n.Rect.anchoredPosition = line.Sample(0f);
+        var m = new MovingNode
+        {
+            node = n,
+            line = line,
+            dist = 0f,
+            type = pn.type,
+            status = StatusOf(pn.type),
+            record = record,
+            targetLimb = IsLimbType(pn.type) ? FindLimb(pn.limb) : null
+        };
+        RegisterSpawnOverlaps(m);   // 出現した瞬間に重なっている分は「交錯」に数えない
+        moving.Add(m);
+
+        // type11 造線：出現時にランダムな位置・角度で造線を追加
+        if (pn.type == TypeAddLine)
+        {
+            bool ok = TryAddRandomLine();
+            if (spawnLogToConsole)
+                Debug.Log(ok ? "[造線ノード] 造線を 1 本追加しました" : "[造線ノード] 条件に合う位置が見つからず、造線は追加されませんでした");
+        }
+    }
+
+    // ======================= type10 交錯 =======================
+
+    bool Overlaps(MovingNode a, MovingNode b)
+    {
+        float r = nodeSize * crossHitRate;
+        return (a.node.Rect.anchoredPosition - b.node.Rect.anchoredPosition).sqrMagnitude <= r * r;
+    }
+
+    /// <summary>出現時点ですでに重なっている組を「重なり中」として登録（出現直後の誤反転を防ぐ）</summary>
+    void RegisterSpawnOverlaps(MovingNode nm)
+    {
+        foreach (var o in moving)
+        {
+            if (!Overlaps(nm, o)) continue;
+            if (nm.type == TypeCross) nm.touching.Add(o);
+            if (o.type == TypeCross) o.touching.Add(nm);
+        }
+    }
+
+    /// <summary>交錯ノードが他のノードと重なり始めたら良性⇔悪性を反転（Lv4 ⇔ Lv-4。離れるまでは再反転しない）</summary>
+    void CheckCrossings()
+    {
+        foreach (var a in moving)
+        {
+            if (a.type != TypeCross) continue;
+            a.touching.RemoveWhere(o => !moving.Contains(o));   // 回収・消滅したノードを外す
+            foreach (var b in moving)
+            {
+                if (b == a) continue;
+                if (Overlaps(a, b))
+                {
+                    if (a.touching.Add(b))
+                    {
+                        a.node.FlipKind();
+                        if (spawnLogToConsole)
+                            Debug.Log($"[交錯] 交錯ノードが反転 → {(a.node.CurrentKind == RushModeNode.Kind.Good ? "良性" : "悪性")}");
+                    }
+                }
+                else a.touching.Remove(b);
+            }
+        }
+    }
+
+    // ======================= type11 造線 =======================
+
+    /// <summary>
+    /// ランダムな基本線上の点から、ランダムな角度で別の基本線まで造線を引く。
+    /// プレイヤーの造線と同じ条件（別の基本線に届く・造線を跨がない・同じ基本線に繋がない・中央を通らない・最短長・開始禁止範囲）を満たすまで抽選。
+    /// </summary>
+    bool TryAddRandomLine()
+    {
+        var cands = lines.FindAll(x => x.alive && x.length > addLineEndMargin * 2f);
+        if (cands.Count == 0) return false;
+
+        float minDeg = Mathf.Min(addLineAngleMin, addLineAngleMax);
+        float maxDeg = Mathf.Max(addLineAngleMin, addLineAngleMax);
+
+        for (int tries = 0; tries < Mathf.Max(1, addLineTries); tries++)
+        {
+            var l = cands[Random.Range(0, cands.Count)];
+            float dist = Random.Range(addLineEndMargin, l.length - addLineEndMargin);
+            Vector2 s = l.Sample(dist);
+            if (NearDrawnEnd(s)) continue;
+
+            float deg = Random.Range(minDeg, maxDeg);
+            if (addLineAngleBase == AngleBase.Line)
+            {
+                Vector2 tan = l.Sample(Mathf.Min(l.length, dist + 2f)) - l.Sample(Mathf.Max(0f, dist - 2f));
+                float baseDeg = Mathf.Atan2(tan.y, tan.x) * Mathf.Rad2Deg;
+                if (Random.value < 0.5f) deg = -deg;   // 基本線の左右どちらに振るか
+                deg += baseDeg;
+            }
+            float rad = deg * Mathf.Deg2Rad;
+            Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
+
+            if (!CastToBasicLine(s, dir, l, out var hitLine, out float hitDist, out float len)) continue;
+            if (len < minLineLength) continue;
+            if (addLineMaxLength > 0f && len > addLineMaxLength) continue;
+            Vector2 e = s + dir * len;
+            if (NearDrawnEnd(e)) continue;
+            if (CrossesCenter(s, e)) continue;   // ルール2：中央の円の中は通らない
+
+            CreateDrawnLine(s, e, l, hitLine, dist, hitDist, len, 0f, addLineHardness, true);
+            return true;
+        }
+        return false;
+    }
+
+    bool NearDrawnEnd(Vector2 p)
+    {
+        foreach (var d in drawnLines)
+            if (Vector2.Distance(p, d.a) < forbiddenRadius || Vector2.Distance(p, d.b) < forbiddenRadius) return true;
+        return false;
+    }
+
+    /// <summary>s から dir 方向へ伸ばして最初に当たる線を調べる。基本線（start 以外）に当たれば true</summary>
+    bool CastToBasicLine(Vector2 s, Vector2 dir, BasicLine start, out BasicLine hitLine, out float hitDist, out float along)
+    {
+        const float reach = 4000f, ignoreNearStart = 6f;
+        Vector2 far = s + dir * reach;
+        float best = float.MaxValue;
+        bool hitDrawn = false;
+        hitLine = null; hitDist = 0f; along = 0f;
+
+        foreach (var l in lines)
+        {
+            if (!l.alive) continue;
+            for (int i = 1; i < l.pts.Count; i++)
+            {
+                if (!SegSeg(s, far, l.pts[i - 1], l.pts[i], out float t, out float u)) continue;
+                float a = t * reach;
+                if (a < ignoreNearStart || a >= best) continue;
+                best = a; hitLine = l; hitDrawn = false;
+                hitDist = l.cum[i - 1] + (l.cum[i] - l.cum[i - 1]) * u;
+            }
+        }
+        foreach (var d in drawnLines)
+        {
+            if (!SegSeg(s, far, d.a, d.b, out float t, out _)) continue;
+            float a = t * reach;
+            if (a < ignoreNearStart || a >= best) continue;
+            best = a; hitLine = null; hitDrawn = true;
+        }
+
+        if (hitDrawn || hitLine == null || hitLine == start) return false;
+        along = best;
+        return true;
+    }
+
+    void UpdateMoving(float dt)
+    {
+        if (vanishMode == VanishMode.Seconds) TickDrawnLifetimes(dt);
+
+        for (int i = moving.Count - 1; i >= 0; i--)
+        {
+            var m = moving[i];
+            m.node.TickGauge(dt, m.status != null ? m.status.value : gaugePerSecond);   // 停止中もゲージは進む（速さは nodestatus の value）
+            m.elapsed += dt;
+
+            // type5 停滞：stopAfterSeconds 秒後から stopSeconds 秒止まる（他のノードは追い越せる・止まっている間は灰色）
+            if (m.type == TypeStop)
+            {
+                bool stop = m.elapsed >= stopAfterSeconds && m.elapsed < stopAfterSeconds + stopSeconds;
+                if (stop != m.stopped)
+                {
+                    m.stopped = stop;
+                    m.node.SetTag(stop ? "停止中" : TagOf(TypeStop, null));
+                    m.node.SetTint(stop ? stopTint : Color.white);
+                }
+                if (stop) continue;
+            }
+
+            // レベルごとの速度倍率（speedRate）× 迅速ノードの倍率
+            float step = nodeSpeed * speedRate * (m.type == TypeFast ? fastSpeedRate : 1f) * dt;
+
+            // 造線の上
+            if (m.onDrawn != null)
+            {
+                var d = m.onDrawn;
+                m.drawnPos += step;
+                Vector2 from = m.fromA ? d.a : d.b, to = m.fromA ? d.b : d.a;
+                if (m.drawnPos >= d.length)
+                {
+                    // 反対側の基本線へ。そこからは回収点（中心）方向へ進む
+                    m.line = m.fromA ? d.lineB : d.lineA;
+                    m.dist = m.fromA ? d.distB : d.distA;
+                    ExitDrawn(m);
+                    m.node.Rect.anchoredPosition = m.line.Sample(m.dist);
+                }
+                else
+                {
+                    m.node.Rect.anchoredPosition = Vector2.Lerp(from, to, m.drawnPos / d.length);
+                }
+                continue;
+            }
+
+            // 基本線の上：通過区間に造線の端点があれば乗り換える
+            float prev = m.dist, next = prev + step;
+            var j = FindJunction(m.line, prev, next, m.type, out bool atA);
+            if (j != null)
+            {
+                EnterDrawn(m, j, atA);
+                m.node.Rect.anchoredPosition = atA ? j.a : j.b;
+                continue;
+            }
+
+            m.dist = next;
+            m.node.Rect.anchoredPosition = m.line.Sample(m.dist);
+            if (m.dist >= m.line.length)
+            {
+                // 円弧の終点 → 中間線に合流
+                if (m.line.next != null)
+                {
+                    var cur = m.line;
+                    if (!cur.next.alive)
+                    {
+                        // 合流先が消えている → 消滅（スコア・ダメージなし）
+                        spawnLog?.SetResult(m.record, "消滅（合流先の線なし）");
+                        Destroy(m.node.gameObject);
+                        moving.RemoveAt(i);
+                        continue;
+                    }
+                    m.line = cur.next;
+                    m.dist = cur.nextDist;
+                    m.node.Rect.anchoredPosition = m.line.Sample(m.dist);
+                    continue;
+                }
+
+                // 欠損部位に届いたら、完成した円弧へ乗り換えて時計回りに進む
+                var limb = m.line.target;
+                if (limb.lost && limb.overflow != null && limb.overflow.alive)
+                {
+                    m.line = limb.overflow;
+                    m.dist = 0f;
+                    m.node.Rect.anchoredPosition = m.line.Sample(0f);
+                    continue;
+                }
+
+                Collect(m);
+                Destroy(m.node.gameObject);
+                moving.RemoveAt(i);
+                if (CurrentPhase == Phase.GameOver) return;
+            }
+        }
+
+        CheckCrossings();   // 交錯：移動後の位置で重なりを判定
+    }
+
+    /// <summary>
+    /// 基本線上の (prev, next] にある造線の端点を探す。
+    /// 同じ位置に複数ある場合は、反対側の端点が中心に近い方を優先（中心の方向）。
+    /// 消滅判定中（ノードが乗っている）の造線には移動できない。
+    /// </summary>
+    DrawnLine FindJunction(BasicLine line, float prev, float next, int nodeType, out bool atA)
+    {
+        DrawnLine best = null;
+        float bestDist = float.MaxValue, bestCenter = float.MaxValue;
+        atA = true;
+        foreach (var d in drawnLines)
+        {
+            if (d.state == DrawnState.VanishPending) continue;
+            if (!d.lineA.alive || !d.lineB.alive) continue;
+            if (!CanPass(d, nodeType)) continue;   // 重圧ノードは硬さが足りない造線を通れない
+            for (int side = 0; side < 2; side++)
+            {
+                bool isA = side == 0;
+                var l = isA ? d.lineA : d.lineB;
+                float jd = isA ? d.distA : d.distB;
+                if (l != line || jd <= prev || jd > next) continue;
+                float center = ((isA ? d.b : d.a) - circleCenter).magnitude;
+                bool better = jd < bestDist - 0.5f || (Mathf.Abs(jd - bestDist) <= 0.5f && center < bestCenter);
+                if (!better) continue;
+                best = d; bestDist = jd; bestCenter = center; atA = isA;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>type4 重圧：硬さ（残り通過回数）が heavyMinHardness 以上の造線だけ通れる</summary>
+    bool CanPass(DrawnLine d, int nodeType) => nodeType != TypeHeavy || d.remaining >= heavyMinHardness;
+
+    void EnterDrawn(MovingNode m, DrawnLine d, bool atA)
+    {
+        m.onDrawn = d;
+        m.fromA = atA;
+        m.drawnPos = 0f;
+        d.occupants++;
+        if (vanishMode == VanishMode.Count)
+        {
+            d.remaining = Mathf.Max(0, d.remaining - (m.type == TypeHeavy ? Mathf.Max(1, heavyHardnessCost) : 1));
+            if (d.remaining <= 0) d.state = DrawnState.VanishPending;   // 通り終わったら消える
+            else RefreshDrawnState(d);
+        }
+    }
+
+    void ExitDrawn(MovingNode m)
+    {
+        var d = m.onDrawn;
+        m.onDrawn = null;
+        m.node.SetAlpha(1f);
+        d.occupants--;
+        if (d.state == DrawnState.VanishPending && d.occupants <= 0) RemoveDrawn(d);
+    }
+
+    void Collect(MovingNode m)
+    {
+        var limb = m.line.target;
+        if (limb.lost)   // TODO: 欠損済み部位に届いた場合の仕様確認
+        {
+            spawnLog?.SetResult(m.record, "欠損部位に到達");
+            return;
+        }
+
+        // スコア・ダメージ・SAN はこのノードの種類のステータス（nodestatus_master）× 回収時のレベル
+        var st = m.status ?? StatusOf(m.type);
+        int lv = m.node.Level;                                  // 1?4（悪性なら Lv-1?-4）
+        bool bad = m.node.CurrentKind == RushModeNode.Kind.Bad;
+        int scoreBefore = Score;
+        float sanBefore = san;
+        float rate = 1f;
+        float sanLoss = st.San(bad, lv);
+        float damage = st.Damage(bad, lv);
+        string note = "";
+
+        // 帰属（type6?9）：良性を対応する部位 → スコア×〇 ／ 違う部位 → SAN が △＋今のレベルの SAN 減少量。悪性は通常どおり
+        if (!bad && IsLimbType(m.type) && m.targetLimb != null)
+        {
+            if (m.targetLimb == limb) { rate = limbMatchScoreRate; note = "（対応部位）"; }
+            else
+            {
+                sanLoss += limbMismatchSan;
+                dangerFlash = Mathf.Max(dangerFlash, damageFlash * 0.5f);
+                note = "（違う部位）";
+            }
+        }
+
+        AddScore(Mathf.RoundToInt(st.Score(bad, lv) * rate));
+        if (sanLoss > 0f) san = Mathf.Max(0f, san - sanLoss);
+        (bad ? badCollected : goodCollected)[lv - 1]++;
+
+        if (m.record != null)
+        {
+            var r = m.record;
+            r.collectLimb = limb.label;
+            r.collectKind = bad ? "悪性" : "良性";
+            r.collectLevel = lv;
+            r.score = Score - scoreBefore;
+            r.damage = damage;
+            r.san = sanBefore - san;
+            spawnLog?.SetResult(r, "回収" + note);
+        }
+        StartCoroutine(Pop(limb.root));
+
+        if (damage > 0f) Damage(limb, damage);   // 最後に（欠損 → ゲームオーバーでもログが残るように）
+    }
+
+    void Damage(Limb limb, float dmg)
+    {
+        limb.hp = Mathf.Max(0f, limb.hp - dmg);
+        limb.hpFill.fillAmount = limb.hp / limb.maxHp;
+        if (hpBarFillSprite == null) limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limb.maxHp);
+        dangerFlash = Mathf.Max(dangerFlash, damageFlash);   // ダメージで一瞬赤くなる
+        if (limb.hp <= 0f) LoseLimb(limb);
+    }
+
+    void LoseLimb(Limb limb)
+    {
+        limb.lost = true;
+        limb.root.gameObject.SetActive(false);
+        PlayLimbBloom(limb);   // 手足を消して彼岸花を咲かせる
+        dangerFlash = Mathf.Min(1f, Mathf.Max(dangerFlash, damageFlash * 2f));   // 欠損は強めに脈打つ
+
+        if (limb.isArm)
+        {
+            currentMaxLineGauge = Mathf.Max(0f, currentMaxLineGauge - armLostGaugePenalty);
+            lineGauge = Mathf.Min(lineGauge, currentMaxLineGauge);
+
+            // 左腕欠損 → 上の円弧が完成。左腕 → 頭上 → 右腕（時計回り）
+            if (limb == leftArm)
+                AddOverflowArc(leftArm, rightArm, 180f - armAngle, armAngle, "TopArc");
+        }
+        else
+        {
+            if (killMiddleOnLegLost)
+                KillLine(limb == leftLeg ? "MiddleLeft" : "MiddleRight");
+
+            // 左足欠損 → ② が消える ／ 右足欠損 → ⑤ が消え、下の円弧（⑩）が完成。右足 → 股下 → 左足（時計回り）
+            if (limb == rightLeg)
+                AddOverflowArc(rightLeg, leftLeg, legAngle, -180f - legAngle, "BottomArc");
+        }
+
+        bool allLost = true;
+        foreach (var l in limbs) if (!l.lost) allLost = false;
+        if (allLost) GameOver();
+    }
+
+    // ======================= 四肢欠損の彼岸花演出 =======================
+
+    void BuildLimbBloom()
+    {
+        if (!useLimbBloom || centerImage == null) return;
+        Sprite baseSprite = baseNoLimbsSprite != null
+            ? baseNoLimbsSprite
+            : HiganbanaLimbs.LoadSprite(limbBloomResources, "base_no_limbs");
+        if (baseSprite == null) return;   // 素材が無ければ従来の人体図のまま
+
+        centerImage.sprite = baseSprite;
+        centerImage.color = Color.white;
+        var placeholder = centerImage.transform.Find("Placeholder");
+        if (placeholder != null) placeholder.gameObject.SetActive(false);
+
+        var parent = (RectTransform)centerImage.transform;
+        Vector2 fitted = HiganbanaLimbs.FittedSize(centerSize, preserveAspect);
+        Limb[] order = { leftArm, rightArm, leftLeg, rightLeg };
+
+        // 手足の切り抜き（下）… 4 枚重ねると元の絵に戻る
+        for (int i = 0; i < order.Length; i++)
+        {
+            var limb = order[i];
+            if (limb == null) continue;
+            string key = HiganbanaLimbs.KeyOf(limb.name);
+            Sprite s = limbSprites != null && i < limbSprites.Length && limbSprites[i] != null
+                ? limbSprites[i]
+                : HiganbanaLimbs.LoadSprite(limbBloomResources, "limb_" + key);
+            limb.limbImage = HiganbanaLimbs.CreateLayer(parent, "Limb_" + key, HiganbanaLimbs.LimbRect(key), fitted, s);
+        }
+
+        // 花・脈・火の粉の入れ物（手足より上）。中身は欠損したときにコードで作る
+        foreach (var limb in order)
+        {
+            if (limb == null) continue;
+            limb.bloomLayer = HiganbanaLimbs.CreateContainer(parent, "Bloom_" + HiganbanaLimbs.KeyOf(limb.name), fitted);
+        }
+
+        // 花 1 輪のシート（24 コマ）… 画像 1 枚をコードで切り分ける
+        if (Application.isPlaying)
+        {
+            bloomFrames = flowerSheet != null
+                ? HiganbanaLimbs.SliceSheet(flowerSheet)
+                : HiganbanaLimbs.LoadSheet(limbBloomResources);
+            if (bloomFrames == null)
+                Debug.LogWarning("[彼岸花] 花の画像がありません。Inspector の Flower Sheet に flower_bloom_sheet.png を入れてください");
+        }
+    }
+
+    Sprite[] bloomFrames;   // 花 1 輪が咲く 24 コマ
+
+    void PlayLimbBloom(Limb limb)
+    {
+        if (limb.bloomLayer == null) return;
+        StartCoroutine(HiganbanaLimbs.Play(limb.bloomLayer, limb.limbImage, HiganbanaLimbs.KeyOf(limb.name),
+                                           bloomDirection, bloomFrames, bloomSettings));
+    }
+
+    void KillLine(string name)
+    {
+        foreach (var l in lines.ToArray())
+        {
+            if (l.name != name) continue;
+            KillLine(l);
+        }
+    }
+
+    void KillLine(BasicLine l)
+    {
+        if (!l.alive) return;
+        l.alive = false;
+        foreach (var v in l.visuals) v.gameObject.SetActive(false);
+        // 繋がっていた造線も消滅
+        for (int i = drawnLines.Count - 1; i >= 0; i--)
+        {
+            var d = drawnLines[i];
+            if (d.lineA == l || d.lineB == l) Vanish(d);
+        }
+        // この線に合流する円弧も消滅
+        foreach (var other in lines.ToArray())
+            if (other.next == l) KillLine(other);
+    }
+
+    void GameOver()
+    {
+        CurrentPhase = Phase.GameOver;
+        SetRouteInteractable(false);
+        Time.timeScale = 0f;
+        FinishSpawnLog("ゲームオーバー");
+        ShowResult(false);
+    }
+
+    /// <summary>ステージクリア：クリアを記録してリザルト画面を出す</summary>
+    void StageClear()
+    {
+        CurrentPhase = Phase.Clear;
+        SetRouteInteractable(false);
+
+        // キャラセレクトシーンに反映（例：Daughter の Stage2 クリア）
+        if (markClearedOnClear)
+        {
+            FogStageController.MarkCleared(clearCharacter, stageNumber);
+            Debug.Log($"[クリア記録] {clearCharacter} の Stage{stageNumber} をクリア済みにしました");
+        }
+
+        FinishSpawnLog("クリア");
+        ShowResult(true);
+    }
+
+    /// <summary>リザルト画面（ResultScreen）を表示。未設定ならシーンから探し、無ければ自動で追加</summary>
+    void ShowResult(bool clear)
+    {
+        if (resultScreen == null) resultScreen = FindObjectOfType<ResultScreen>();
+        if (resultScreen == null) resultScreen = gameObject.AddComponent<ResultScreen>();
+
+        // 取得スコア / スコアランク / 取得ノード（良性・悪性 × Lv1?4）
+        var data = new ResultScreen.ResultData
+        {
+            score = Score,
+            scoreDigits = scoreDigits,
+            rank = ResultScreen.RankOf(Score, rankScoreS, rankScoreA, rankScoreB, rankScoreC),
+            goodCounts = (int[])goodCollected.Clone(),
+            badCounts = (int[])badCollected.Clone(),
+            parts = null,   // 残った部位も出す場合は PartStatus のリストを入れる
+            figure = centerImage != null ? centerImage.rectTransform : null,   // 今の状態の女の子（欠損・彼岸花ごと）をリザルトに出す
+        };
+        if (clear) resultScreen.ShowClear(data);
+        else resultScreen.ShowGameOver(data);
+    }
+
+    // ======================= UI更新 =======================
+
+    void SelectHardness(int h)
+    {
+        SelectedHardness = h;
+        for (int i = 0; i < hardnessButtons.Count; i++)
+        {
+            bool on = i + 1 == h;
+            ((Image)hardnessButtons[i].targetGraphic).color = HardnessSprite(i) != null
+                ? (on ? Color.white : new Color(0.5f, 0.5f, 0.5f))   // 画像あり：選択中以外は暗く
+                : (on ? BtnOn : BtnOff);
+        }
+    }
+
+    Sprite HardnessSprite(int i) =>
+        hardnessSprites != null && i < hardnessSprites.Length ? hardnessSprites[i] : null;
+
+    void SetRouteInteractable(bool on)
+    {
+        foreach (var b in hardnessButtons) b.interactable = on;
+        if (executeButton != null) executeButton.interactable = on;
+    }
+
+    void UpdateGaugeUI(float previewCost)
+    {
+        if (gaugeFill == null) return;
+        gaugePreviewFill.fillAmount = lineGauge / maxLineGauge;
+        gaugeFill.fillAmount = Mathf.Max(0f, lineGauge - previewCost) / maxLineGauge;
+        gaugeLostFill.fillAmount = (maxLineGauge - currentMaxLineGauge) / maxLineGauge;
+        gaugeText.text = previewCost > 0f
+            ? $"造線ゲージ {lineGauge - previewCost:0} / {currentMaxLineGauge:0}  (-{previewCost:0})"
+            : $"造線ゲージ {lineGauge:0} / {currentMaxLineGauge:0}";
+    }
+
+    void AddScore(int v)
+    {
+        int max = scoreDigits >= 9 ? int.MaxValue : (int)Mathf.Pow(10, scoreDigits) - 1;
+        Score = (int)System.Math.Min((long)Score + v, (long)max);
+        UpdateScore();
+    }
+
+    void UpdateScore() => scoreText.text = Score.ToString("D" + scoreDigits);
+
+    void UpdateStatus()
+    {
+        if (statusText == null) return;
+        timerText.text = CurrentPhase == Phase.Route ? $"残り {timeLeft:0.0}" : "残り --.-";
+        timerText.color = CurrentPhase == Phase.Route && timeLeft <= 10f ? InvalidCol : Color.white;
+
+        string phase = CurrentPhase switch
+        {
+            Phase.Preview => "準備中",
+            Phase.Route => "ラッシュ",
+            Phase.Execute => "回収待ち",
+            Phase.Clear => "クリア",
+            _ => "ゲームオーバー",
+        };
+
+        string levelText = currentLevel != null ? $"LEVEL {currentLevel.level}  速度×{speedRate:0.00}  " : "";
+        statusText.text =
+            $"STAGE {stageNumber}  {levelText}{phase}\n" +
+            $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
+            (CurrentPhase == Phase.Route
+                ? (ClickMode ? "基本線をクリック → 別の基本線をクリックで造線" : "基本線からドラッグ → 別の基本線で離して造線") + " / 右クリックで削除"
+                : "");
+    }
+
+    // ======================= 危険演出 =======================
+
+    /// <summary>赤さの目標値（0?1）= SAN の減り具合 ＋ 欠損数 × lostLimbDanger</summary>
+    float DangerTarget()
+    {
+        float sanPart = maxSan > 0f ? 1f - Mathf.Clamp01(san / maxSan) : 0f;
+        int lost = 0;
+        foreach (var l in limbs) if (l.lost) lost++;
+        return Mathf.Clamp01(sanPart + lost * lostLimbDanger);
+    }
+
+    void UpdateDanger(float dt)
+    {
+        if (dangerVignette == null) return;
+        dangerLevel = Mathf.MoveTowards(dangerLevel, DangerTarget(), dangerFadeSpeed * dt);
+        dangerFlash = Mathf.MoveTowards(dangerFlash, 0f, flashDecay * dt);
+        ApplyDanger();
+    }
+
+    /// <summary>
+    /// 赤枠の見た目を反映。
+    /// 赤さが小さいときは赤枠を画面より大きくして（外周が画面外に出る）薄く、
+    /// 赤さが増えるほど画面サイズまで縮めて濃くする → 外から内へ赤が入ってくる
+    /// </summary>
+    void ApplyDanger()
+    {
+        if (dangerVignette == null) return;
+        float v = Mathf.Clamp01(dangerLevel + dangerFlash);
+        dangerVignette.enabled = v > 0.001f;
+        dangerVignette.rectTransform.sizeDelta = new Vector2(1920, 1080) * Mathf.Lerp(dangerStartScale, 1f, v);
+        var c = dangerColor;
+        c.a = dangerColor.a * Mathf.Clamp01(v * 1.5f);
+        dangerVignette.color = c;
+    }
+
+    /// <summary>中心が透明・外周ほど不透明な白のビネット画像（色は Image.color で付ける）</summary>
+    static Sprite GetVignetteSprite()
+    {
+        if (vignetteSprite != null) return vignetteSprite;
+        const int W = 256, H = 144;
+        var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
+        {
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+            hideFlags = HideFlags.DontSave
+        };
+        var px = new Color32[W * H];
+        for (int y = 0; y < H; y++)
+        {
+            for (int x = 0; x < W; x++)
+            {
+                float u = (x + 0.5f) / W * 2f - 1f;
+                float v = (y + 0.5f) / H * 2f - 1f;
+                float r = Mathf.Sqrt(u * u + v * v) / 1.41421f;           // 中心 0 ? 四隅 1
+                float a = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.25f, 0.95f, r));
+                px[y * W + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        }
+        tex.SetPixels32(px);
+        tex.Apply();
+        vignetteSprite = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0.5f, 0.5f));
+        vignetteSprite.hideFlags = HideFlags.DontSave;
+        return vignetteSprite;
+    }
+
+    IEnumerator Pop(RectTransform rt)
+    {
+        float t = 0f;
+        while (t < 0.2f && rt != null)
+        {
+            t += Time.deltaTime;
+            float s = 1f + 0.3f * Mathf.Sin(t / 0.2f * Mathf.PI);
+            rt.localScale = new Vector3(s, s, 1f);
+            yield return null;
+        }
+        if (rt != null) rt.localScale = Vector3.one;
+    }
+
+    // ======================= 幾何 =======================
+
+    static bool SegSeg(Vector2 p, Vector2 p2, Vector2 q, Vector2 q2, out float t, out float u)
+    {
+        Vector2 r = p2 - p, s = q2 - q;
+        float den = r.x * s.y - r.y * s.x;
+        t = u = 0f;
+        if (Mathf.Abs(den) < 1e-6f) return false;
+        Vector2 qp = q - p;
+        t = (qp.x * s.y - qp.y * s.x) / den;
+        u = (qp.x * r.y - qp.y * r.x) / den;
+        return t >= 0f && t <= 1f && u >= 0f && u <= 1f;
+    }
+
+    static float DistPointSeg(Vector2 p, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float t = ab.sqrMagnitude > 0.0001f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+        return Vector2.Distance(p, a + ab * t);
+    }
+
+    // ======================= 入力・ユーティリティ =======================
+
+    Vector2 MouseLocal()
+    {
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(root, MouseScreen(), null, out var lp);
+        return lp;
+    }
+
+#if NEW_INPUT_ONLY
+    static Vector2 MouseScreen() => Mouse.current != null ? Mouse.current.position.ReadValue() : Vector2.zero;
+    static bool LeftDown()  => Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+    static bool LeftUp()    => Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame;
+    static bool RightDown() => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
+    static bool DebugGameOverPressed() => Keyboard.current != null && Keyboard.current.pKey.wasPressedThisFrame;
+    static bool DebugClearPressed() => Keyboard.current != null && Keyboard.current.oKey.wasPressedThisFrame;
+#else
+    static Vector2 MouseScreen() => Input.mousePosition;
+    static bool LeftDown() => Input.GetMouseButtonDown(0);
+    static bool LeftUp() => Input.GetMouseButtonUp(0);
+    static bool RightDown() => Input.GetMouseButtonDown(1);
+    static bool DebugGameOverPressed() => Input.GetKeyDown(KeyCode.P);
+    static bool DebugClearPressed() => Input.GetKeyDown(KeyCode.O);
+#endif
+
+    static bool PointerOverUI() => EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+
+    Font ResolveFont()
+    {
+        if (uiFont != null) return uiFont;
+        Font f = null;
+        try { f = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"); } catch { }
+        if (f == null) { try { f = Resources.GetBuiltinResource<Font>("Arial.ttf"); } catch { } }
+        return f;
+    }
+
+    static void EnsureEventSystem()
+    {
+        if (FindObjectOfType<EventSystem>() != null) return;
+        var go = new GameObject("EventSystem", typeof(EventSystem));
+#if NEW_INPUT_ONLY
+        go.AddComponent<InputSystemUIInputModule>();
+#else
+        go.AddComponent<StandaloneInputModule>();
+#endif
+    }
+}
+
+// ======================= シーンビュー編集（エディタ専用） =======================
+// 別ファイル＋Editorフォルダだとアセンブリ定義(asmdef)次第で参照できないため、同じファイルに置いています。
+#if UNITY_EDITOR
+namespace RushModeEditorInternal
+{
+    using UnityEngine;
+    using UnityEngine.UI;
+    using UnityEditor;
+
+    /// <summary>
+    /// プレビュー画面（LogicModePreview）上の変更を検知して RushModeScreen に記録する。
+    /// 対象：Image の Source Image（m_Sprite）・Color（m_Color）、GameObject の表示ON/OFF（m_IsActive）
+    /// </summary>
+    [InitializeOnLoad]
+    static class RushModeHierarchyRecorder
+    {
+        static RushModeHierarchyRecorder()
+        {
+            Undo.postprocessModifications += OnModifications;
+        }
+
+        static UndoPropertyModification[] OnModifications(UndoPropertyModification[] mods)
+        {
+            if (Application.isPlaying) return mods;   // 再生中の変更は Unity の仕様で残らないので記録しない
+
+            foreach (var m in mods)
+            {
+                var pm = m.currentValue ?? m.previousValue;
+                if (pm == null || pm.target == null) continue;
+
+                string prop = pm.propertyPath;
+                bool sprite = prop == "m_Sprite";
+                bool color = prop.StartsWith("m_Color");
+                bool active = prop == "m_IsActive";
+                if (!sprite && !color && !active) continue;
+                if ((sprite || color) && !(pm.target is Image)) continue;
+
+                Transform t = pm.target is Component c ? c.transform
+                            : pm.target is GameObject g ? g.transform : null;
+                var screen = FindScreen(t);
+                if (screen == null) continue;
+
+                // 値が反映された後に読み取る
+                EditorApplication.delayCall += () =>
+                {
+                    if (screen == null || t == null) return;
+                    Undo.RecordObject(screen, "ヒエラルキーの変更を記録");
+                    screen.RecordHierarchyChange(t, sprite, color, active);
+                    EditorUtility.SetDirty(screen);
+                };
+            }
+            return mods;
+        }
+
+        static RushModeScreen FindScreen(Transform t)
+        {
+            for (var p = t; p != null; p = p.parent)
+            {
+                var s = p.GetComponent<RushModeScreen>();
+                if (s != null) return s;
+            }
+            return null;
+        }
+    }
+
+    [CustomEditor(typeof(RushModeScreen))]
+    public class RushModeScreenInspector : Editor
+    {
+        static readonly Color CircleCol = new Color(0.3f, 0.9f, 1f, 0.9f);
+        static readonly Color CenterCol = new Color(1f, 0.9f, 0.2f);
+        static readonly Color ArmCol = new Color(1f, 0.6f, 0.2f);
+        static readonly Color LegCol = new Color(0.4f, 1f, 0.5f);
+
+        public override void OnInspectorGUI()
+        {
+            DrawDefaultInspector();
+            EditorGUILayout.Space();
+            using (new EditorGUI.DisabledScope(Application.isPlaying))
+            {
+                if (GUILayout.Button("プレビューを再構築"))
+                    ((RushModeScreen)target).RebuildPreview();
+            }
+            EditorGUILayout.HelpBox("シーンビューのハンドルで円の中心・半径・腕／足の位置をドラッグできます。", MessageType.Info);
+
+            EditorGUILayout.Space();
+            var s = (RushModeScreen)target;
+            EditorGUILayout.HelpBox(
+                "ヒエラルキーの LogicModePreview 以下で Image の Source Image / Color、オブジェクトの表示ON/OFFを変えると自動で記録され、作り直しても・再生しても残ります。\n" +
+                $"記録数: {s.hierarchyOverrides.Count}", MessageType.Info);
+            using (new EditorGUI.DisabledScope(Application.isPlaying || s.hierarchyOverrides.Count == 0))
+            {
+                if (GUILayout.Button("ヒエラルキーの変更をすべて元に戻す"))
+                {
+                    Undo.RecordObject(s, "ヒエラルキーの変更をクリア");
+                    s.hierarchyOverrides.Clear();
+                    EditorUtility.SetDirty(s);
+                    s.RebuildPreview();
+                }
+            }
+        }
+
+        void OnSceneGUI()
+        {
+            var s = (RushModeScreen)target;
+            var root = s.CanvasRoot;
+            if (root == null) return;   // プレビュー（または再生中の画面）がまだ無い
+
+            Vector3 W(Vector2 p) => root.TransformPoint(p);
+            Vector2 L(Vector3 w) => root.InverseTransformPoint(w);
+
+            // 円の表示（経路になる部分＝水色 / 線なし（欠損で完成する部分）＝薄い白）
+            float lArm = 180f - s.armAngle, lLeg = 180f - s.legAngle;
+            DrawArc(s, W, lArm, 180f, CircleCol);
+            DrawArc(s, W, 180f, lLeg, CircleCol);
+            DrawArc(s, W, s.armAngle, 0f, CircleCol);
+            DrawArc(s, W, 0f, s.legAngle, CircleCol);
+            DrawArc(s, W, s.armAngle, lArm, new Color(1f, 1f, 1f, 0.25f));
+            DrawArc(s, W, s.legAngle, -180f - s.legAngle, new Color(1f, 1f, 1f, 0.25f));
+
+            bool changed = false;
+
+            // 中心
+            EditorGUI.BeginChangeCheck();
+            Vector3 c = Drag(W(s.circleCenter), CenterCol, Handles.RectangleHandleCap, 0.07f);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(s, "円の中心を移動");
+                s.circleCenter = L(c);
+                changed = true;
+            }
+
+            // 半径（真上）
+            EditorGUI.BeginChangeCheck();
+            Vector3 r = Drag(W(s.CirclePt(90f)), CircleCol, Handles.CircleHandleCap, 0.06f);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(s, "円の半径を変更");
+                s.circleRadius = Mathf.Max(10f, Vector2.Distance(L(r), s.circleCenter));
+                changed = true;
+            }
+
+            // 腕・足（左右対称）
+            changed |= AngleHandle(s, W, L, s.armAngle, false, true, ArmCol, "右腕");
+            changed |= AngleHandle(s, W, L, 180f - s.armAngle, true, true, ArmCol, "左腕");
+            changed |= AngleHandle(s, W, L, s.legAngle, false, false, LegCol, "右足");
+            changed |= AngleHandle(s, W, L, 180f - s.legAngle, true, false, LegCol, "左足");
+
+            if (changed)
+            {
+                EditorUtility.SetDirty(s);
+                if (!Application.isPlaying) s.RebuildPreview();
+            }
+        }
+
+        static bool AngleHandle(RushModeScreen s, System.Func<Vector2, Vector3> W, System.Func<Vector3, Vector2> L,
+                                float deg, bool mirrored, bool isArm, Color col, string label)
+        {
+            Vector3 pos = W(s.CirclePt(deg));
+            Handles.color = col;
+            Handles.Label(pos + Vector3.up * HandleUtility.GetHandleSize(pos) * 0.25f, label);
+
+            EditorGUI.BeginChangeCheck();
+            Vector3 np = Drag(pos, col, Handles.CircleHandleCap, 0.06f);
+            if (!EditorGUI.EndChangeCheck()) return false;
+
+            Vector2 v = L(np) - s.circleCenter;
+            float a = Mathf.Atan2(v.y, v.x) * Mathf.Rad2Deg;
+            if (mirrored) a = 180f - a;
+            a = Mathf.DeltaAngle(0f, a);
+
+            Undo.RecordObject(s, label + "の位置を変更");
+            if (isArm) s.armAngle = Mathf.Clamp(a, 0.1f, 89.9f);
+            else s.legAngle = Mathf.Clamp(a, -89.9f, -0.1f);
+            return true;
+        }
+
+        static void DrawArc(RushModeScreen s, System.Func<Vector2, Vector3> W, float from, float to, Color col)
+        {
+            int n = Mathf.Max(2, Mathf.CeilToInt(Mathf.Abs(to - from) / 3f));
+            var pts = new Vector3[n + 1];
+            for (int i = 0; i <= n; i++) pts[i] = W(s.CirclePt(Mathf.Lerp(from, to, (float)i / n)));
+            Handles.color = col;
+            Handles.DrawAAPolyLine(4f, pts);
+        }
+
+        static Vector3 Drag(Vector3 pos, Color col, Handles.CapFunction cap, float scale)
+        {
+            Handles.color = col;
+            float size = HandleUtility.GetHandleSize(pos) * scale;
+#if UNITY_2022_1_OR_NEWER
+            return Handles.FreeMoveHandle(pos, size, Vector3.zero, cap);
+#else
+            return Handles.FreeMoveHandle(pos, Quaternion.identity, size, Vector3.zero, cap);
+#endif
+        }
+    }
+}
+#endif
