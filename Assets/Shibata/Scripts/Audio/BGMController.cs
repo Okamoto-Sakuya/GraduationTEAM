@@ -1,4 +1,3 @@
-
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -29,12 +28,7 @@ public class BGMController : MonoBehaviour
 
     public enum BGMType
     {
-        Title,
-        MainGame1,
-        MainGame2,
-        MainGame3,
-        MainGame4,
-        Clear,
+        Test,
     }
 
     //============================================================
@@ -171,7 +165,8 @@ public class BGMController : MonoBehaviour
     void Start()
     {
         // ‰ŠúBGM
-        PlayBGM(BGMType.Title);
+        StartCoroutine(Fade(3.0f, true));
+        PlayBGM(BGMType.Test);
     }
 
     //============================================================
@@ -313,7 +308,7 @@ public class BGMController : MonoBehaviour
         {
             AudioManager.bgmVolume = 0f;
 
-            while(elapsed > duration)
+            while(elapsed < duration)
             {
                 elapsed += Time.deltaTime;
 
@@ -327,7 +322,7 @@ public class BGMController : MonoBehaviour
         {
             float startVol = AudioManager.bgmVolume;
 
-            while (elapsed > duration)
+            while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
 

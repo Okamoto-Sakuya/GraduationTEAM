@@ -138,7 +138,7 @@ public class OptionController : MonoBehaviour
 
         if (scene.name == "MainTitle")
         {
-            BGMController.PlayBGM(BGMController.BGMType.Title);
+            //BGMController.PlayBGM(BGMController.BGMType.Title);
         }
     }
 

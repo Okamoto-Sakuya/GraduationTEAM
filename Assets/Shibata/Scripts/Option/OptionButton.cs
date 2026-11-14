@@ -2,6 +2,11 @@ using UnityEngine;
 
 public class OptionButton : MonoBehaviour
 {
+    public void Enter()
+    {
+        AspectRateCoontroller.instance.Enter();
+    }
+
     //============================================================
     // オプション開閉
     //============================================================
@@ -31,19 +36,28 @@ public class OptionButton : MonoBehaviour
         AspectRateCoontroller.instance.SetAspectRate(1280, 720);
     }
 
-    public void Setter_Next()
+    public void ASPSetter_Next()
     {
         AspectRateSetter.instance.ToggleAspRate(true);
     }
 
-    public void Setter_Back()
+    public void ASPSetter_Back()
     {
         AspectRateSetter.instance.ToggleAspRate(false);
     }
 
-    public void Enter()
+    //============================================================
+    // 使用言語変更用
+    //============================================================
+
+    public void LANGSetter_Next()
     {
-        AspectRateCoontroller.instance.Enter();
+        LanguageController.instance.ToggleLanguage(true);
+    }
+
+    public void LANGSetter_Back()
+    {
+        LanguageController.instance.ToggleLanguage(false);
     }
 
     //============================================================
