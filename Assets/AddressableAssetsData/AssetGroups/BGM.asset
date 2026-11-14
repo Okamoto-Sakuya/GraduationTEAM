@@ -14,7 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.Addressables.Editor::UnityEditor.AddressableAssets.Settings.AddressableAssetGroup
   m_GroupName: BGM
   m_GUID: e8e46ad354af2994b880d52e989c14b5
-  m_SerializeEntries: []
+  m_SerializeEntries:
+  - m_GUID: c2ac82914f0b6de46860325615e688b3
+    m_Address: TestBGM
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: fe9d99cd1153ef24592c7e965a6bf65e, type: 2}
   m_SchemaSet:
