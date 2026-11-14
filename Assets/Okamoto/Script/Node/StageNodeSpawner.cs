@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // 4つのシートに従ってノードを出現させる
-//  ステージの表   : 経過時間ごとの 出現グループ・出現頻度・スピード
+//  ステージの表   : レベルごとの 出現ノード数・出現グループ・出現頻度・スピード・造線ゲージ(出し切ったら次のレベル)
 //  ノードグループ : グループの中から抽選して、ノードの種類(良性/悪性/2つ同時/四肢対応/足早)を決める
 //  左右の表       : 出現するサイドを抽選(同じサイドに偏らないようにする)
 //  基本線の表     : サイドの中で、出現する基本線を抽選(同じ基本線に偏らないようにする)
@@ -14,15 +14,18 @@ public class StageNodeSpawner : MonoBehaviour
         Right
     }
 
-    // ノードの種類(ノードグループの表のnodetype)
-    //  1=良性 2=悪性 3=良性2つ 4=悪性2つ
-    private const int LeftArmType = 5;    // 四肢対応: 左腕
-    private const int LeftLegType = 6;    // 四肢対応: 左足
-    private const int RightArmType = 7;   // 四肢対応: 右腕
-    private const int RightLegType = 8;   // 四肢対応: 右足
-    private const int FastType = 9;       // 足早ノード(番号が違う場合はここを変える)
-    private const int CrossType = 10;     // 交差ノード
-    private const int LineAddType = 11;   // 線追加ノード
+    // ノードの種類(ノードグループの表のtype)
+    private const int NormalType = 1;         // 通常
+    private const int SimultaneousType = 2;   // 同時出現(2か所から2個)
+    private const int FastType = 3;           // 迅速(スピードが速い)
+    private const int HeavyType = 4;          // 重圧(造線の消費量が増える: 未実装・通常として出す)
+    private const int StallType = 5;          // 停滞(途中で止まる: 未実装・通常として出す)
+    private const int LeftArmType = 6;        // 帰属: 左腕
+    private const int RightArmType = 7;       // 帰属: 右腕
+    private const int LeftLegType = 8;         // 帰属: 左足
+    private const int RightLegType = 9;        // 帰属: 右足
+    private const int CrossType = 10;         // 交錯
+    private const int LineAddType = 11;       // 造線
 
     [Header("ノード")]
     [SerializeField] private GameObject nodePrefab;
@@ -45,10 +48,10 @@ public class StageNodeSpawner : MonoBehaviour
     [Tooltip("左右の表: id, count, same, opposite")]
     [SerializeField] private TextAsset sideTable;
 
-    [Tooltip("ノードグループの表: id, nodegroup, nodetype")]
+    [Tooltip("ノードグループの表: id, group, base, type")]
     [SerializeField] private TextAsset nodeGroupTable;
 
-    [Tooltip("ステージの表: stage, time, level, nodegroup, rate, speed")]
+    [Tooltip("ステージの表: stage, linegauge, level, nodecount, group, rate, speed")]
     [SerializeField] private TextAsset stageTable;
 
     [Header("調整")]
@@ -58,21 +61,24 @@ public class StageNodeSpawner : MonoBehaviour
     [Tooltip("speed × この値 = ノードの移動速度。10なら1.0")]
     [SerializeField] private float speedScale = 0.1f;
 
+    [Tooltip("最後のレベルのノードを出し切ったあと、そのレベルを繰り返して出し続ける(OFFなら出現が止まる)")]
+    [SerializeField] private bool loopLastLevel = true;
+
     [Tooltip("画面上のノードがこの数以上なら、新しく出さない")]
     [SerializeField] private int maxNodeCount = 30;
 
-    [Tooltip("レベルが切り替わるとき、スピードと頻度を前のレベルの値から新しい値へ変えていく秒数。ステージの表の7列目(transition)があれば、そちらが優先")]
+    [Tooltip("レベルが切り替わるとき、スピードと頻度を前のレベルの値から新しい値へ変えていく秒数。ステージの表の8列目(transition)があれば、そちらが優先")]
     [SerializeField] private float defaultTransitionSeconds = 5f;
 
     [Header("特殊ノード")]
-    [Tooltip("足早ノードの速度倍率。現在のステージのノードスピードに掛ける")]
+    [Tooltip("迅速ノードの速度倍率。現在のステージのノードスピードに掛ける")]
     [SerializeField] private float fastSpeedMultiplier = 2f;
 
-    [Tooltip("動作確認用: 1?11にすると、表に関係なく、すべてそのtypeのノードを出す。0なら表のとおり")]
+    [Tooltip("動作確認用: 1?11にすると、表に関係なく、すべてそのtypeのノードを出す(基本属性は表のまま)。0なら表のとおり")]
     [Range(0, 11)]
     [SerializeField] private int debugForceNodeType = 0;
 
-    [Tooltip("四肢対応ノード・足早ノードが、悪性で出現する確率(0?1)")]
+    [Tooltip("動作確認用にtypeを固定したとき、基本属性が表にない場合に悪性になる確率(0?1)")]
     [Range(0f, 1f)]
     [SerializeField] private float specialMalignantChance = 0.5f;
 
@@ -100,6 +106,12 @@ public class StageNodeSpawner : MonoBehaviour
     private bool running;
     private float elapsed;
     private float timer;
+
+    // ステージの表のうち、今のステージの行(1行 = 1レベル。表の並び順)
+    private readonly List<StageRow> levelRows = new List<StageRow>();
+    private int rowIndex;
+    private int spawnedInRow;
+    private float rowStartElapsed;
 
     // 左右・基本線の連続回数
     private bool hasLastSide;
@@ -143,6 +155,35 @@ public class StageNodeSpawner : MonoBehaviour
         elapsed = 0f;
         timer = 0f;
 
+        levelRows.Clear();
+
+        foreach (StageRow row in stageRows)
+        {
+            if (row.stage == stage)
+            {
+                levelRows.Add(row);
+            }
+        }
+
+        rowIndex = 0;
+        spawnedInRow = 0;
+        rowStartElapsed = 0f;
+
+        if (levelRows.Count == 0)
+        {
+            Debug.LogWarning($"ステージ {stage} のデータがステージの表にありません。", this);
+        }
+        else
+        {
+            // 造線ゲージの最大量(ステージの最初のレベルの値で、満タンから始める)
+            FindLineManager();
+
+            if (lineManager != null)
+            {
+                lineManager.InitLineGauge(levelRows[0].lineGauge);
+            }
+        }
+
         hasLastSide = false;
         sideStreak = 0;
         lastLine = null;
@@ -170,12 +211,12 @@ public class StageNodeSpawner : MonoBehaviour
 
         elapsed += Time.deltaTime;
 
-        StageRow row = GetCurrentRow();
-
-        if (row == null)
+        if (rowIndex >= levelRows.Count)
         {
             return;
         }
+
+        StageRow row = levelRows[rowIndex];
 
         CurrentLevel = row.level;
 
@@ -189,7 +230,13 @@ public class StageNodeSpawner : MonoBehaviour
             return;
         }
 
-        SpawnWave(row, speed);
+        spawnedInRow += SpawnWave(row, speed);
+
+        // このレベルのノードを出し切ったら、次のレベルへ
+        if (spawnedInRow >= row.nodeCount)
+        {
+            AdvanceLevel();
+        }
 
         // rate個 / rateUnitSeconds秒 の間隔で出現させる
         float interval = rate > 0f
@@ -204,63 +251,59 @@ public class StageNodeSpawner : MonoBehaviour
         }
     }
 
-    // 経過時間に合う、ステージの表の行(timeは0.1秒単位。100=10.0秒)
-    private StageRow GetCurrentRow()
+    private void AdvanceLevel()
     {
-        StageRow current = null;
-
-        foreach (StageRow row in stageRows)
+        if (rowIndex + 1 < levelRows.Count)
         {
-            if (row.stage != stage)
-            {
-                continue;
-            }
+            StageRow previous = levelRows[rowIndex];
 
-            if (row.time * 0.1f <= elapsed &&
-                (current == null || row.time >= current.time))
+            rowIndex++;
+            spawnedInRow = 0;
+            rowStartElapsed = elapsed;
+
+            StageRow next = levelRows[rowIndex];
+
+            Debug.Log(
+                $"レベル {next.level} へ(ノード{next.nodeCount}個 グループ{next.group} " +
+                $"頻度{next.rate} スピード{next.speed})", this);
+
+            if (next.lineGauge != previous.lineGauge && lineManager != null)
             {
-                current = row;
+                lineManager.SetMaxLineGauge(next.lineGauge);
             }
         }
-
-        return current;
+        else if (loopLastLevel)
+        {
+            spawnedInRow = 0;
+        }
+        else
+        {
+            running = false;
+        }
     }
 
-    // ひとつ前の行(同じステージで、timeがひとつ小さい行)
-    private StageRow GetPreviousRow(StageRow current)
+    private void FindLineManager()
     {
-        StageRow previous = null;
-
-        foreach (StageRow row in stageRows)
+        if (lineManager == null)
         {
-            if (row.stage != current.stage || row.time >= current.time)
-            {
-                continue;
-            }
-
-            if (previous == null || row.time > previous.time)
-            {
-                previous = row;
-            }
+            lineManager = FindFirstObjectByType<LineManager>();
         }
-
-        return previous;
     }
 
     // 現在のスピードと頻度を返す。
-    // 現在の行に切り替わった時点から、transition秒かけて、前の行の値から現在の行の値へ変える。
+    // 現在のレベルに切り替わった時点から、transition秒かけて、前のレベルの値から現在のレベルの値へ変える。
     // (グループは切り替わった時点ですぐ変わる)
     private void GetBlendedValues(StageRow row, out float rate, out float speed)
     {
         rate = row.rate;
         speed = row.speed;
 
-        StageRow previous = GetPreviousRow(row);
-
-        if (previous == null)
+        if (rowIndex <= 0)
         {
             return;
         }
+
+        StageRow previous = levelRows[rowIndex - 1];
 
         float seconds = row.transition >= 0f ? row.transition : defaultTransitionSeconds;
 
@@ -269,7 +312,7 @@ public class StageNodeSpawner : MonoBehaviour
             return;
         }
 
-        float t = (elapsed - row.time * 0.1f) / seconds;
+        float t = (elapsed - rowStartElapsed) / seconds;
 
         if (t >= 1f)
         {
@@ -284,21 +327,21 @@ public class StageNodeSpawner : MonoBehaviour
 
     // ===== 出現 =====
 
-    private void SpawnWave(StageRow row, float stageSpeed)
+    private int SpawnWave(StageRow row, float stageSpeed)
     {
         NodeRow picked = PickNodeRow(row.group);
 
         // 動作確認用: typeを固定する
         if (debugForceNodeType > 0)
         {
-            picked = new NodeRow { id = 0, group = row.group, type = debugForceNodeType };
+            picked = new NodeRow { id = 0, group = row.group, baseType = picked != null ? picked.baseType : 0, type = debugForceNodeType };
         }
 
         if (picked == null)
         {
             Debug.LogWarning(
                 $"ノードグループ {row.group} のデータがありません。", this);
-            return;
+            return 0;
         }
 
         bool limbNode = picked.type >= LeftArmType && picked.type <= RightLegType;
@@ -306,13 +349,13 @@ public class StageNodeSpawner : MonoBehaviour
         bool crossNode = picked.type == CrossType;
         bool lineAddNode = picked.type == LineAddType;
 
-        // 四肢対応ノード・足早ノード・交差ノードは、確率で悪性になる
-        bool malignant =
-            picked.type == 2 ||
-            picked.type == 4 ||
-            ((limbNode || fastNode || crossNode || lineAddNode) && Random.value < specialMalignantChance);
+        // 基本属性: 表のbase(1=良性 2=悪性)のとおり。
+        // 表にbaseがないとき(動作確認用にtypeを固定した場合など)は、確率で決める
+        bool malignant = picked.baseType != 0
+            ? picked.baseType == 2
+            : Random.value < specialMalignantChance;
 
-        int count = (picked.type == 3 || picked.type == 4) ? 2 : 1;
+        int count = picked.type == SimultaneousType ? 2 : 1;
 
         // 足早ノード: ステージのノードスピードに倍率を掛ける
         float speedMultiplier = fastNode ? fastSpeedMultiplier : 1f;
@@ -327,13 +370,13 @@ public class StageNodeSpawner : MonoBehaviour
 
             if (!hasTarget)
             {
-                return;
+                return 0;
             }
         }
 
         if (CountAliveNodes() + count > maxNodeCount)
         {
-            return;
+            return 0;
         }
 
         Debug.Log(
@@ -341,6 +384,7 @@ public class StageNodeSpawner : MonoBehaviour
             $"speed={stageSpeed * speedMultiplier}", this);
 
         BasicLine firstLine = null;
+        int spawned = 0;
 
         for (int i = 0; i < count; i++)
         {
@@ -368,11 +412,15 @@ public class StageNodeSpawner : MonoBehaviour
                 AddRandomLines();
             }
 
+            spawned++;
+
             if (i == 0)
             {
                 firstLine = line;
             }
         }
+
+        return spawned;
     }
 
     // グループの中から、1行を同じ確率で抽選する

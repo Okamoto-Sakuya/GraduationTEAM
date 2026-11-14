@@ -34,6 +34,15 @@ public class NodeController : MonoBehaviour
     [Tooltip("線の途中で、進む先に分岐点が見つからないとき、後ろに分岐点があれば消さずに戻る回数。0なら従来どおり消す")]
     [SerializeField] private int maxNoJunctionTurns = 3;
 
+    [Tooltip("線の終点で、続きの線が消えていた(基本線の欠損など)とき、消さずに来た線を戻る回数の上限。0なら従来どおり消える")]
+    [SerializeField] private int maxDeadEndTurns = 5;
+
+    [Tooltip("造線を渡って基本線に着いたとき、造線へ戻らず、基本線の終点側(回収点に向かう方向)へ進む")]
+    [SerializeField] private bool continueAlongBasicLine = true;
+
+    [Tooltip("調査用: 線を乗り換えるたびに、どの線からどの線へ、どの向きで進んだかをConsoleに出す")]
+    [SerializeField] private bool logRouting = true;
+
     [Header("ゲージ(良性/悪性の変化)")]
     [SerializeField] private float spawnGauge = 100f;
     [Tooltip("1秒あたりのゲージ増減量")]
@@ -132,7 +141,18 @@ public class NodeController : MonoBehaviour
     // 状態の参照用
     public bool IsMalignant => isMalignant;
     public float Gauge => gauge;
-    public int Level => Mathf.Clamp(Mathf.FloorToInt(gauge / 25f) + 1, 1, 4);
+    public int Level => NodeLevelMath.GetLevel(gauge, isMalignant ? badMin : goodMin);
+
+    // レベルの下限(ゲージの大きさ)。Lv1?4。悪性は lv-〇min の絶対値(ロジックのProtoNodeと共通の計算)
+    private float[] goodMin = (float[])NodeLevelMath.DefaultGoodMin.Clone();
+    private float[] badMin = (float[])NodeLevelMath.DefaultBadMin.Clone();
+
+    // レベルの区切りを設定する(nodestatus_master の lv〇min。悪性は絶対値で渡す)
+    public void SetLevelThresholds(float[] good, float[] bad)
+    {
+        if (good != null && good.Length >= 4) goodMin = (float[])good.Clone();
+        if (bad != null && bad.Length >= 4) badMin = (float[])bad.Clone();
+    }
 
     // 経路
     private PathLine line;
@@ -140,6 +160,9 @@ public class NodeController : MonoBehaviour
     private int dir = 1;
     private bool placed;
     private int noJunctionTurns;
+    private PathLine previousLine;
+    private static LineManager lineManagerCache;
+    private int deadEndTurns;
 
     // 四肢対応ノード: 運ぶ先の四肢
     private bool hasTargetLimb;
@@ -354,15 +377,87 @@ public class NodeController : MonoBehaviour
 
         if (!g.TryChoose(v, line, dir, out var nLine, out var nDir, out var nS))
         {
+            // 続きの基本線が消えていたとき(欠損など)は、ノードを消さずに、来た線を戻る
+            if (deadEndTurns < maxDeadEndTurns && g.NextJunction(line, s, -dir) != null)
+            {
+                deadEndTurns++;
+                dir = -dir;
+
+                Debug.LogWarning(
+                    $"{name}: 終点の先の線が消えているので戻ります({deadEndTurns}回目) " +
+                    $"s={s:F2} dir={dir}", this);
+
+                return true;
+            }
+
             transform.position = line.PointAt(s);
             DeadEnd("進める線がありません");
             return false;
         }
 
+        // 造線を渡って基本線に着いたら、そのまま基本線の終点側(回収点の方向)へ進む
+        if (continueAlongBasicLine && IsBasicLine(nLine) && !IsBasicLine(line))
+        {
+            nDir = 1;
+        }
+
+        if (logRouting)
+        {
+            string kind =
+                nLine == line ? "【同じ線を逆向き】" :
+                nLine == previousLine ? "【直前の線へ戻る】" : "";
+
+            Debug.Log(
+                $"{name}: 乗り換え {DescribeLine(line)} (dir={dir}) → " +
+                $"{DescribeLine(nLine)} (dir={nDir}, s={nS:F2}) {kind}", this);
+        }
+
+        previousLine = line;
         line = nLine;
         dir = nDir;
         s = nS;
         return true;
+    }
+
+    private static string DescribeLine(PathLine pathLine)
+    {
+        if (pathLine == null)
+        {
+            return "null";
+        }
+
+        return $"{(IsBasicLine(pathLine) ? "基本線" : "造線")}[{pathLine.key}]";
+    }
+
+    // 経路の線が、基本線(造線ではない)か
+    private static bool IsBasicLine(PathLine pathLine)
+    {
+        if (pathLine == null)
+        {
+            return false;
+        }
+
+        if (lineManagerCache == null)
+        {
+            lineManagerCache = UnityEngine.Object.FindFirstObjectByType<LineManager>();
+        }
+
+        PathGraph g = PathGraph.Instance;
+
+        if (lineManagerCache == null || lineManagerCache.BasicLines == null || g == null)
+        {
+            return false;
+        }
+
+        foreach (BasicLine basic in lineManagerCache.BasicLines)
+        {
+            if (basic != null && g.GetLine(basic) == pathLine)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // 四肢に到達: スコア加算、悪性ならダメージとSAN値の減少
@@ -871,35 +966,12 @@ public class NodeController : MonoBehaviour
 
     // ===== レベル変化ゲージ =====
 
-    // 次に見た目(レベル、または良性/悪性)が変わるまでの残り割合(1→0)と残りゲージ量
-    //  ・減少中: 現在のレベルの下限(0なら良性/悪性の入れ替わり)まで
-    //  ・増加中: 現在のレベルの上限まで。
-    //           レベル4で増加中のときは、100で折り返してレベル3に下がるまで
+    // 次に見た目(レベル、または良性/悪性)が変わるまでの残り割合(1→0)と残りゲージ量。
+    // 計算はロジックのProtoNodeと共通(NodeLevelMath)
     private float GetChangeFraction(out float remainGauge)
     {
-        int band = Mathf.Clamp(Mathf.FloorToInt(gauge / 25f), 0, 3);
-        float lower = band * 25f;
-
-        float remain;
-        float span = 25f;
-
-        if (!rising)
-        {
-            remain = gauge - lower;
-        }
-        else if (band == 3)
-        {
-            remain = (100f - gauge) + 25f;
-            span = 50f;
-        }
-        else
-        {
-            remain = (lower + 25f) - gauge;
-        }
-
-        remainGauge = remain;
-
-        return Mathf.Clamp01(remain / span);
+        return NodeLevelMath.GetChangeFraction(
+            gauge, rising, isMalignant ? badMin : goodMin, out remainGauge);
     }
 
     private void SetupLevelBar()

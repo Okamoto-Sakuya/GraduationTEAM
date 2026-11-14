@@ -850,7 +850,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &541680121
 Transform:
   m_ObjectHideFlags: 0
@@ -932,7 +932,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 541680120}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a61e384073cb5de4ca4701184dfe1dca, type: 3}
   m_Name: 
@@ -1051,7 +1051,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &660320153
 Transform:
   m_ObjectHideFlags: 0
@@ -1133,7 +1133,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 660320152}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a61e384073cb5de4ca4701184dfe1dca, type: 3}
   m_Name: 
@@ -1320,7 +1320,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &698331845
 RectTransform:
   m_ObjectHideFlags: 0
@@ -2611,7 +2611,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1209564026
 RectTransform:
   m_ObjectHideFlags: 0
@@ -3363,7 +3363,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1364712502
 Transform:
   m_ObjectHideFlags: 0
@@ -3445,7 +3445,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1364712501}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a61e384073cb5de4ca4701184dfe1dca, type: 3}
   m_Name: 
@@ -3466,6 +3466,242 @@ MonoBehaviour:
   onLimbDestroyed:
     m_PersistentCalls:
       m_Calls: []
+--- !u!1 &1390358310
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1390358312}
+  - component: {fileID: 1390358311}
+  m_Layer: 0
+  m_Name: RushModeScreen
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1390358311
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1390358310}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6886d14d24e13c6489a7e6c7308b831b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RushModeScreen
+  centerSprite: {fileID: 0}
+  centerSize: {x: 820, y: 820}
+  centerOffset: {x: 0, y: 20}
+  preserveAspect: 1
+  circleCenter: {x: 0, y: 20}
+  circleRadius: 285
+  armAngle: 36
+  legAngle: -67
+  arcSegments: 96
+  backgroundSprite: {fileID: 21300000, guid: a40467f712639a34bb9738f5e0303cad, type: 3}
+  armSprite: {fileID: 0}
+  legSprite: {fileID: 0}
+  limbIconSize: {x: 78, y: 78}
+  hpBarFrameSprite: {fileID: 0}
+  hpBarFillSprite: {fileID: 0}
+  nodeGoodSprite: {fileID: 0}
+  nodeBadSprite: {fileID: 0}
+  nodeRingSprite: {fileID: 0}
+  nodeSize: 60
+  hardnessSprites:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  executeSprite: {fileID: 0}
+  lineGaugeFrameSprite: {fileID: 0}
+  lineGaugeFillSprite: {fileID: 0}
+  dangerSprite: {fileID: 0}
+  useLimbBloom: 1
+  limbBloomResources: Higanbana
+  bloomDirection: 1
+  baseNoLimbsSprite: {fileID: 21300000, guid: 5806b76e9626acd49b55a8106fe9d9b6, type: 3}
+  limbSprites:
+  - {fileID: 21300000, guid: f68984b5e737c8244856e2e5abe9018c, type: 3}
+  - {fileID: 21300000, guid: aaf1e7d611a0fe443b91268c2419f277, type: 3}
+  - {fileID: 21300000, guid: d48b981e281c70d4698d6d39db1c986e, type: 3}
+  - {fileID: 21300000, guid: 7538ed3f2c47b3140a3e8786a6056a3d, type: 3}
+  flowerSheet: {fileID: 21300000, guid: 8c413392317d68f4ab42bbd9eefad23f, type: 3}
+  bloomSettings:
+    spreadSeconds: 4.5
+    flowerSeconds: 1.8
+    limbFadeSeconds: 1.8
+    leadSeconds: 1.2
+    flowerSize: 1
+    density: 1
+    veins: 1
+    embers: 10
+    randomEachTime: 1
+  hierarchyOverrides:
+  - path: GameScreen/UI/Hardness3
+    overrideSprite: 0
+    sprite: {fileID: 0}
+    overrideColor: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    overrideActive: 1
+    active: 0
+  - path: GameScreen/UI/Hardness2
+    overrideSprite: 0
+    sprite: {fileID: 0}
+    overrideColor: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    overrideActive: 1
+    active: 0
+  - path: GameScreen/UI/Hardness1
+    overrideSprite: 0
+    sprite: {fileID: 0}
+    overrideColor: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    overrideActive: 1
+    active: 0
+  stageNumber: 1
+  markClearedOnClear: 1
+  clearCharacter: Daughter
+  debugKeys: 1
+  writeSpawnLog: 1
+  spawnLogToConsole: 1
+  spawnLogFolder: SpawnLogs
+  resultScreen: {fileID: 0}
+  uiFont: {fileID: 0}
+  rushSeconds: 60
+  firstSpawnDelay: 1
+  spawnJitter: 0.15
+  defaultLevelSeconds: 12
+  commonCsvFolder: MasterData/Main/Common
+  logicCsvFolder: MasterData/Main/Logic
+  rushCsvFolder: MasterData/Main/Rush
+  useDebugCsv: 0
+  useStreamingAssets: 1
+  paramsCsvName: logic_params.csv
+  nodeTableCsvName: node_table.csv
+  paramsCsv: {fileID: 0}
+  nodeTableCsv: {fileID: 0}
+  nodeStatusCsvName: nodestatus_master.csv
+  playerStatusCsvName: playerstatus_master.csv
+  miscParamsCsvName: miscparams_master.csv
+  nodeStatusCsv: {fileID: 0}
+  playerStatusCsv: {fileID: 0}
+  miscParamsCsv: {fileID: 0}
+  rushStageCsvName: rush_stage_master.csv
+  rushNodeGroupCsvName: rush_nodegroup_master.csv
+  rushSideCsvName: rush_sidespawn_master.csv
+  rushLineCsvName: rush_linespawn_master.csv
+  rushStageCsv: {fileID: 0}
+  rushNodeGroupCsv: {fileID: 0}
+  rushSideCsv: {fileID: 0}
+  rushLineCsv: {fileID: 0}
+  hpLeftArm: 25
+  hpLeftLeg: 25
+  hpRightArm: 25
+  hpRightLeg: 25
+  showHpGauge: 0
+  killMiddleOnLegLost: 1
+  maxSan: 40
+  maxLineGauge: 1000
+  armLostGaugePenalty: 500
+  costPerMeter: 100
+  pixelsPerMeter: 100
+  vanishMode: 0
+  vanishSeconds: 7
+  warnBeforeSeconds: 2
+  warnBeforeCount: 1
+  blinkSpeed: 1.5
+  vanishAlpha: 0.3
+  nodeStartGauge: 100
+  gaugePerSecond: 10
+  goodScore: e8030000dc050000d0070000b80b0000
+  badScore: 32000000c80000005e010000f4010000
+  goodDamage:
+  - 0
+  - 0
+  - 0
+  - 0
+  badDamage:
+  - 5
+  - 7
+  - 10
+  - 15
+  goodSan:
+  - 0
+  - 0
+  - 0
+  - 0
+  badSan:
+  - 3
+  - 5
+  - 8
+  - 10
+  scoreDigits: 8
+  fastSpeedRate: 2
+  heavyMinHardness: 2
+  heavyHardnessCost: 2
+  stopAfterSeconds: 2
+  stopSeconds: 2
+  stopTint: {r: 0.55, g: 0.55, b: 0.55, a: 1}
+  limbMatchScoreRate: 1.5
+  limbMismatchSan: 5
+  crossGauge: 100
+  crossHitRate: 0.8
+  addLineAngleBase: 0
+  addLineAngleMin: 30
+  addLineAngleMax: 150
+  addLineHardness: 1
+  addLineMaxLength: 600
+  addLineEndMargin: 40
+  addLineTries: 50
+  rankScoreS: 60000
+  rankScoreA: 45000
+  rankScoreB: 30000
+  rankScoreC: 15000
+  dangerColor: {r: 0.85, g: 0, b: 0, a: 0.85}
+  lostLimbDanger: 0.25
+  damageFlash: 0.35
+  dangerFadeSpeed: 1.5
+  flashDecay: 2
+  dangerStartScale: 2.2
+  previewDanger: 0
+  settingsVersion: 1
+  snapRadius: 22
+  forbiddenRadius: 45
+  minLineLength: 30
+  endPointMode: 0
+  forbidCenter: 1
+  centerForbiddenRate: 0.98
+  unplaceableColor: {r: 0.55, g: 0.55, b: 0.55, a: 1}
+  violationColor: {r: 1, g: 0.2, b: 0.2, a: 1}
+  violationBlinkSpeed: 4
+  centerZoneAlpha: 0.42
+  centerZoneColor: {r: 0.59, g: 0.03, b: 0.06, a: 1}
+  centerBlinkSpeed: 2.5
+  startEdgeMargin: 60
+  edgeFrameSeconds: 0.8
+  crossMarkSize: 40
+  nodeSpeed: 160
+--- !u!4 &1390358312
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1390358310}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.39157, y: 0.12594, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1395350032
 GameObject:
   m_ObjectHideFlags: 0
@@ -4597,12 +4833,13 @@ MonoBehaviour:
   - {fileID: 1541976200}
   stage: 1
   startOnStart: 1
-  baselineTable: {fileID: 4900000, guid: 3f18be5c9edcec8499fa6ca1690f7569, type: 3}
-  sideTable: {fileID: 4900000, guid: ce1e51fc52653e1438a6ac440f054614, type: 3}
-  nodeGroupTable: {fileID: 4900000, guid: 00238479bb811b64c8529cfda5c97345, type: 3}
-  stageTable: {fileID: 4900000, guid: 8a40bbdcb49cb3441aa7203041f96249, type: 3}
+  baselineTable: {fileID: 4900000, guid: 6b6825bef80d2e64fb390c3d5ea6353e, type: 3}
+  sideTable: {fileID: 4900000, guid: 5b9ae034067f530418c2b2256eb14a86, type: 3}
+  nodeGroupTable: {fileID: 4900000, guid: c895bd62a103aa845a65554aa3992d3b, type: 3}
+  stageTable: {fileID: 4900000, guid: c560fc8cbbce1ca42a732bc82f1015e0, type: 3}
   rateUnitSeconds: 60
   speedScale: 0.1
+  loopLastLevel: 1
   maxNodeCount: 30
   defaultTransitionSeconds: 5
   fastSpeedMultiplier: 2
@@ -4644,7 +4881,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1651604238
 Transform:
   m_ObjectHideFlags: 0
@@ -4726,7 +4963,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1651604237}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a61e384073cb5de4ca4701184dfe1dca, type: 3}
   m_Name: 
@@ -5437,3 +5674,4 @@ SceneRoots:
   - {fileID: 647499371}
   - {fileID: 1793045579}
   - {fileID: 764106984}
+  - {fileID: 1390358312}
