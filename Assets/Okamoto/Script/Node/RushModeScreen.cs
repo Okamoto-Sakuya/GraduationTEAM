@@ -45,7 +45,7 @@ using UnityEngine.InputSystem.UI;
 ///   左足欠損 → 左足に届いたノードは円の左側を上って左腕へ
 ///   流れ先も欠損していれば、さらに時計回りに次の部位へ
 ///   左足欠損 → 左中間の直線（②）が消える ／ 右足欠損 → 右中間の直線（⑤）が消える（中央の円の線 ⑦⑧ は残る）
-/// ノードの種類（nodetype。LogicNodeTypes）… 良性・悪性は base 列（1 良性 / 2 悪性）
+/// ノードの種類（nodetype。RushNodeTypes）… 良性・悪性は base 列（1 良性 / 2 悪性）
 ///   1 通常 / 2 同時出現 / 3 迅速 / 4 重圧 / 5 停滞 / 6?9 帰属（左腕・右腕・左足・右足）/ 10 交錯 / 11 造線
 /// ノードのステータス（ゲージ・レベル・スコア・ダメージ・SAN）は nodestatus_master（nodetype ごと。無い種類は id 1 の行）
 /// プレイヤーのステータス（部位ごとの HP・SAN・造線ゲージ）は playerstatus_master
@@ -145,6 +145,7 @@ public class RushModeScreen : MonoBehaviour
     public float rushSeconds = 60f;                      // 全体の制限時間（秒）
     public float firstSpawnDelay = 1f;                   // 最初のノードが出るまでの秒数
     [Range(0f, 0.5f)] public float spawnJitter = 0.15f;  // 出現間隔のばらつき（±割合）
+    public float levelTransitionSeconds = 3f;            // レベルが変わるとき、速度・出現間隔を一気に変えず、この秒数かけて変える（ステージ表に transition 列があればそちらを優先）
     public float defaultLevelSeconds = 12f;              // ステージ表に starttime が無いときの 1 レベルの長さ（秒）
 
     [Header("CSV（Resources → StreamingAssets → TextAsset → どれも無ければInspectorの値）")]
@@ -170,7 +171,7 @@ public class RushModeScreen : MonoBehaviour
     public string rushStageCsvName = "rush_stage_master.csv";           // レベルごとの設定（stage, level, starttime, interval, speed, nodegroup）
     public string rushNodeGroupCsvName = "rush_nodegroup_master.csv";   // グループの中身（nodegroup, nodetype, base, weight）
     public string rushSideCsvName = "rush_sidespawn_master.csv";        // 左右の確率（count, same, opposite）
-    public string rushLineCsvName = "rush_linespawn_master.csv";        // 基本線の確率（count, sameline, differentline）
+    public string rushLineCsvName = "rush_linespwan_master.csv";        // 基本線の確率（count, sameline, differentline）
     public TextAsset rushStageCsv;
     public TextAsset rushNodeGroupCsv;
     public TextAsset rushSideCsv;
@@ -386,20 +387,28 @@ public class RushModeScreen : MonoBehaviour
     struct ProblemNode
     {
         public int line; public RushModeNode.Kind kind; public float gauge; public float time; public int order;
-        public int type;      // nodetype（1?11。LogicNodeTypes）
+        public int type;      // nodetype（1?11。RushNodeTypes）
         public string limb;   // 帰属ノードの対応部位（Limb.name）
     }
 
     // nodetype
-    const int TypeFast = LogicNodeTypes.Fast, TypeHeavy = LogicNodeTypes.Heavy, TypeStop = LogicNodeTypes.Stop,
-              TypeCross = LogicNodeTypes.Cross, TypeAddLine = LogicNodeTypes.AddLine;
-    static bool IsLimbType(int t) => LogicNodeTypes.IsLimb(t);
+    const int TypeFast = RushNodeTypes.Fast, TypeHeavy = RushNodeTypes.Heavy, TypeStop = RushNodeTypes.Stop,
+              TypeCross = RushNodeTypes.Cross, TypeAddLine = RushNodeTypes.AddLine;
+    static bool IsLimbType(int t) => RushNodeTypes.IsLimb(t);
 
-    Dictionary<int, NodeStatus> nodeStatus;   // nodestatus_master（id = nodetype）
-    NodeStatus fallbackStatus;                // nodestatus_master が無いとき（Inspector の値）
+    Dictionary<int, RushNodeStatus> nodeStatus;   // nodestatus_master（id = nodetype）
+    RushNodeStatus fallbackStatus;                // nodestatus_master が無いとき（Inspector の値）
 
     RushSpawner rushSpawner;                  // ラッシュの出現抽選（CSV のグループから）
     RushSpawner.LevelDef currentLevel;        // 今のレベル
+    float transFromSpeed = 1f, transFromInterval = 6f, transStart = -999f, transLength;   // レベル遷移中の補間用
+    float EffectiveInterval => currentLevel == null ? 6f : Mathf.Lerp(transFromInterval, currentLevel.interval, TransitionT());
+    float TransitionT()
+    {
+        if (transLength <= 0f) return 1f;
+        float k = Mathf.Clamp01((rushElapsed - transStart) / transLength);
+        return k * k * (3f - 2f * k);   // なめらかに（smoothstep）
+    }
     int levelIndex = -1;                      // 今のレベルの番号（0 始まり）
     int spawnCount;                           // 出したノードの数（出現ログの「順番」）
     float speedRate = 1f;                     // 今のレベルの移動速度倍率
@@ -417,7 +426,7 @@ public class RushModeScreen : MonoBehaviour
         public bool fromA;
         public float drawnPos;
         public int type;          // nodetype（1?11）
-        public NodeStatus status; // このノードのステータス（nodestatus_master）
+        public RushNodeStatus status; // このノードのステータス（nodestatus_master）
         public Limb targetLimb;   // 帰属ノードの対応部位
         public float elapsed;     // 移動開始からの秒数（停滞用）
         public bool stopped;      // 停滞：停止中
@@ -701,13 +710,13 @@ public class RushModeScreen : MonoBehaviour
     /// <summary>playerstatus_master を反映（1 左腕 / 2 左足 / 3 右腕 / 4 右足 / 5 最大SAN / 6 造線ゲージ最大 / 7 1m消費）</summary>
     void ApplyPlayerStatusCsv(string csv)
     {
-        var tb = LogicCsvLoader.ReadTable(csv, new[] { "id", "value" }, "playerstatus");
+        var tb = RushCsvLoader.ReadTable(csv, new[] { "id", "value" }, "playerstatus");
         if (tb == null) return;
         int cId = tb.Col("id"), cValue = tb.Col("value"), applied = 0;
         foreach (var r in tb.rows)
         {
-            if (!int.TryParse(LogicCsvLoader.Table.Get(r, cId), out int id)) continue;
-            if (!float.TryParse(LogicCsvLoader.Table.Get(r, cValue),
+            if (!int.TryParse(RushCsvLoader.Table.Get(r, cId), out int id)) continue;
+            if (!float.TryParse(RushCsvLoader.Table.Get(r, cValue),
                                 System.Globalization.NumberStyles.Float,
                                 System.Globalization.CultureInfo.InvariantCulture, out float v)) continue;
             switch (id)
@@ -732,12 +741,12 @@ public class RushModeScreen : MonoBehaviour
         int applied = 0;
         foreach (var row in CsvUtil.ParseWithHeader(csv))
         {
-            if (!LogicCsvLoader.TryParseKind(row.Get("kind"), out var kind)) continue;
+            if (!RushCsvLoader.TryParseKind(row.Get("kind"), out var kind)) continue;
             if (!int.TryParse(row.Get("level"), out int lv) || lv < 1 || lv > 4) continue;
             int i = lv - 1;
 
             int.TryParse(row.Get("score", "0"), out int score);
-            if (kind == ProtoNode.Kind.Good)
+            if (kind == RushModeNode.Kind.Good)
             {
                 goodScore[i] = score;
             }
@@ -758,13 +767,13 @@ public class RushModeScreen : MonoBehaviour
 
     void LoadCsv()
     {
-        string Logic(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, logicCsvFolder, useDebugCsv);
-        string Common(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, commonCsvFolder, useDebugCsv);
-        string Rush(TextAsset a, string name) => LogicCsvLoader.LoadText(a, name, useStreamingAssets, rushCsvFolder, useDebugCsv);
+        string Logic(TextAsset a, string name) => RushCsvLoader.LoadText(a, name, useStreamingAssets, logicCsvFolder, useDebugCsv);
+        string Common(TextAsset a, string name) => RushCsvLoader.LoadText(a, name, useStreamingAssets, commonCsvFolder, useDebugCsv);
+        string Rush(TextAsset a, string name) => RushCsvLoader.LoadText(a, name, useStreamingAssets, rushCsvFolder, useDebugCsv);
 
         // 旧形式（あれば）
         string t = Logic(paramsCsv, paramsCsvName);
-        if (t != null) LogicCsvLoader.ApplyParams(this, t, "logic_params");
+        if (t != null) RushCsvLoader.ApplyParams(this, t, "logic_params");
         t = Logic(nodeTableCsv, nodeTableCsvName);
         if (t != null) ApplyNodeTableCsv(t);
 
@@ -773,9 +782,9 @@ public class RushModeScreen : MonoBehaviour
         if (t != null) ApplyPlayerStatusCsv(t);
         else Debug.LogWarning("[CSV] playerstatus_master が見つかりません → Inspector の値（部位HP・SAN・造線ゲージ）を使います");
         t = Common(miscParamsCsv, miscParamsCsvName);
-        if (t != null) LogicCsvLoader.ApplyParams(this, t, "miscparams");
+        if (t != null) RushCsvLoader.ApplyParams(this, t, "miscparams");
         t = Common(nodeStatusCsv, nodeStatusCsvName);
-        nodeStatus = t != null ? LogicCsvLoader.LoadNodeStatus(t) : new Dictionary<int, NodeStatus>();
+        nodeStatus = t != null ? RushCsvLoader.LoadNodeStatus(t) : new Dictionary<int, RushNodeStatus>();
         if (nodeStatus.Count == 0) Debug.LogWarning("[CSV] nodestatus_master が読めません → Inspector の値（スコア・ダメージ・SAN）を使います");
         fallbackStatus = null;
 
@@ -785,22 +794,23 @@ public class RushModeScreen : MonoBehaviour
             Rush(rushNodeGroupCsv, rushNodeGroupCsvName),
             Rush(rushSideCsv, rushSideCsvName),
             Rush(rushLineCsv, rushLineCsvName),
-            stageNumber, defaultLevelSeconds);
+            stageNumber, defaultLevelSeconds,
+            Common(nodeStatusCsv, nodeStatusCsvName));   // base 列が無いノードグループは nodestatus の hp の符号で良性/悪性を決める
         problemCount = rushSpawner.Levels.Count;
         Debug.Log($"[出現] ラッシュ（ステージ{stageNumber}・{problemCount}レベル）");
     }
 
     /// <summary>nodetype のステータス。nodestatus_master に無い種類は id 1（通常）の行、それも無ければ Inspector の値</summary>
-    NodeStatus StatusOf(int type)
+    RushNodeStatus StatusOf(int type)
     {
         if (nodeStatus != null)
         {
             if (nodeStatus.TryGetValue(type, out var st)) return st;
-            if (nodeStatus.TryGetValue(LogicNodeTypes.Normal, out st)) return st;
+            if (nodeStatus.TryGetValue(RushNodeTypes.Normal, out st)) return st;
         }
         if (fallbackStatus == null)
         {
-            fallbackStatus = new NodeStatus { id = 0, hp = Mathf.Abs(nodeStartGauge), value = Mathf.Abs(gaugePerSecond) };
+            fallbackStatus = new RushNodeStatus { id = 0, hp = Mathf.Abs(nodeStartGauge), value = Mathf.Abs(gaugePerSecond) };
             for (int i = 0; i < 4; i++)
             {
                 fallbackStatus.goodScore[i] = At(goodScore, i);
@@ -1030,7 +1040,7 @@ public class RushModeScreen : MonoBehaviour
     /// <summary>特殊ノードの札の文字</summary>
     string TagOf(int type, string limb)
     {
-        if (IsLimbType(type)) return LimbLabel(string.IsNullOrEmpty(limb) ? LogicNodeTypes.LimbOf(type) : limb);
+        if (IsLimbType(type)) return LimbLabel(string.IsNullOrEmpty(limb) ? RushNodeTypes.LimbOf(type) : limb);
         return type switch
         {
             TypeFast => "迅速",
@@ -1185,8 +1195,8 @@ public class RushModeScreen : MonoBehaviour
         statusText = UIShapes.CreateText(uiLayer, "Status", "", font, 22, new Color(1, 1, 1, 0.8f), TextAnchor.UpperLeft,
                                          new Vector2(-940, 476), new Vector2(600, 120), new Vector2(0f, 1f));
 
-        // 上中央：硬さボタン 1 / 2 / 3
-        for (int i = 0; i < 3; i++)
+        // 上中央：硬さボタン 1 / 2 / 3（造線が「通過回数」で消えるときだけ。ラッシュ＝秒数で消える場合は不要）
+        for (int i = 0; i < (vanishMode == VanishMode.Count ? 3 : 0); i++)
         {
             int hardness = i + 1;
             var btn = CreateButton("Hardness" + hardness, new Vector2(-110 + i * 110, 512), new Vector2(100, 38), BtnOff);
@@ -1272,6 +1282,8 @@ public class RushModeScreen : MonoBehaviour
         CurrentPhase = Phase.Route;   // ラッシュでは Route を「プレイ中」（造線を引ける状態）として使う
         rushElapsed = 0f;
         levelIndex = -1;
+        currentLevel = null;
+        transStart = -999f; transLength = 0f;
         spawnCount = 0;
         timeLeft = rushSeconds;
         nextSpawn = firstSpawnDelay;
@@ -1291,7 +1303,7 @@ public class RushModeScreen : MonoBehaviour
             {
                 SpawnRush();
                 float j = 1f + Random.Range(-spawnJitter, spawnJitter);
-                nextSpawn += Mathf.Max(0.2f, currentLevel.interval * j);
+                nextSpawn += Mathf.Max(0.2f, EffectiveInterval * j);
             }
 
             UpdateMoving(dt);
@@ -1320,13 +1332,21 @@ public class RushModeScreen : MonoBehaviour
         var lv = rushSpawner.Levels;
         int idx = 0;
         for (int i = 0; i < lv.Count; i++) if (rushElapsed >= lv[i].startTime) idx = i;
-        if (idx == levelIndex) return;
-
-        levelIndex = idx;
-        currentLevel = lv[idx];
-        speedRate = currentLevel.speedRate;
-        problemIndex = idx;   // 出現ログの「問題」列にはレベルの番号を入れる
-        Debug.Log($"[ラッシュ] LEVEL {currentLevel.level}  速度×{speedRate:0.00}  間隔 {currentLevel.interval:0.0}s");
+        if (idx != levelIndex)
+        {
+            bool first = currentLevel == null;
+            // 遷移の出発点は「今の（途中かもしれない）値」
+            transFromSpeed = first ? lv[idx].speedRate : speedRate;
+            transFromInterval = first ? lv[idx].interval : EffectiveInterval;
+            levelIndex = idx;
+            currentLevel = lv[idx];
+            transStart = rushElapsed;
+            transLength = first ? 0f : (currentLevel.transition >= 0f ? currentLevel.transition : levelTransitionSeconds);
+            problemIndex = idx;   // 出現ログの「問題」列にはレベルの番号を入れる
+            Debug.Log($"[ラッシュ] LEVEL {currentLevel.level}  速度×{currentLevel.speedRate:0.00}  間隔 {currentLevel.interval:0.0}s  （{transLength:0.#}秒かけて遷移）");
+        }
+        // 速度は遷移中ずっとなめらかに変える（既に流れているノードも同じ倍率で動く）
+        speedRate = Mathf.Lerp(transFromSpeed, currentLevel.speedRate, TransitionT());
     }
 
     /// <summary>CSV のグループからランダムに選んで 1 回出現（同時出現は 2 個）</summary>
@@ -1353,7 +1373,7 @@ public class RushModeScreen : MonoBehaviour
                 time = rushElapsed,
                 order = spawnCount,
                 type = sp.type,
-                limb = LogicNodeTypes.LimbOf(sp.type)   // 帰属ノード(6?9)の対応部位。それ以外は ""
+                limb = RushNodeTypes.LimbOf(sp.type)   // 帰属ノード(6?9)の対応部位。それ以外は ""
             });
         }
     }
@@ -2488,7 +2508,7 @@ public class RushModeScreen : MonoBehaviour
         string levelText = currentLevel != null ? $"LEVEL {currentLevel.level}  速度×{speedRate:0.00}  " : "";
         statusText.text =
             $"STAGE {stageNumber}  {levelText}{phase}\n" +
-            $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
+            $"SAN {san:0}/{maxSan:0}" + (vanishMode == VanishMode.Count ? $"   硬さ {SelectedHardness}" : "") + "\n" +
             (CurrentPhase == Phase.Route
                 ? (ClickMode ? "基本線をクリック → 別の基本線をクリックで造線" : "基本線からドラッグ → 別の基本線で離して造線") + " / 右クリックで削除"
                 : "");
