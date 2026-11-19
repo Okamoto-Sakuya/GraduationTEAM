@@ -1,203 +1,298 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using UnityEngine;
 
 /// <summary>
-/// ラッシュ用の出現抽選。
-///   ステージ表   : stage, (level), (starttime), (interval), (speed), (nodegroup)  … レベルごとの設定
-///   グループ表   : nodegroup, nodetype, (base), (weight)                          … グループの中身
-///   左右表       : count, same, opposite                                          … 同じ側が続いた回数ごとの確率
-///   基本線表     : count, sameline, differentline                                 … 同じ線が続いた回数ごとの確率
-/// 表が無い・読めないときは、内蔵の初期値で動きます。
+/// ラッシュの出現抽選。CSV（rush_stage / rush_nodegroup / rush_sidespawn / rush_linespwan）から作る。
+///
+///   rush_stage_master      : id(=stage), time, level, nodegroup, rate, speed
+///                            time = 開始時刻（10 = 1.0 秒）/ rate = 1 分あたりの出現回数 / speed = 10 で等速（15 で 1.5 倍）
+///                            （新形式 id, linegauge, level, nodecount, group, rate, speed も可。
+///                              time が無いときは「前のレベルの出現ノード数 × 間隔」で次のレベルの開始時刻を計算）
+///   rush_nodegroup_master  : id, nodegroup(group), nodetype(type) [, base] [, weight]
+///                            base(1 良性 / 2 悪性) 列があればそれ、無ければ nodestatus の hp の符号（＋良性 / －悪性）
+///                            1 行 = 抽選の 1 枠（同じ行が多いほど出やすい）。weight 列があればその重み
+///   rush_sidespawn_master  : id, count, same, opposite   … 直前と同じ側か反対側かの確率（count = 連続回数、"4!" は 4 回以上）
+///   rush_linespwan_master  : id, count, sameline, differentline … 側が決まった後、直前と同じ基本線か別の基本線か
 /// </summary>
 public class RushSpawner
 {
+    public const float RateUnitSeconds = 60f;   // rate = 1 分あたりの出現回数
+    public const float SpeedUnit = 10f;         // speed 10 = 等速
+
     public class LevelDef
     {
-        public int level = 1;
-        public float startTime = 0f;      // このレベルが始まる経過秒
-        public float interval = 3f;       // 出現間隔（秒）
-        public float speedRate = 1f;      // 移動速度の倍率
-        public List<int> groups = new List<int>();   // 抽選するグループ（空なら全グループ）
+        public int level;
+        public float startTime;    // このレベルが始まる経過秒数
+        public float interval;     // 出現間隔（秒）
+        public float speedRate;    // 移動速度の倍率
+        public int group;          // 使うノードグループ
+        public int nodeCount;      // 新形式のみ：このレベルで出すノード数（0 = 不明）
+        public float transition = -1f;   // このレベルに入るとき、前のレベルから速度・間隔を変えていく秒数（-1 = 列なし → Inspector の値）
     }
 
-    public struct Spawn { public int line; public int type; public bool bad; }
+    public class Spawn
+    {
+        public int line;      // 出現する基本線（lines の番号）
+        public bool bad;      // true = 悪性
+        public int type;      // nodetype（1 通常 / 2 同時出現 / 3 迅速 …）
+    }
 
-    class NodeDef { public int group, type = 1; public int bad = -1; public float weight = 1f; }   // bad: -1 = 指定なし / 0 良性 / 1 悪性
-    class Prob { public int count; public float a, b; }
+    class Entry { public bool bad; public int type; public float weight = 1f; }
+    class StreakRow { public int count; public bool orMore; public float same; public float other; }
 
-    public readonly List<LevelDef> Levels = new List<LevelDef>();
-    readonly List<NodeDef> nodes = new List<NodeDef>();
-    readonly List<Prob> sideProbs = new List<Prob>();
-    readonly List<Prob> lineProbs = new List<Prob>();
+    public List<LevelDef> Levels { get; private set; } = new List<LevelDef>();
 
-    int lastSide = -1, sideStreak;   // 0 左 / 1 右
-    int lastLine = -1, lineStreak;
+    readonly Dictionary<int, List<Entry>> groups = new Dictionary<int, List<Entry>>();
+    readonly List<StreakRow> sideTable = new List<StreakRow>();
+    readonly List<StreakRow> lineTable = new List<StreakRow>();
+
+    // 直前の出現
+    int lastSide = -1;          // 0 = 左 / 1 = 右
+    int sideStreak;             // 同じ側が続いている回数
+    int lastLine = -1;
+    int lineStreak;             // 同じ基本線が続いている回数
 
     // ======================= 読み込み =======================
 
-    public static RushSpawner Load(string stageCsv, string nodeCsv, string sideCsv, string lineCsv,
-                                   int stage, float defaultLevelSeconds)
+    /// <param name="nodeStatusCsv">nodestatus_master（base 列が無いときの良性/悪性判定に使う。null 可）</param>
+    public static RushSpawner Load(string stageCsv, string nodeGroupCsv, string sideCsv, string lineCsv,
+                                   int stageNumber, float defaultLevelSeconds, string nodeStatusCsv = null)
     {
-        var s = new RushSpawner();
-        s.LoadNodes(nodeCsv);
-        s.LoadProbs(sideCsv, s.sideProbs, new[] { "same" }, new[] { "opposite" }, "rush_side");
-        s.LoadProbs(lineCsv, s.lineProbs, new[] { "sameline", "same" }, new[] { "differentline", "different" }, "rush_line");
-        s.LoadLevels(stageCsv, stage, defaultLevelSeconds);
-        Debug.Log($"[ラッシュ出現] レベル {s.Levels.Count} / ノード定義 {s.nodes.Count} / 左右表 {s.sideProbs.Count} / 基本線表 {s.lineProbs.Count}");
-        return s;
+        var r = new RushSpawner();
+        r.LoadStatusSign(nodeStatusCsv);
+        r.LoadGroups(nodeGroupCsv);
+        r.LoadStreak(sideCsv, new[] { "same", "opposite" }, r.sideTable, "rush_sidespawn");
+        r.LoadStreak(lineCsv, new[] { "sameline", "differentline" }, r.lineTable, "rush_linespwan");
+        r.LoadStages(stageCsv, stageNumber, defaultLevelSeconds);
+        return r;
     }
 
-    static float F(string v, float fallback)
-    {
-        v = (v ?? "").Trim().TrimEnd('%');
-        return float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) ? f : fallback;
-    }
+    readonly Dictionary<int, bool> badByType = new Dictionary<int, bool>();
 
-    void LoadNodes(string csv)
+    void LoadStatusSign(string csv)
     {
-        var t = LogicCsvLoader.ReadTable(csv, new[] { "nodegroup", "nodetype" }, "rush_nodegroup");
+        var t = RushCsvLoader.ReadTable(csv, new[] { "id", "hp" }, "nodestatus(sign)");
         if (t == null) return;
-        int cG = t.Col("nodegroup"), cT = t.Col("nodetype"), cB = t.Col("base"), cW = t.Col("weight", "rate", "probability");
-        foreach (var r in t.rows)
+        int cId = t.Col("id"), cHp = t.Col("hp");
+        foreach (var row in t.rows)
         {
-            if (!int.TryParse(LogicCsvLoader.Table.Get(r, cG), out int g)) continue;
-            if (!int.TryParse(LogicCsvLoader.Table.Get(r, cT), out int type) || !LogicNodeTypes.IsValid(type)) continue;
-            var d = new NodeDef { group = g, type = type, weight = Mathf.Max(0f, F(LogicCsvLoader.Table.Get(r, cW), 1f)) };
-            if (cB >= 0 && LogicNodeTypes.TryParseBase(LogicCsvLoader.Table.Get(r, cB), out bool bad)) d.bad = bad ? 1 : 0;
-            nodes.Add(d);
+            if (!int.TryParse(Cell(row, cId), out int id)) continue;
+            if (!TryFloat(Cell(row, cHp), out float hp)) continue;
+            badByType[id] = hp < 0f;
         }
     }
 
-    void LoadProbs(string csv, List<Prob> list, string[] aNames, string[] bNames, string label)
+    void LoadGroups(string csv)
     {
-        var t = LogicCsvLoader.ReadTable(csv, new[] { "count" }, label);
-        if (t == null) return;
-        int cC = t.Col("count"), cA = t.Col(aNames), cB = t.Col(bNames);
-        foreach (var r in t.rows)
-        {
-            if (!int.TryParse(LogicCsvLoader.Table.Get(r, cC), out int c)) continue;
-            list.Add(new Prob { count = c, a = F(LogicCsvLoader.Table.Get(r, cA), 50f), b = F(LogicCsvLoader.Table.Get(r, cB), 50f) });
-        }
-        list.Sort((x, y) => x.count.CompareTo(y.count));
-    }
-
-    void LoadLevels(string csv, int stage, float defaultLevelSeconds)
-    {
-        var t = LogicCsvLoader.ReadTable(csv, new[] { "stage" }, "rush_stage");
+        var t = RushCsvLoader.ReadTable(csv, new[] { "id" }, "rush_nodegroup");
+        if (t != null && t.Col("nodetype", "type") < 0) { Debug.LogWarning("[CSV:rush_nodegroup] nodetype（type）列がありません"); t = null; }
         if (t != null)
         {
-            int cS = t.Col("stage"), cL = t.Col("level", "lv"), cT = t.Col("starttime", "start", "time"),
-                cI = t.Col("interval", "spawninterval"), cV = t.Col("speed", "speedrate", "nodespeed"),
-                cG = t.Col("nodegroup", "group", "nodegroups");
-            foreach (var r in t.rows)
+            int cGroup = t.Col("nodegroup", "group"), cType = t.Col("nodetype", "type");
+            int cBase = t.Col("base"), cWeight = t.Col("weight");
+            foreach (var row in t.rows)
             {
-                if (!int.TryParse(LogicCsvLoader.Table.Get(r, cS), out int st) || st != stage) continue;
-                var d = new LevelDef();
-                d.level = int.TryParse(LogicCsvLoader.Table.Get(r, cL), out int lv) ? lv : Levels.Count + 1;
-                d.startTime = F(LogicCsvLoader.Table.Get(r, cT), Levels.Count * defaultLevelSeconds);
-                d.interval = Mathf.Max(0.2f, F(LogicCsvLoader.Table.Get(r, cI), 3f));
-                d.speedRate = Mathf.Max(0.1f, F(LogicCsvLoader.Table.Get(r, cV), 1f));
-                foreach (var part in LogicCsvLoader.Table.Get(r, cG).Split('|', ';', ',', '/', ' '))
-                    if (int.TryParse(part.Trim(), out int g)) d.groups.Add(g);
-                Levels.Add(d);
+                if (!int.TryParse(Cell(row, cGroup), out int g)) continue;
+                if (!int.TryParse(Cell(row, cType), out int type)) continue;
+
+                bool bad;
+                if (cBase >= 0 && RushNodeTypes.TryParseBase(Cell(row, cBase), out bool b)) bad = b;
+                else if (badByType.TryGetValue(type, out bool sb)) bad = sb;
+                else bad = false;
+
+                float w = 1f;
+                if (cWeight >= 0 && TryFloat(Cell(row, cWeight), out float ww) && ww > 0f) w = ww;
+
+                if (!groups.TryGetValue(g, out var list)) groups[g] = list = new List<Entry>();
+                list.Add(new Entry { bad = bad, type = type, weight = w });
             }
         }
+        if (groups.Count == 0)
+        {
+            Debug.LogWarning("[CSV:rush_nodegroup] 読めません → 通常ノード（良性・悪性 半々）で出します");
+            groups[1] = new List<Entry>
+            {
+                new Entry { bad = false, type = RushNodeTypes.Normal },
+                new Entry { bad = true, type = RushNodeTypes.Normal },
+            };
+        }
+    }
+
+    void LoadStreak(string csv, string[] cols, List<StreakRow> into, string label)
+    {
+        var t = RushCsvLoader.ReadTable(csv, new[] { "count", cols[0], cols[1] }, label);
+        if (t == null) return;
+        int cCount = t.Col("count"), cSame = t.Col(cols[0]), cOther = t.Col(cols[1]);
+        foreach (var row in t.rows)
+        {
+            string c = Cell(row, cCount);
+            bool more = c.EndsWith("!") || c.EndsWith("！") || c.EndsWith("+") || c.EndsWith("以上");
+            c = c.TrimEnd('!', '！', '+', '以', '上');
+            if (!int.TryParse(c, out int n)) continue;
+            if (!TryFloat(Cell(row, cSame), out float s) || !TryFloat(Cell(row, cOther), out float o)) continue;
+            into.Add(new StreakRow { count = n, orMore = more, same = Mathf.Max(0f, s), other = Mathf.Max(0f, o) });
+        }
+    }
+
+    void LoadStages(string csv, int stageNumber, float defaultSeconds)
+    {
+        var t = RushCsvLoader.ReadTable(csv, new[] { "level", "rate", "speed" }, "rush_stage");
+        if (t != null)
+        {
+            int cStage = t.Col("stage", "id"), cTime = t.Col("time", "starttime");
+            int cLevel = t.Col("level"), cGroup = t.Col("nodegroup", "group");
+            int cRate = t.Col("rate"), cSpeed = t.Col("speed"), cCount = t.Col("nodecount"), cTrans = t.Col("transition", "transitionseconds");
+
+            var rows = new List<string[]>();
+            foreach (var row in t.rows)
+                if (int.TryParse(Cell(row, cStage), out int st) && st == stageNumber) rows.Add(row);
+            if (rows.Count == 0)   // 該当ステージが無ければ全行
+            {
+                Debug.LogWarning($"[CSV:rush_stage] ステージ{stageNumber}の行がありません → 全行を使います");
+                rows = t.rows;
+            }
+
+            float cumulative = 0f;   // 新形式：レベルの開始時刻を積み上げる
+            int idx = 0;
+            foreach (var row in rows)
+            {
+                if (!TryFloat(Cell(row, cRate), out float rate) || rate <= 0f) continue;
+                TryFloat(Cell(row, cSpeed), out float speed);
+                int.TryParse(Cell(row, cLevel), out int level);
+                int.TryParse(Cell(row, cGroup), out int group);
+                int.TryParse(Cell(row, cCount), out int nodeCount);
+
+                float interval = RateUnitSeconds / rate;
+                float start;
+                if (cTime >= 0 && TryFloat(Cell(row, cTime), out float tm)) start = tm * 0.1f;   // 100 = 10.0 秒
+                else if (cCount >= 0) start = cumulative;
+                else start = idx * Mathf.Max(0.1f, defaultSeconds);
+
+                Levels.Add(new LevelDef
+                {
+                    level = level > 0 ? level : idx + 1,
+                    startTime = start,
+                    interval = interval,
+                    speedRate = speed > 0f ? speed / SpeedUnit : 1f,
+                    group = group,
+                    nodeCount = nodeCount,
+                    transition = cTrans >= 0 && TryFloat(Cell(row, cTrans), out float tr) ? tr : -1f,
+                });
+                cumulative = start + Mathf.Max(0, nodeCount) * interval;
+                idx++;
+            }
+            Levels.Sort((a, b) => a.startTime.CompareTo(b.startTime));
+        }
+
         if (Levels.Count == 0)
         {
-            Debug.LogWarning("[ラッシュ出現] ステージ表が読めないので、内蔵の5レベルで動かします");
-            float[] iv = { 3.0f, 2.6f, 2.2f, 1.8f, 1.5f };
-            float[] sp = { 1.00f, 1.00f, 1.12f, 1.20f, 1.20f };
-            for (int i = 0; i < 5; i++)
-                Levels.Add(new LevelDef { level = i + 1, startTime = i * defaultLevelSeconds, interval = iv[i], speedRate = sp[i] });
+            Debug.LogWarning("[CSV:rush_stage] 読めません → 既定のレベル（間隔 6 秒・等速）で出します");
+            Levels.Add(new LevelDef { level = 1, startTime = 0f, interval = 6f, speedRate = 1f, group = groups.Keys.First() });
         }
-        Levels.Sort((x, y) => x.startTime.CompareTo(y.startTime));
+        if (Levels[0].startTime > 0f) Levels[0].startTime = 0f;   // 最初のレベルは 0 秒から
     }
 
     // ======================= 抽選 =======================
 
-    /// <summary>1 回の出現。同時出現(type2)のときは 2 個返す</summary>
-    public List<Spawn> Next(LevelDef lv, List<int> left, List<int> right)
+    /// <summary>1 回の出現。同時出現（type 2）なら 2 個返す。leftLines / rightLines は出せる基本線の番号</summary>
+    public List<Spawn> Next(LevelDef level, List<int> leftLines, List<int> rightLines)
     {
         var result = new List<Spawn>();
-        if (left.Count == 0 && right.Count == 0) return result;
+        var entry = PickEntry(level.group);
+        if (entry == null) return result;
 
-        var def = PickNode(lv);
-        bool bad = def.bad >= 0 ? def.bad == 1 : Random.value < 0.5f;
-
-        int side = PickSide(left.Count > 0, right.Count > 0);
-        var cand = side == 0 ? left : right;
-        int line = PickLine(cand, side == lastSide);
-        Commit(side, line);
-        result.Add(new Spawn { line = line, type = def.type, bad = bad });
-
-        if (def.type == LogicNodeTypes.Double)
+        int count = RushNodeTypes.SpawnCount(entry.type);
+        for (int i = 0; i < count; i++)
         {
-            var pool = left.Concat(right).Where(x => x != line).ToList();
-            if (pool.Count > 0) result.Add(new Spawn { line = pool[Random.Range(0, pool.Count)], type = def.type, bad = bad });
+            int line = PickLine(leftLines, rightLines);
+            if (line < 0) break;
+            result.Add(new Spawn { line = line, bad = entry.bad, type = entry.type });
         }
         return result;
     }
 
-    /// <summary>グループを 1 つ選び、その中から重みつきでノードを 1 つ選ぶ</summary>
-    NodeDef PickNode(LevelDef lv)
+    Entry PickEntry(int group)
     {
-        if (nodes.Count == 0) return new NodeDef();   // 表が無いときは通常ノード
-
-        var groups = lv.groups.Where(g => nodes.Any(n => n.group == g)).ToList();
-        if (groups.Count == 0) groups = nodes.Select(n => n.group).Distinct().ToList();
-        int group = groups[Random.Range(0, groups.Count)];
-
-        var inGroup = nodes.Where(n => n.group == group).ToList();
-        float sum = inGroup.Sum(n => n.weight);
-        if (sum <= 0f) return inGroup[Random.Range(0, inGroup.Count)];
-        float roll = Random.value * sum;
-        foreach (var n in inGroup) { roll -= n.weight; if (roll <= 0f) return n; }
-        return inGroup[inGroup.Count - 1];
-    }
-
-    static Prob Find(List<Prob> list, int streak)
-    {
-        if (list.Count == 0) return null;
-        Prob best = list[0];
-        foreach (var p in list) if (p.count <= streak) best = p;
-        return best;
-    }
-
-    static bool Roll(float a, float b)
-    {
-        float sum = a + b;
-        return sum <= 0f ? Random.value < 0.5f : Random.value * sum < a;
-    }
-
-    int PickSide(bool leftOk, bool rightOk)
-    {
-        if (!leftOk) return 1;
-        if (!rightOk) return 0;
-        var p = Find(sideProbs, sideStreak);
-        if (lastSide < 0 || p == null) return Random.value < 0.5f ? 0 : 1;
-        return Roll(p.a, p.b) ? lastSide : 1 - lastSide;
-    }
-
-    int PickLine(List<int> cand, bool sameSide)
-    {
-        if (cand.Count == 1) return cand[0];
-        var p = Find(lineProbs, lineStreak);
-        if (sameSide && lastLine >= 0 && cand.Contains(lastLine) && p != null)
+        if (!groups.TryGetValue(group, out var list) || list.Count == 0)
         {
-            if (Roll(p.a, p.b)) return lastLine;
-            var others = cand.Where(x => x != lastLine).ToList();
-            return others[Random.Range(0, others.Count)];
+            if (groups.Count == 0) return null;
+            list = groups.OrderBy(kv => kv.Key).First().Value;   // 指定のグループが無ければ最初のグループ
         }
-        return cand[Random.Range(0, cand.Count)];
+        float total = list.Sum(e => e.weight);
+        float r = UnityEngine.Random.value * total;
+        foreach (var e in list)
+        {
+            r -= e.weight;
+            if (r <= 0f) return e;
+        }
+        return list[list.Count - 1];
     }
 
-    void Commit(int side, int line)
+    int PickLine(List<int> left, List<int> right)
     {
-        sideStreak = side == lastSide ? sideStreak + 1 : 1;
+        bool hasL = left != null && left.Count > 0, hasR = right != null && right.Count > 0;
+        if (!hasL && !hasR) return -1;
+
+        // ① 左右（直前と同じ側にする確率は連続回数で決まる）
+        int side;
+        if (!hasL) side = 1;
+        else if (!hasR) side = 0;
+        else if (lastSide < 0) side = UnityEngine.Random.value < 0.5f ? 0 : 1;
+        else
+        {
+            var row = Find(sideTable, sideStreak);
+            bool same = Roll(row);
+            side = same ? lastSide : 1 - lastSide;
+        }
+        if (side == lastSide) sideStreak++; else { sideStreak = 1; lastLine = -1; lineStreak = 0; }
         lastSide = side;
-        lineStreak = line == lastLine ? lineStreak + 1 : 1;
+
+        // ② 基本線（その側の中で、直前と同じ線か別の線か）
+        var pool = side == 0 ? left : right;
+        int line;
+        if (pool.Count == 1 || lastLine < 0 || !pool.Contains(lastLine))
+            line = pool[UnityEngine.Random.Range(0, pool.Count)];
+        else
+        {
+            var row = Find(lineTable, lineStreak);
+            if (Roll(row)) line = lastLine;
+            else
+            {
+                var others = pool.Where(l => l != lastLine).ToList();
+                line = others[UnityEngine.Random.Range(0, others.Count)];
+            }
+        }
+        if (line == lastLine) lineStreak++; else lineStreak = 1;
         lastLine = line;
+        return line;
     }
+
+    /// <summary>連続回数 n に対応する行。ちょうど一致する行 → 「n!」のうち n 以下で最大のもの → 最後の行</summary>
+    static StreakRow Find(List<StreakRow> table, int n)
+    {
+        if (table.Count == 0) return null;
+        foreach (var r in table) if (!r.orMore && r.count == n) return r;
+        StreakRow best = null;
+        foreach (var r in table) if (r.orMore && r.count <= n && (best == null || r.count > best.count)) best = r;
+        return best ?? table[table.Count - 1];
+    }
+
+    /// <summary>true = same 側（確率 same : other）。表が無ければ 50:50</summary>
+    static bool Roll(StreakRow r)
+    {
+        if (r == null) return UnityEngine.Random.value < 0.5f;
+        float total = r.same + r.other;
+        if (total <= 0f) return UnityEngine.Random.value < 0.5f;
+        return UnityEngine.Random.value * total < r.same;
+    }
+
+    // ======================= 小物 =======================
+
+    static string Cell(string[] row, int c) => c >= 0 && c < row.Length ? row[c].Trim() : "";
+
+    static bool TryFloat(string s, out float v) =>
+        float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v);
 }

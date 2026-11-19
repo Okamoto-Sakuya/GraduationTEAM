@@ -246,7 +246,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 125872379}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b504fa265a32ec94c85e7ef86590845b, type: 3}
   m_Name: 
@@ -3501,7 +3501,7 @@ MonoBehaviour:
   preserveAspect: 1
   circleCenter: {x: 0, y: 20}
   circleRadius: 285
-  armAngle: 36
+  armAngle: 48.01277
   legAngle: -67
   arcSegments: 96
   backgroundSprite: {fileID: 21300000, guid: a40467f712639a34bb9738f5e0303cad, type: 3}
@@ -3576,6 +3576,7 @@ MonoBehaviour:
   rushSeconds: 60
   firstSpawnDelay: 1
   spawnJitter: 0.15
+  levelTransitionSeconds: 3
   defaultLevelSeconds: 12
   commonCsvFolder: MasterData/Main/Common
   logicCsvFolder: MasterData/Main/Logic
@@ -3589,17 +3590,17 @@ MonoBehaviour:
   nodeStatusCsvName: nodestatus_master.csv
   playerStatusCsvName: playerstatus_master.csv
   miscParamsCsvName: miscparams_master.csv
-  nodeStatusCsv: {fileID: 0}
-  playerStatusCsv: {fileID: 0}
+  nodeStatusCsv: {fileID: 4900000, guid: d4243ebfc39f58c4898b99657534cf07, type: 3}
+  playerStatusCsv: {fileID: 4900000, guid: 8f294553098ca28498f36231f671463d, type: 3}
   miscParamsCsv: {fileID: 0}
   rushStageCsvName: rush_stage_master.csv
   rushNodeGroupCsvName: rush_nodegroup_master.csv
   rushSideCsvName: rush_sidespawn_master.csv
   rushLineCsvName: rush_linespawn_master.csv
-  rushStageCsv: {fileID: 0}
-  rushNodeGroupCsv: {fileID: 0}
-  rushSideCsv: {fileID: 0}
-  rushLineCsv: {fileID: 0}
+  rushStageCsv: {fileID: 4900000, guid: c560fc8cbbce1ca42a732bc82f1015e0, type: 3}
+  rushNodeGroupCsv: {fileID: 4900000, guid: c895bd62a103aa845a65554aa3992d3b, type: 3}
+  rushSideCsv: {fileID: 4900000, guid: 5b9ae034067f530418c2b2256eb14a86, type: 3}
+  rushLineCsv: {fileID: 4900000, guid: 6b6825bef80d2e64fb390c3d5ea6353e, type: 3}
   hpLeftArm: 25
   hpLeftLeg: 25
   hpRightArm: 25
@@ -3611,7 +3612,7 @@ MonoBehaviour:
   armLostGaugePenalty: 500
   costPerMeter: 100
   pixelsPerMeter: 100
-  vanishMode: 0
+  vanishMode: 1
   vanishSeconds: 7
   warnBeforeSeconds: 2
   warnBeforeCount: 1
