@@ -5,6 +5,7 @@ public class OptionButton : MonoBehaviour
     public void Enter()
     {
         AspectRateCoontroller.instance.Enter();
+        LanguageController.instance.Enter();
     }
 
     //============================================================
