@@ -19,15 +19,16 @@ using UnityEngine.InputSystem.UI;
 /// 非再生中もプレビュー画面を構築するので、ゲームビューで確認できます（シーンには保存されません）。
 /// シーンビューでは円の中心・半径・回収点をハンドルでドラッグ編集できます（LogicModeScreenEditor）。
 ///
-/// 画面構成（1920×1080 基準）
-///   中央   : 人体図（UI Image。centerSprite に画像を設定）
+/// 画面構成（1920×1080 基準。11/17 モック準拠）
+///   中央   : 人体図（後ろは背景がそのまま見える）（UI Image。centerSprite に画像を設定）
 ///   円     : 人体を囲む円。回収点 4 つはこの円の上
-///   四肢   : 回収点（三角）＋体力ゲージ
+///   四肢   : 回収点（八角形）＋ 縦書きの部位名（体力の数値は出さない）
 ///   線     : 基本線 6 本 ＋ プレイヤーが描く造線
-///   上中央 : 造線の硬さ 1/2/3（ノードが通れる回数）＋ 実行ボタン ▶
-///   左上   : 経路フェーズの残り時間（仮）＋状態表示
-///   右上   : スコア
-///   下     : 造線ゲージ
+///   上中央 : 「再生」＋ 実行ボタン ▶
+///   下中央 : 「造線数変更」＋ 造線の硬さ 1/2/3（ノードが通れる回数）＋ 造線ゲージ（数値は出さない）
+///   左上   : 制限時間
+///   スコア : ゲーム中は表示しない（内部で数え、リザルト画面に出す）
+///   左下   : オプション等のアイコン枠 ／ 右下 : 操作説明・問題・SAN
 ///
 /// フェーズ : 問題準備 → 経路(1分・造線を描く) → 実行(操作不可) → 次の問題 …
 /// ノードは円の上では常に時計回りに進む
@@ -61,6 +62,7 @@ using UnityEngine.InputSystem.UI;
 /// 画像の差し替え
 ///   ① Inspector の「画像差し替え」欄に入れる
 ///   ② ヒエラルキーの LogicModePreview 以下で Image を直接変更（自動記録され、作り直し・再生後も残る）
+///   UI の位置 : 非再生中にヒエラルキーの LogicModePreview/GameScreen/UI の 〇〇Group（TimerGroup など）を動かす（同じく自動記録）
 ///
 /// 造線の操作（経路フェーズのみ）… 操作タイプは GameSettings.Operation（今は GameSettingsInspector で切り替え）
 ///   ドラッグ&ドロップ : 基本線の上で左ボタンを押す → ドラッグ → 別の基本線の上で離す
@@ -95,6 +97,9 @@ public class LogicModeScreen : MonoBehaviour
     public Sprite armSprite;                             // 腕の回収点（今は ▼）
     public Sprite legSprite;                             // 足の回収点（今は ▲）
     public Vector2 limbIconSize = new Vector2(78, 78);   // 回収点の画像サイズ（px）
+    public Sprite limbGaugeSprite;                       // 回収点の白い枠＝体力（ダメージで上から減る）。空欄なら八角形の枠
+    public Sprite limbSwirlSprite;                       // 回収点の真ん中の渦（回転する）。空欄なら仮の渦
+    public float swirlSpeed = 40f;                       // 渦の回転速度（度/秒。マイナスで逆回転）
     public Sprite hpBarFrameSprite;                      // 部位の体力ゲージの枠
     public Sprite hpBarFillSprite;                       // 部位の体力ゲージの中身（入れると緑→赤の色変化はしない）
     public Sprite nodeGoodSprite;                        // 良性ノード本体（今は青い丸）
@@ -106,6 +111,21 @@ public class LogicModeScreen : MonoBehaviour
     public Sprite lineGaugeFrameSprite;                  // 造線ゲージの枠
     public Sprite lineGaugeFillSprite;                   // 造線ゲージの中身
     public Sprite dangerSprite;                          // 危険演出の赤枠（中心が透明・外周が不透明な白い画像。色は dangerColor が乗る）
+
+    [Header("画面レイアウト（11/17 モック準拠。Inspector 下の「モックの配置にする」で円・線・大きさを合わせられる）")]
+    public float outerLineEdgeY = 540f;                  // 上下の基本線が画面の左右端のどの高さから出るか（540 = 四隅。モックは 355）
+    public Color basicLineColor = new Color(0.80f, 0.76f, 0.72f, 0.85f);   // 基本線（直線）の色
+    public float basicLineThickness = 4f;
+    public Color arcLineColor = new Color(0.55f, 0.22f, 0.22f, 0.5f);      // 中央の円の線の色（モックは薄い赤）
+    public float arcLineThickness = 3f;
+    public Sprite basicLineSprite;                       // 線の画像（筆っぽい横長の画像。空欄なら単色）
+    public Sprite frameSprite;                           // 制限時間・スコア・説明欄の枠（9スライス推奨。空欄なら細い線の枠）
+    public Sprite ribbonSprite;                          // 「再生」「造線数変更」の下の帯
+    public Sprite pillSprite;                            // ボタンの下地（9スライス推奨。空欄なら角丸）
+    public Sprite[] menuIconSprites = new Sprite[2];     // 左下のアイコン（オプション等。モックの空き枠）
+    public bool showMenuIconSlots = true;                // true = 画像が無くても左下に空き枠を出す
+    public string[] limbLabelTexts = { "右腕", "左腕", "右脚", "左脚" };   // 縦書きの部位名（画面の 左上・右上・左下・右下 の順。モックは女の子から見た左右）
+    public Vector2 limbLabelOffset = new Vector2(73f, 100f);               // 部位名の位置（回収点から x = 内側へ / y = 円の中心の高さへ）
 
     [Header("四肢欠損の彼岸花演出（素材が無ければ従来どおり）")]
     public bool useLimbBloom = true;                     // true = 欠損した部位の手足を消して彼岸花を咲かせる
@@ -127,6 +147,12 @@ public class LogicModeScreen : MonoBehaviour
         public Color color = Color.white;
         public bool overrideActive;
         public bool active = true;
+        public bool overridePosition;
+        public Vector2 position;         // RectTransform の Pos X / Pos Y
+        public bool overrideSize;
+        public Vector2 size;             // Width / Height
+        public bool overrideScale;
+        public Vector3 scale = Vector3.one;
     }
 
     [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
@@ -334,6 +360,8 @@ public class LogicModeScreen : MonoBehaviour
         public float maxHp;          // この部位の最大体力（playerstatus）
         public RectTransform root;
         public Image hpFill;
+        public Image gauge;          // 回収点の白い枠（体力で欠ける）
+        public RectTransform swirl;  // 回収点の真ん中の渦（回転）
         public BasicLine overflow;   // 欠損後、ここに届いたノードが流れる先（円弧）
         public Image limbImage;      // 彼岸花演出：人体図に重ねた手足の切り抜き
         public RectTransform bloomLayer;   // 彼岸花演出：花・脈・火の粉の入れ物
@@ -464,15 +492,14 @@ public class LogicModeScreen : MonoBehaviour
     }
 
     // 色
-    static readonly Color LineColor = Color.white;
     static readonly Color DrawnColor = new Color(0.75f, 0.92f, 1f);
     static readonly Color AutoDrawnColor = new Color(0.85f, 0.65f, 1f);   // 線追加ノードが引いた造線
     static readonly Color InvalidCol = new Color(1f, 0.35f, 0.3f);
-    static readonly Color LimbFill = new Color(0.94f, 0.66f, 0.55f);
-    static readonly Color LimbOutline = new Color(0.10f, 0.16f, 0.22f);
-    static readonly Color BtnOff = new Color(0.12f, 0.33f, 0.45f);
-    static readonly Color BtnOn = new Color(0.25f, 0.62f, 0.85f);
-    const float LineThickness = 4f;
+    static readonly Color BtnOff = new Color(0.27f, 0.26f, 0.26f);
+    static readonly Color BtnOn = new Color(0.70f, 0.64f, 0.58f);
+    static readonly Color FrameLine = new Color(0.85f, 0.82f, 0.80f, 0.55f);
+    static readonly Color FrameFill = new Color(0f, 0f, 0f, 0.35f);
+    static readonly Color UiText = new Color(0.92f, 0.90f, 0.88f);
     const float DrawnThickness = 6f;
 
     const string RuntimeCanvasName = "LogicModeCanvas";
@@ -481,8 +508,11 @@ public class LogicModeScreen : MonoBehaviour
     Font font;
     RectTransform root, lineLayer, drawnLayer, limbLayer, nodeLayer, uiLayer;
     Image centerImage;
-    Text scoreText, timerText, statusText, gaugeText, hintText;
-    Image gaugeFill, gaugePreviewFill, gaugeLostFill;
+    Text scoreText, timerText, hintText;
+    readonly Text[] infoTexts = new Text[3];   // 右下の説明欄（見出し＋2行）
+    Image gaugeFill, gaugePreviewFill, gaugeLostFill, gaugeMarker;
+    Vector2 gaugeSize;
+    readonly List<RectTransform> uiBlockers = new List<RectTransform>();   // ノードの番号が隠れる UI（制限時間・アイコン枠・説明欄）
     Image gaugeBorder; Color gaugeBorderColor;   // ルール6 の点滅用
     Image centerZone;                            // ルール2 の赤い丸（女の子の後ろ。普段は透明）
     readonly List<Button> hardnessButtons = new List<Button>();
@@ -631,6 +661,10 @@ public class LogicModeScreen : MonoBehaviour
             return;
         }
 
+        // 回収点の渦を回す（ゲームオーバー中は止まる）
+        foreach (var l in limbs)
+            if (l.swirl != null) l.swirl.Rotate(0f, 0f, -swirlSpeed * Time.deltaTime);
+
         if (CurrentPhase == Phase.Route) HandleDrawingInput();
         else if (drawing) CancelDrawing();
 
@@ -708,6 +742,7 @@ public class LogicModeScreen : MonoBehaviour
     void ClearBuiltState()
     {
         hardnessButtons.Clear();
+        uiBlockers.Clear();
         limbs.Clear();
         lines.Clear();
         drawnLines.Clear();
@@ -942,12 +977,18 @@ public class LogicModeScreen : MonoBehaviour
                 if (o.overrideColor) img.color = o.color;
             }
             if (o.overrideActive) t.gameObject.SetActive(o.active);
+            if (t is RectTransform rt)
+            {
+                if (o.overridePosition) rt.anchoredPosition = o.position;
+                if (o.overrideSize) rt.sizeDelta = o.size;
+                if (o.overrideScale) rt.localScale = o.scale;
+            }
         }
     }
 
 #if UNITY_EDITOR
     /// <summary>プレビュー画面上の t の変更を記録（エディタの自動記録から呼ばれる）</summary>
-    public void RecordHierarchyChange(Transform t, bool sprite, bool color, bool active)
+    public void RecordHierarchyChange(Transform t, bool sprite, bool color, bool active, bool position = false, bool size = false, bool scale = false)
     {
         var canvas = transform.Find(PreviewCanvasName);
         if (canvas == null || t == null || t == canvas || !t.IsChildOf(canvas)) return;
@@ -976,6 +1017,12 @@ public class LogicModeScreen : MonoBehaviour
             o.overrideActive = true;
             o.active = t.gameObject.activeSelf;
         }
+        if (t is RectTransform rt)
+        {
+            if (position) { o.overridePosition = true; o.position = rt.anchoredPosition; }
+            if (size) { o.overrideSize = true; o.size = rt.sizeDelta; }
+            if (scale) { o.overrideScale = true; o.scale = rt.localScale; }
+        }
     }
 #endif
 
@@ -994,6 +1041,8 @@ public class LogicModeScreen : MonoBehaviour
         var limb = new Limb { name = name, label = LimbLabel(name), pos = pos, isArm = isArm, hp = maxHp, maxHp = maxHp };
         limb.root = UIShapes.CreateRect(limbLayer, name, pos, new Vector2(80, 80));
 
+        // 回収点：花（armSprite / legSprite があればその画像）→ 白い枠＝体力 → 真ん中の渦（回転）
+        float s = Mathf.Max(limbIconSize.x, limbIconSize.y);
         Sprite icon = isArm ? armSprite : legSprite;
         if (icon != null)
         {
@@ -1002,9 +1051,56 @@ public class LogicModeScreen : MonoBehaviour
         }
         else
         {
-            Sprite tri = isArm ? UIShapes.TriDown : UIShapes.TriUp;
-            UIShapes.CreateImage(limb.root, "Outline", Vector2.zero, new Vector2(78, 78), tri, LimbOutline);
-            UIShapes.CreateImage(limb.root, "Fill", Vector2.zero, new Vector2(62, 62), tri, LimbFill);
+            // 仮の花：真ん中の丸＋花びら 8 枚
+            var petal = new Color(0.42f, 0.03f, 0.05f);
+            for (int i = 0; i < 8; i++)
+            {
+                float a = (90f + i * 45f) * Mathf.Deg2Rad;
+                UIShapes.CreateImage(limb.root, "Petal", new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * s * 0.47f, Vector2.one * s * 0.34f, UIShapes.Circle, petal);
+            }
+            UIShapes.CreateImage(limb.root, "Flower", Vector2.zero, Vector2.one * s * 1.0f, UIShapes.Circle, petal);
+            UIShapes.CreateImage(limb.root, "Fill", Vector2.zero, Vector2.one * s * 0.78f, UIShapes.Octagon, new Color(0.30f, 0.05f, 0.07f));
+        }
+
+        // 白い枠（体力）：下から溜まっている形で、ダメージで上から減る。減った所は赤い細い線（外周・内周）だけ見える
+        var gaugeBg = UIShapes.CreateImage(limb.root, "GaugeBg", Vector2.zero, Vector2.one * s * 0.9f,
+                                           limbGaugeSprite != null ? limbGaugeSprite : UIShapes.OctagonOutline, new Color(0.80f, 0.16f, 0.18f, 0.95f));
+        gaugeBg.preserveAspect = true;
+        limb.gauge = UIShapes.CreateImage(limb.root, "Gauge", Vector2.zero, Vector2.one * s * 0.9f,
+                                          limbGaugeSprite != null ? limbGaugeSprite : UIShapes.OctagonRing, new Color(0.93f, 0.89f, 0.86f));
+        limb.gauge.preserveAspect = true;
+        limb.gauge.type = Image.Type.Filled;
+        limb.gauge.fillMethod = Image.FillMethod.Vertical;
+        limb.gauge.fillOrigin = (int)Image.OriginVertical.Bottom;
+        limb.gauge.fillAmount = 1f;
+
+        // 真ん中の渦
+        limb.swirl = UIShapes.CreateRect(limb.root, "Swirl", Vector2.zero, Vector2.one * s * 0.62f);
+        if (limbSwirlSprite != null)
+        {
+            var sw = UIShapes.CreateImage(limb.swirl, "Image", Vector2.zero, Vector2.one * s * 0.62f, limbSwirlSprite, Color.white);
+            sw.preserveAspect = true;
+        }
+        else
+        {
+            UIShapes.CreateImage(limb.swirl, "Base", Vector2.zero, Vector2.one * s * 0.62f, UIShapes.Circle, new Color(0.55f, 0.12f, 0.14f));
+            UIShapes.CreateImage(limb.swirl, "Blades", Vector2.zero, Vector2.one * s * 0.62f, UIShapes.Swirl, new Color(0.92f, 0.88f, 0.76f));
+            UIShapes.CreateImage(limb.swirl, "Hole", Vector2.zero, Vector2.one * s * 0.22f, UIShapes.SoftCircle, new Color(0.04f, 0.0f, 0.01f));
+        }
+
+        // 縦書きの部位名（人体寄り。欠損しても残す）
+        string labelText = LimbLabelText(name);
+        if (!string.IsNullOrEmpty(labelText))
+        {
+            float sx = pos.x < circleCenter.x ? 1f : -1f;              // 内側へ
+            float sy = pos.y > circleCenter.y ? -1f : 1f;              // 円の中心の高さへ
+            Vector2 lp = pos + new Vector2(limbLabelOffset.x * sx, limbLabelOffset.y * sy);
+            var frame = UIShapes.CreateFrame(limbLayer, name + "Label", lp, new Vector2(52, 94),
+                                             new Color(0.85f, 0.8f, 0.78f, 0.22f), Color.clear, 1.5f);
+            var t = UIShapes.CreateText(frame, "Text", string.Join("\n", labelText.ToCharArray()), font, 34,
+                                        new Color(0.88f, 0.84f, 0.82f, 0.38f), TextAnchor.MiddleCenter,
+                                        Vector2.zero, new Vector2(52, 94), new Vector2(0.5f, 0.5f));
+            t.lineSpacing = 0.95f;
         }
 
         Vector2 barPos = new Vector2(0, isArm ? 52 : -52);
@@ -1032,6 +1128,13 @@ public class LogicModeScreen : MonoBehaviour
         "RightLeg" => "右足",
         _ => name,
     };
+
+    /// <summary>縦書きで出す部位名（limbLabelTexts：画面の左上・右上・左下・右下）</summary>
+    string LimbLabelText(string name)
+    {
+        int i = name switch { "LeftArm" => 0, "RightArm" => 1, "LeftLeg" => 2, "RightLeg" => 3, _ => -1 };
+        return limbLabelTexts != null && i >= 0 && i < limbLabelTexts.Length ? limbLabelTexts[i] : null;
+    }
 
     Limb FindLimb(string name) => limbs.Find(l => l.name == name);
 
@@ -1086,10 +1189,11 @@ public class LogicModeScreen : MonoBehaviour
         float lArm = 180f - armAngle, lLeg = 180f - legAngle;   // 左側の角度
         float rArm = armAngle, rLeg = legAngle;                 // 右側の角度
 
-        MakeLine("TopLeft", leftArm, new List<Vector2> { new Vector2(-960, 540), leftArm.pos });
-        MakeLine("TopRight", rightArm, new List<Vector2> { new Vector2(960, 540), rightArm.pos });
-        MakeLine("BottomLeft", leftLeg, new List<Vector2> { new Vector2(-960, -540), leftLeg.pos });
-        MakeLine("BottomRight", rightLeg, new List<Vector2> { new Vector2(960, -540), rightLeg.pos });
+        float ey = Mathf.Clamp(outerLineEdgeY, 0f, 540f);
+        MakeLine("TopLeft", leftArm, new List<Vector2> { new Vector2(-960, ey), leftArm.pos });
+        MakeLine("TopRight", rightArm, new List<Vector2> { new Vector2(960, ey), rightArm.pos });
+        MakeLine("BottomLeft", leftLeg, new List<Vector2> { new Vector2(-960, -ey), leftLeg.pos });
+        MakeLine("BottomRight", rightLeg, new List<Vector2> { new Vector2(960, -ey), rightLeg.pos });
 
         // 中央の円の線 ⑦（180° → 左腕）・⑧（0° → 右足）。時計回り（角度が減る方向）に進む
         var al = new List<Vector2> { CirclePt(180f) };
@@ -1140,8 +1244,14 @@ public class LogicModeScreen : MonoBehaviour
         l.pts.AddRange(pts);
         l.Bake();
         int segs = visibleSegments < 0 ? pts.Count - 1 : visibleSegments;
+        bool arc = name.Contains("Arc");   // 中央の円の線（ArcLeft / TopArc など）は薄い赤
         for (int i = 0; i < segs; i++)
-            l.visuals.Add(UIShapes.CreateLine(lineLayer, pts[i], pts[i + 1], LineThickness, LineColor, name));
+        {
+            var img = UIShapes.CreateLine(lineLayer, pts[i], pts[i + 1], arc ? arcLineThickness : basicLineThickness,
+                                          arc ? arcLineColor : basicLineColor, name);
+            if (!arc && basicLineSprite != null) img.sprite = basicLineSprite;
+            l.visuals.Add(img);
+        }
         lines.Add(l);
         return l;
     }
@@ -1193,72 +1303,127 @@ public class LogicModeScreen : MonoBehaviour
         }
         crossMark.gameObject.SetActive(false);
 
-        // 右上：スコア
-        scoreText = UIShapes.CreateText(uiLayer, "Score", "", font, 40, Color.white, TextAnchor.UpperRight,
-                                        new Vector2(700, 525), new Vector2(400, 50), new Vector2(1f, 1f));
+        // UI はまとまりごとに入れ物（〇〇Group）に入れる。ヒエラルキーで入れ物を動かせば中身ごと動き、位置は記録されて再生後も残る
+        // ---------- 左上：制限時間 ----------
+        var timerGroup = UIShapes.CreateRect(uiLayer, "TimerGroup", new Vector2(-768, 488), new Vector2(314, 57));
+        UIShapes.CreateFrame(timerGroup, "TimerLabelFrame", new Vector2(-82, 0), new Vector2(150, 57), FrameLine, FrameFill, 2f, frameSprite);
+        UIShapes.CreateText(timerGroup, "TimerLabel", "制限時間", font, 28, UiText, TextAnchor.MiddleCenter,
+                            new Vector2(-82, 0), new Vector2(150, 57), new Vector2(0.5f, 0.5f));
+        UIShapes.CreateFrame(timerGroup, "TimerFrame", new Vector2(75, 0), new Vector2(164, 57), FrameLine, FrameFill, 2f, frameSprite);
+        timerText = UIShapes.CreateText(timerGroup, "Timer", "", font, 40, Color.white, TextAnchor.MiddleCenter,
+                                        new Vector2(75, 0), new Vector2(164, 57), new Vector2(0.5f, 0.5f));
+        uiBlockers.Add(timerGroup);
 
-        // 左上：残り時間（仮）＋状態
-        timerText = UIShapes.CreateText(uiLayer, "Timer", "", font, 40, Color.white, TextAnchor.UpperLeft,
-                                        new Vector2(-940, 528), new Vector2(500, 50), new Vector2(0f, 1f));
-        statusText = UIShapes.CreateText(uiLayer, "Status", "", font, 22, new Color(1, 1, 1, 0.8f), TextAnchor.UpperLeft,
-                                         new Vector2(-940, 476), new Vector2(600, 120), new Vector2(0f, 1f));
+        // スコアはゲーム中は表示しない（内部では数えていて、リザルトに出す）
 
-        // 上中央：硬さボタン 1 / 2 / 3
-        for (int i = 0; i < 3; i++)
-        {
-            int hardness = i + 1;
-            var btn = CreateButton("Hardness" + hardness, new Vector2(-110 + i * 110, 512), new Vector2(100, 38), BtnOff);
-            Sprite hs = HardnessSprite(i);
-            if (hs != null)
-            {
-                var bimg = (Image)btn.targetGraphic;
-                bimg.sprite = hs;
-                bimg.preserveAspect = true;
-            }
-            else
-            {
-                for (int d = 0; d < hardness; d++)
-                {
-                    float x = (d - (hardness - 1) * 0.5f) * 22f;
-                    UIShapes.CreateImage(btn.transform, "Dot", new Vector2(x, 0), new Vector2(16, 16), UIShapes.Circle, Color.white);
-                }
-            }
-            btn.onClick.AddListener(() => SelectHardness(hardness));
-            hardnessButtons.Add(btn);
-        }
-
-        // ② 実行ボタン
-        executeButton = CreateButton("Execute", new Vector2(0, 466), new Vector2(70, 38), BtnOff);
+        // ---------- 上中央：「再生」＋ ▶ ----------
+        var playGroup = UIShapes.CreateRect(uiLayer, "PlayGroup", new Vector2(0, 486), new Vector2(250, 50));
+        CreateRibbon(playGroup, "PlayRibbon", new Vector2(-70, -8), new Vector2(100, 18), new Color(0.30f, 0.29f, 0.29f, 0.95f));
+        UIShapes.CreateText(playGroup, "PlayLabel", "再生", font, 30, UiText, TextAnchor.MiddleCenter,
+                            new Vector2(-66, 4), new Vector2(110, 44), new Vector2(0.5f, 0.5f));
+        executeButton = CreateButton(playGroup, "Execute", new Vector2(54, 0), new Vector2(125, 45), BtnOff);
         if (executeSprite != null)
         {
             var eimg = (Image)executeButton.targetGraphic;
+            eimg.type = Image.Type.Simple;
+            HideRim(playGroup, "Execute");
             eimg.sprite = executeSprite;
             eimg.color = Color.white;
             eimg.preserveAspect = true;
         }
         else
         {
-            UIShapes.CreateImage(executeButton.transform, "Play", new Vector2(2, 0), new Vector2(24, 24), UIShapes.TriRight, new Color(0.45f, 0.9f, 0.5f));
+            UIShapes.CreateImage(executeButton.transform, "Play", new Vector2(4, 0), new Vector2(28, 28), UIShapes.TriRight, Color.white);
         }
         executeButton.onClick.AddListener(() => { if (CurrentPhase == Phase.Route) executeRequested = true; });
 
-        // 下：造線ゲージ
-        Vector2 barPos = new Vector2(0, -505);
-        Vector2 barSize = new Vector2(1000, 38);
+        // ---------- 下中央：「造線数変更」＋ 硬さ 1 / 2 / 3 ----------
+        var hardGroup = UIShapes.CreateRect(uiLayer, "HardnessGroup", new Vector2(0, -387), new Vector2(560, 60));
+        CreateRibbon(hardGroup, "HardnessRibbon", new Vector2(-222, -7), new Vector2(185, 18), new Color(0.55f, 0.53f, 0.52f, 0.75f));
+        UIShapes.CreateText(hardGroup, "HardnessLabel", "造線数変更", font, 30, UiText, TextAnchor.MiddleCenter,
+                            new Vector2(-218, 4), new Vector2(200, 44), new Vector2(0.5f, 0.5f));
+        for (int i = 0; i < 3; i++)
+        {
+            int hardness = i + 1;
+            var btn = CreateButton(hardGroup, "Hardness" + hardness, new Vector2(-42 + i * 135, 0), new Vector2(125, 45), BtnOff);
+            Sprite hs = HardnessSprite(i);
+            if (hs != null)
+            {
+                var bimg = (Image)btn.targetGraphic;
+                bimg.type = Image.Type.Simple;
+                HideRim(hardGroup, "Hardness" + hardness);
+                bimg.sprite = hs;
+                bimg.preserveAspect = true;
+            }
+            else
+            {
+                // 横線に斜線を硬さの数だけ（モックの「╪」）
+                var icon = UIShapes.CreateRect(btn.transform, "Icon", new Vector2(4, -2), new Vector2(60, 30));
+                UIShapes.CreateLine(icon, new Vector2(-30, -1), new Vector2(30, 1), 2.5f, Color.white, "Base");
+                for (int d = 0; d < hardness; d++)
+                {
+                    float x = (d - (hardness - 1) * 0.5f) * 11f;
+                    UIShapes.CreateLine(icon, new Vector2(x - 6, -12), new Vector2(x + 6, 12), 3f, Color.white, "Slash");
+                }
+            }
+            // 番号（ボタンの左上にはみ出す）
+            var num = UIShapes.CreateText(btn.transform, "Num", hardness.ToString(), font, 40, Color.white, TextAnchor.MiddleCenter,
+                                          new Vector2(-41, 22), new Vector2(40, 46), new Vector2(0.5f, 0.5f));
+            num.fontStyle = FontStyle.Bold;
+            num.gameObject.AddComponent<Outline>().effectColor = new Color(0, 0, 0, 0.6f);
+            btn.onClick.AddListener(() => SelectHardness(hardness));
+            hardnessButtons.Add(btn);
+        }
+
+        // ---------- 下：造線ゲージ（数値は出さない） ----------
+        gaugeSize = new Vector2(730, 20);
+        var gaugeGroup = UIShapes.CreateRect(uiLayer, "GaugeGroup", new Vector2(5, -460), new Vector2(740, 60));
         if (lineGaugeFrameSprite != null)
-            gaugeBorder = UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), lineGaugeFrameSprite, Color.white);
+            gaugeBorder = UIShapes.CreateImage(gaugeGroup, "GaugeBorder", Vector2.zero, gaugeSize + new Vector2(8, 8), lineGaugeFrameSprite, Color.white);
         else
         {
-            gaugeBorder = UIShapes.CreateImage(uiLayer, "GaugeBorder", barPos, barSize + new Vector2(8, 8), UIShapes.White, new Color(0.35f, 0.65f, 0.9f));
-            UIShapes.CreateImage(uiLayer, "GaugeBg", barPos, barSize, UIShapes.White, new Color(0.08f, 0.1f, 0.14f));
+            gaugeBorder = UIShapes.CreateImage(gaugeGroup, "GaugeBorder", Vector2.zero, gaugeSize + new Vector2(4, 4), UIShapes.White, new Color(0.45f, 0.42f, 0.40f, 0.7f));
+            UIShapes.CreateImage(gaugeGroup, "GaugeBg", Vector2.zero, gaugeSize, UIShapes.White, new Color(0.14f, 0.13f, 0.13f));
         }
-        gaugePreviewFill = CreateFill("GaugePreview", barPos, barSize, new Color(1f, 0.6f, 0.2f), Image.OriginHorizontal.Left);
-        gaugeFill = CreateFill("GaugeFill", barPos, barSize, Color.white, Image.OriginHorizontal.Left);
-        if (lineGaugeFillSprite != null) gaugeFill.sprite = lineGaugeFillSprite;
-        gaugeLostFill = CreateFill("GaugeLost", barPos, barSize, new Color(0.45f, 0.05f, 0.05f), Image.OriginHorizontal.Right);
-        gaugeText = UIShapes.CreateText(uiLayer, "GaugeText", "", font, 26, new Color(0.1f, 0.1f, 0.1f), TextAnchor.MiddleCenter,
-                                        barPos, barSize, new Vector2(0.5f, 0.5f));
-        gaugeText.gameObject.AddComponent<Outline>().effectColor = new Color(1, 1, 1, 0.9f);
+        gaugePreviewFill = CreateFill(gaugeGroup, "GaugePreview", gaugeSize, new Color(1f, 0.6f, 0.2f), Image.OriginHorizontal.Left);
+        gaugeFill = CreateFill(gaugeGroup, "GaugeFill", gaugeSize, new Color(0.80f, 0.76f, 0.72f), Image.OriginHorizontal.Left);
+        if (lineGaugeFillSprite != null) { gaugeFill.sprite = lineGaugeFillSprite; gaugeFill.color = Color.white; }
+        gaugeLostFill = CreateFill(gaugeGroup, "GaugeLost", gaugeSize, new Color(0.40f, 0.05f, 0.05f), Image.OriginHorizontal.Right);
+        // 今の残量の位置に縦線（モックの目盛り）
+        gaugeMarker = UIShapes.CreateImage(gaugeGroup, "GaugeMarker", Vector2.zero, new Vector2(2, 60), UIShapes.White, new Color(0.85f, 0.82f, 0.80f, 0.8f));
+
+        // ---------- 左下：オプション等のアイコン枠 ----------
+        var menuGroup = UIShapes.CreateRect(uiLayer, "MenuGroup", new Vector2(-796, -492), new Vector2(258, 39));
+        Vector2[] iconPos = { new Vector2(-69, 0), new Vector2(69, 0) };
+        bool anyIcon = false;
+        for (int i = 0; i < iconPos.Length; i++)
+        {
+            Sprite ms = menuIconSprites != null && i < menuIconSprites.Length ? menuIconSprites[i] : null;
+            if (ms != null)
+            {
+                var mi = UIShapes.CreateImage(menuGroup, "MenuIcon" + (i + 1), iconPos[i], new Vector2(120, 39), ms, Color.white);
+                mi.preserveAspect = true;
+                anyIcon = true;
+            }
+            else if (showMenuIconSlots)
+            {
+                UIShapes.CreateFrame(menuGroup, "MenuIcon" + (i + 1), iconPos[i], new Vector2(120, 39), FrameLine, FrameFill, 2f, frameSprite);
+                anyIcon = true;
+            }
+        }
+        if (anyIcon) uiBlockers.Add(menuGroup);
+
+        // ---------- 右下：操作説明・状態（見出し＋2行） ----------
+        var infoGroup = UIShapes.CreateRect(uiLayer, "InfoGroup", new Vector2(747, -447), new Vector2(370, 122));
+        float[] rowY = { 45, 1, -44 };
+        float[] rowH = { 31, 33, 33 };
+        for (int i = 0; i < 3; i++)
+        {
+            UIShapes.CreateFrame(infoGroup, "InfoFrame" + (i + 1), new Vector2(0, rowY[i]), new Vector2(370, rowH[i]), FrameLine, FrameFill, 2f, frameSprite);
+            infoTexts[i] = UIShapes.CreateText(infoGroup, "Info" + (i + 1), "", font, 18, UiText, TextAnchor.MiddleLeft,
+                                               new Vector2(-175, rowY[i]), new Vector2(352, rowH[i]), new Vector2(0f, 0.5f));
+        }
+        uiBlockers.Add(infoGroup);
 
         // 描画中の補助
         startMarker = UIShapes.CreateImage(uiLayer, "DrawStart", Vector2.zero, new Vector2(16, 16), UIShapes.Circle, Color.white);
@@ -1268,30 +1433,68 @@ public class LogicModeScreen : MonoBehaviour
         hintText.gameObject.AddComponent<Outline>().effectColor = Color.black;
 
         SelectHardness(1);
-        SetRouteInteractable(false);
+        SetRouteInteractable(!Application.isPlaying);   // 非再生中のプレビューはモックと見比べやすいよう明るく
         UpdateGaugeUI(0f);
         UpdateScore();
     }
 
-    Image CreateFill(string name, Vector2 pos, Vector2 size, Color c, Image.OriginHorizontal origin)
+    Image CreateFill(Transform parent, string name, Vector2 size, Color c, Image.OriginHorizontal origin)
     {
-        var img = UIShapes.CreateImage(uiLayer, name, pos, size, UIShapes.White, c);
+        var img = UIShapes.CreateImage(parent, name, Vector2.zero, size, UIShapes.White, c);
         img.type = Image.Type.Filled;
         img.fillMethod = Image.FillMethod.Horizontal;
         img.fillOrigin = (int)origin;
         return img;
     }
 
-    Button CreateButton(string name, Vector2 pos, Vector2 size, Color color)
+    /// <summary>ボタン画像を差し替えたときは仮の縁を消す</summary>
+    static void HideRim(Transform parent, string buttonName)
     {
-        var img = UIShapes.CreateImage(uiLayer, name, pos, size, UIShapes.White, color);
+        var rim = parent.Find(buttonName + "Rim");
+        if (rim != null) rim.gameObject.SetActive(false);
+    }
+
+    /// <summary>文字の下に敷く斜めの帯</summary>
+    Image CreateRibbon(Transform parent, string name, Vector2 pos, Vector2 size, Color c)
+    {
+        return ribbonSprite != null
+            ? UIShapes.CreateImage(parent, name, pos, size, ribbonSprite, Color.white)
+            : UIShapes.CreateImage(parent, name, pos, size, UIShapes.Ribbon, c);
+    }
+
+    Button CreateButton(Transform parent, string name, Vector2 pos, Vector2 size, Color color)
+    {
+        // 縁（少し明るい角丸）→ 本体
+        var rim = UIShapes.CreateImage(parent, name + "Rim", pos, size + new Vector2(4, 4),
+                                       pillSprite != null ? pillSprite : UIShapes.Pill, new Color(0.62f, 0.60f, 0.58f, 0.55f));
+        rim.type = Image.Type.Sliced;
+        if (pillSprite != null) rim.gameObject.SetActive(false);
+
+        var img = UIShapes.CreateImage(parent, name, pos, size, pillSprite != null ? pillSprite : UIShapes.Pill, color);
+        img.type = Image.Type.Sliced;
         img.raycastTarget = true;
         var btn = img.gameObject.AddComponent<Button>();
         btn.targetGraphic = img;
         var cb = btn.colors;
-        cb.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.5f);
+        cb.disabledColor = new Color(0.8f, 0.8f, 0.8f, 1f);
         btn.colors = cb;
+        img.gameObject.AddComponent<CanvasGroup>();   // 押せない間は文字・アイコンごと暗くする（SetRouteInteractable）
         return btn;
+    }
+
+    /// <summary>点 p（画面の座標）が制限時間・アイコン枠・説明欄などの UI に隠れるか（r = 余白）。UI を動かしても今の位置で判定</summary>
+    bool HiddenByUI(Vector2 p, float r)
+    {
+        var corners = new Vector3[4];
+        foreach (var b in uiBlockers)
+        {
+            if (b == null || !b.gameObject.activeInHierarchy) continue;
+            b.GetWorldCorners(corners);
+            Vector2 min = root.InverseTransformPoint(corners[0]);
+            Vector2 max = root.InverseTransformPoint(corners[2]);
+            if (p.x > min.x - r && p.x < max.x + r && p.y > min.y - r && p.y < max.y + r) return true;
+        }
+        return false;
     }
 
     // ======================= ゲーム進行 =======================
@@ -1313,7 +1516,9 @@ public class LogicModeScreen : MonoBehaviour
                 int k = perLine[problem[i].line]++;
                 var n = CreateNode(problem[i]);
                 n.SetOrder(problem[i].order > 0 ? problem[i].order : i + 1);
-                n.Rect.anchoredPosition = line.Sample(45f + k * 64f);
+                float pd = nodeSize * 0.8f + k * Mathf.Max(64f, nodeSize * 1.25f);
+                n.Rect.anchoredPosition = line.Sample(pd);
+                PlaceOrderBadge(n, line, pd);
                 previews.Add(n);
                 yield return new WaitForSeconds(previewRevealInterval);
             }
@@ -1353,6 +1558,43 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         StageClear();
+    }
+
+    /// <summary>
+    /// 出現順の番号バッジを見える位置に置く。ふだんは右上。
+    /// 画面の外・制限時間などの枠にかかるときは、ノードの周り 8 方向から見える所を探し、
+    /// どこも隠れるときは少し離して置く（線の上＝前後のノードと重なる向きはなるべく避ける）
+    /// </summary>
+    void PlaceOrderBadge(ProtoNode n, BasicLine line, float dist)
+    {
+        Vector2 p = line.Sample(dist);
+        Vector2 dir = line.Sample(Mathf.Min(line.length, dist + 5f)) - line.Sample(Mathf.Max(0f, dist - 5f));
+        dir = dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector2.right;
+        float r = Mathf.Max(20f, nodeSize * 0.32f) * 0.5f + 4f;
+        float[] radii = { 0.51f, 0.75f, 1.0f, 1.3f };   // ノードの大きさに対する中心からの距離（0.51 = 右上の角）
+
+        Vector2 best = ProtoNode.BadgeOffset(new Vector2(1, 1), nodeSize);
+        float bestScore = float.MaxValue;
+        for (int ri = 0; ri < radii.Length; ri++)
+        {
+            for (int ai = 0; ai < 8; ai++)
+            {
+                float deg = 45f + ai * 45f;   // 右上から反時計回り
+                Vector2 c = new Vector2(Mathf.Cos(deg * Mathf.Deg2Rad), Mathf.Sin(deg * Mathf.Deg2Rad));
+                Vector2 off = ri == 0 && ai % 2 == 0
+                    ? ProtoNode.BadgeOffset(c, nodeSize)          // 斜めの4つの角はいつもの位置
+                    : c * nodeSize * Mathf.Max(radii[ri], 0.62f);  // 上下左右は少し離す
+                Vector2 bp = p + off;
+                bool hidden = Mathf.Abs(bp.x) > 960f - r || Mathf.Abs(bp.y) > 540f - r || HiddenByUI(bp, r);
+                if (hidden) continue;
+                float score = ri * 1.0f
+                            + Mathf.Abs(Vector2.Dot(c, dir)) * 0.8f
+                            + (c.y < -0.1f && n.HasTag ? 0.5f : 0f)   // 下には種類の札がある
+                            + (ri == 0 && ai == 0 ? 0f : 0.3f);       // 見えるなら右上（いつもの位置）を優先
+                if (score < bestScore) { bestScore = score; best = off; }
+            }
+        }
+        n.SetBadgeOffset(best);
     }
 
     List<ProblemNode> GenerateProblem()
@@ -2327,6 +2569,7 @@ public class LogicModeScreen : MonoBehaviour
     {
         limb.hp = Mathf.Max(0f, limb.hp - dmg);
         limb.hpFill.fillAmount = limb.hp / limb.maxHp;
+        if (limb.gauge != null) limb.gauge.fillAmount = limb.hp / limb.maxHp;   // 白い枠が欠ける
         if (hpBarFillSprite == null) limb.hpFill.color = Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.3f, 0.9f, 0.4f), limb.hp / limb.maxHp);
         dangerFlash = Mathf.Max(dangerFlash, damageFlash);   // ダメージで一瞬赤くなる
         if (limb.hp <= 0f) LoseLimb(limb);
@@ -2512,8 +2755,15 @@ public class LogicModeScreen : MonoBehaviour
 
     void SetRouteInteractable(bool on)
     {
-        foreach (var b in hardnessButtons) b.interactable = on;
-        if (executeButton != null) executeButton.interactable = on;
+        foreach (var b in hardnessButtons) SetButtonOn(b, on);
+        if (executeButton != null) SetButtonOn(executeButton, on);
+    }
+
+    static void SetButtonOn(Button b, bool on)
+    {
+        b.interactable = on;
+        var g = b.GetComponent<CanvasGroup>();
+        if (g != null) g.alpha = on ? 1f : 0.5f;
     }
 
     void UpdateGaugeUI(float previewCost)
@@ -2522,9 +2772,11 @@ public class LogicModeScreen : MonoBehaviour
         gaugePreviewFill.fillAmount = lineGauge / maxLineGauge;
         gaugeFill.fillAmount = Mathf.Max(0f, lineGauge - previewCost) / maxLineGauge;
         gaugeLostFill.fillAmount = (maxLineGauge - currentMaxLineGauge) / maxLineGauge;
-        gaugeText.text = previewCost > 0f
-            ? $"造線ゲージ {lineGauge - previewCost:0} / {currentMaxLineGauge:0}  (-{previewCost:0})"
-            : $"造線ゲージ {lineGauge:0} / {currentMaxLineGauge:0}";
+        if (gaugeMarker != null)
+        {
+            float f = Mathf.Clamp01(Mathf.Max(0f, lineGauge - previewCost) / maxLineGauge);
+            gaugeMarker.rectTransform.anchoredPosition = new Vector2(-gaugeSize.x * 0.5f + gaugeSize.x * f, -12f);
+        }
     }
 
     void AddScore(int v)
@@ -2534,12 +2786,15 @@ public class LogicModeScreen : MonoBehaviour
         UpdateScore();
     }
 
-    void UpdateScore() => scoreText.text = Score.ToString("D" + scoreDigits);
+    void UpdateScore()
+    {
+        if (scoreText != null) scoreText.text = Score.ToString("D" + scoreDigits);
+    }
 
     void UpdateStatus()
     {
-        if (statusText == null) return;
-        timerText.text = CurrentPhase == Phase.Route ? $"残り {timeLeft:0.0}" : "残り --.-";
+        if (timerText == null) return;
+        timerText.text = (CurrentPhase == Phase.Route ? $"{timeLeft:0.0}" : "--.-") + " <size=22>秒</size>";
         timerText.color = CurrentPhase == Phase.Route && timeLeft <= 10f ? InvalidCol : Color.white;
 
         string phase = CurrentPhase switch
@@ -2550,21 +2805,34 @@ public class LogicModeScreen : MonoBehaviour
             Phase.Clear => "クリア",
             _ => "ゲームオーバー",
         };
+        foreach (var t in infoTexts) if (t != null) t.color = UiText;
+
         // 再生中に問題が読めなかったとき
         if (Application.isPlaying && problemCount <= 0)
         {
-            statusText.text = $"ステージ{stageNumber} の問題が CSV にありません\nResources/{logicCsvFolder} の CSV と Stage Number を確認してください";
-            statusText.color = InvalidCol;
+            SetInfo($"ステージ{stageNumber} の問題が CSV にありません", $"Resources/{logicCsvFolder} を確認", "Inspector の Stage Number も確認");
+            foreach (var t in infoTexts) if (t != null) t.color = InvalidCol;
             return;
         }
 
-        string progress = problemCount > 0 ? $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}  " : "";
-        statusText.text =
-            $"{progress}{phase}  [{(useFixedSpawn ? "指定出現" : "確率出現")}]\n" +
-            $"SAN {san:0}/{maxSan:0}   硬さ {SelectedHardness}\n" +
-            (CurrentPhase == Phase.Route
-                ? (ClickMode ? "基本線をクリック → 別の基本線をクリックで造線" : "基本線からドラッグ → 別の基本線で離して造線") + " / 右クリックで削除"
-                : "");
+        string guide = CurrentPhase switch
+        {
+            Phase.Preview => "ノードの出現順を確認してください",
+            Phase.Route => ClickMode ? "基本線をクリック → 別の基本線をクリック" : "基本線からドラッグ → 別の基本線で離す",
+            Phase.Execute => "ノードが進んでいます",
+            _ => phase,
+        };
+        string progress = problemCount > 0 ? $"問題 {Mathf.Min(problemIndex + 1, problemCount)}/{problemCount}   " : "";
+        string spawn = useFixedSpawn ? "指定出現" : "確率出現";
+        SetInfo(guide,
+                $"{progress}{phase}",
+                CurrentPhase == Phase.Route ? $"SAN {san:0}/{maxSan:0}   右クリックで造線を削除" : $"SAN {san:0}/{maxSan:0}   [{spawn}]");
+    }
+
+    void SetInfo(string a, string b, string c)
+    {
+        string[] s = { a, b, c };
+        for (int i = 0; i < infoTexts.Length; i++) if (infoTexts[i] != null) infoTexts[i].text = s[i];
     }
 
     // ======================= 危険演出 =======================
@@ -2728,7 +2996,8 @@ namespace LogicModeEditorInternal
     /// </summary>
     /// <summary>
     /// プレビュー画面（LogicModePreview）上の変更を検知して LogicModeScreen に記録する。
-    /// 対象：Image の Source Image（m_Sprite）・Color（m_Color）、GameObject の表示ON/OFF（m_IsActive）
+    /// 対象：Image の Source Image（m_Sprite）・Color（m_Color）、GameObject の表示ON/OFF（m_IsActive）、
+    ///       RectTransform の位置（m_AnchoredPosition）・大きさ（m_SizeDelta）・拡大率（m_LocalScale）
     /// </summary>
     [InitializeOnLoad]
     static class LogicModeHierarchyRecorder
@@ -2751,8 +3020,12 @@ namespace LogicModeEditorInternal
                 bool sprite = prop == "m_Sprite";
                 bool color = prop.StartsWith("m_Color");
                 bool active = prop == "m_IsActive";
-                if (!sprite && !color && !active) continue;
+                bool position = prop.StartsWith("m_AnchoredPosition");
+                bool size = prop.StartsWith("m_SizeDelta");
+                bool scale = prop.StartsWith("m_LocalScale");
+                if (!sprite && !color && !active && !position && !size && !scale) continue;
                 if ((sprite || color) && !(pm.target is Image)) continue;
+                if ((position || size || scale) && !(pm.target is RectTransform)) continue;
 
                 Transform t = pm.target is Component c ? c.transform
                             : pm.target is GameObject g ? g.transform : null;
@@ -2764,7 +3037,7 @@ namespace LogicModeEditorInternal
                 {
                     if (screen == null || t == null) return;
                     Undo.RecordObject(screen, "ヒエラルキーの変更を記録");
-                    screen.RecordHierarchyChange(t, sprite, color, active);
+                    screen.RecordHierarchyChange(t, sprite, color, active, position, size, scale);
                     EditorUtility.SetDirty(screen);
                 };
             }
@@ -2798,13 +3071,27 @@ namespace LogicModeEditorInternal
             {
                 if (GUILayout.Button("プレビューを再構築"))
                     ((LogicModeScreen)target).RebuildPreview();
+                if (GUILayout.Button("モックの配置にする（円・腕足の位置・基本線の出口・ノード／回収点の大きさ）"))
+                {
+                    var m = (LogicModeScreen)target;
+                    Undo.RecordObject(m, "モックの配置にする");
+                    m.circleCenter = Vector2.zero;
+                    m.circleRadius = 375f;
+                    m.armAngle = 34f;
+                    m.legAngle = -34f;
+                    m.outerLineEdgeY = 355f;
+                    m.nodeSize = 88f;
+                    m.limbIconSize = new Vector2(140, 140);
+                    EditorUtility.SetDirty(m);
+                    m.RebuildPreview();
+                }
             }
             EditorGUILayout.HelpBox("シーンビューのハンドルで円の中心・半径・腕／足の位置をドラッグできます。", MessageType.Info);
 
             EditorGUILayout.Space();
             var s = (LogicModeScreen)target;
             EditorGUILayout.HelpBox(
-                "ヒエラルキーの LogicModePreview 以下で Image の Source Image / Color、オブジェクトの表示ON/OFFを変えると自動で記録され、作り直しても・再生しても残ります。\n" +
+                "ヒエラルキーの LogicModePreview 以下で Image の Source Image / Color、オブジェクトの表示ON/OFF、位置・大きさ（Rect Transform）を変えると自動で記録され、作り直しても・再生しても残ります（再生中の変更は残りません）。\n" +
                 $"記録数: {s.hierarchyOverrides.Count}", MessageType.Info);
             using (new EditorGUI.DisabledScope(Application.isPlaying || s.hierarchyOverrides.Count == 0))
             {
