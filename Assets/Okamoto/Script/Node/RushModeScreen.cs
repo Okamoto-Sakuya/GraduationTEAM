@@ -3,6 +3,7 @@
 #endif
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
@@ -145,12 +146,20 @@ public class RushModeScreen : MonoBehaviour
     public float rushSeconds = 60f;                      // 全体の制限時間（秒）
     public float firstSpawnDelay = 1f;                   // 最初のノードが出るまでの秒数
     [Range(0f, 0.5f)] public float spawnJitter = 0.15f;  // 出現間隔のばらつき（±割合）
+    public bool logGroupChange = true;                   // true = レベル（ノードグループ）が切り替わったとき・ノードが出るたびに Console へログを出す
+    [Header("四肢が欠損したときのズーム演出（ゲームを止めて欠損した部位へ寄る）")]
+    public bool limbLostZoom = true;                     // true = 部位が欠損したら、ゲームを一時停止してその場所にカメラが寄る
+    public float limbLostZoomScale = 2.2f;               // 寄る倍率
+    public float limbLostZoomInSeconds = 0.6f;           // 寄るのにかける秒数
+    public float limbLostHoldSeconds = 2f;               // 寄ったまま映しておく秒数（この間も彼岸花の演出は動く）
+    public float limbLostZoomOutSeconds = 0.6f;          // 戻るのにかける秒数
+
     public float levelTransitionSeconds = 3f;            // レベルが変わるとき、速度・出現間隔を一気に変えず、この秒数かけて変える（ステージ表に transition 列があればそちらを優先）
     public float defaultLevelSeconds = 12f;              // ステージ表に starttime が無いときの 1 レベルの長さ（秒）
 
     [Header("CSV（Resources → StreamingAssets → TextAsset → どれも無ければInspectorの値）")]
     public string commonCsvFolder = "MasterData/Main/Common";   // メイン共通の CSV（Resources 以下）。nodestatus / playerstatus / miscparams
-    public string logicCsvFolder = "MasterData/Main/Logic";     // 旧形式の参照数値 CSV の置き場所（Resources 以下）
+    public string logicCsvFolder = "MasterData/Main/Rush";     // 旧形式の参照数値 CSV の置き場所（Resources 以下）
     public string rushCsvFolder = "MasterData/Main/Rush";       // ラッシュの CSV（Resources 以下）
     public bool useDebugCsv = false;                     // true = {名前}_debug があればそちらを優先（デバッグ用データ）
     public bool useStreamingAssets = true;               // true = Resources に無ければ StreamingAssets の CSV を読む（旧置き場所）
@@ -160,18 +169,18 @@ public class RushModeScreen : MonoBehaviour
     public TextAsset nodeTableCsv;                       // 見つからないときに使うノード表 CSV
 
     [Header("メイン共通のマスター CSV（commonCsvFolder）")]
-    public string nodeStatusCsvName = "nodestatus_master.csv";       // ノードの種類ごとのステータス（id = nodetype）
-    public string playerStatusCsvName = "playerstatus_master.csv";   // 部位ごとの HP・最大 SAN・造線ゲージ・1m の消費量
-    public string miscParamsCsvName = "miscparams_master.csv";       // その他の数値（key, value）
+    public string nodeStatusCsvName = "nodestatus_master_1114.csv";       // ノードの種類ごとのステータス（id = nodetype）
+    public string playerStatusCsvName = "playerstatus_master_1114.csv";   // 部位ごとの HP・最大 SAN・造線ゲージ・1m の消費量
+    public string miscParamsCsvName = "rush_miscparams_master_1114.csv";       // その他の数値（key, value）
     public TextAsset nodeStatusCsv;
     public TextAsset playerStatusCsv;
     public TextAsset miscParamsCsv;
 
     [Header("ラッシュのマスター CSV（rushCsvFolder。ファイル名は実際のものに合わせる）")]
-    public string rushStageCsvName = "rush_stage_master.csv";           // レベルごとの設定（stage, level, starttime, interval, speed, nodegroup）
-    public string rushNodeGroupCsvName = "rush_nodegroup_master.csv";   // グループの中身（nodegroup, nodetype, base, weight）
-    public string rushSideCsvName = "rush_sidespawn_master.csv";        // 左右の確率（count, same, opposite）
-    public string rushLineCsvName = "rush_linespwan_master.csv";        // 基本線の確率（count, sameline, differentline）
+    public string rushStageCsvName = "rush_stage_master_1114.csv";           // レベルごとの設定（stage, level, starttime, interval, speed, nodegroup）
+    public string rushNodeGroupCsvName = "rush_nodegroup_master_1114.csv";   // グループの中身（nodegroup, nodetype, base, weight）
+    public string rushSideCsvName = "rush_sidespawn_master_1114.csv";        // 左右の確率（count, same, opposite）
+    public string rushLineCsvName = "rush_linespwan_master_1114.csv";        // 基本線の確率（count, sameline, differentline）
     public TextAsset rushStageCsv;
     public TextAsset rushNodeGroupCsv;
     public TextAsset rushSideCsv;
@@ -399,6 +408,10 @@ public class RushModeScreen : MonoBehaviour
     Dictionary<int, RushNodeStatus> nodeStatus;   // nodestatus_master（id = nodetype）
     RushNodeStatus fallbackStatus;                // nodestatus_master が無いとき（Inspector の値）
 
+    bool freeze;                              // true = ゲーム進行を止めている（欠損ズーム演出中）
+    bool zoomRunning;
+    readonly List<Limb> zoomQueue = new List<Limb>();   // ズーム待ちの部位（同じタイミングで欠損したら右側から）
+    bool gameOverPending;                     // 最後の部位が欠損：ズーム演出のあとでゲームオーバーにする
     RushSpawner rushSpawner;                  // ラッシュの出現抽選（CSV のグループから）
     RushSpawner.LevelDef currentLevel;        // 今のレベル
     float transFromSpeed = 1f, transFromInterval = 6f, transStart = -999f, transLength;   // レベル遷移中の補間用
@@ -528,6 +541,7 @@ public class RushModeScreen : MonoBehaviour
         }
 
         Time.timeScale = 1f;
+        freeze = false; zoomRunning = false; gameOverPending = false; zoomQueue.Clear();
         font = ResolveFont();
         LoadCsv();
         san = maxSan;
@@ -615,7 +629,7 @@ public class RushModeScreen : MonoBehaviour
             return;
         }
 
-        if (CurrentPhase == Phase.Route) HandleDrawingInput();
+        if (CurrentPhase == Phase.Route && !freeze) HandleDrawingInput();
         else if (drawing) CancelDrawing();
 
         UpdateDrawnVisuals();
@@ -781,7 +795,7 @@ public class RushModeScreen : MonoBehaviour
         t = Common(playerStatusCsv, playerStatusCsvName);
         if (t != null) ApplyPlayerStatusCsv(t);
         else Debug.LogWarning("[CSV] playerstatus_master が見つかりません → Inspector の値（部位HP・SAN・造線ゲージ）を使います");
-        t = Common(miscParamsCsv, miscParamsCsvName);
+        t = Rush(miscParamsCsv, miscParamsCsvName);   // その他の数値はラッシュのフォルダ
         if (t != null) RushCsvLoader.ApplyParams(this, t, "miscparams");
         t = Common(nodeStatusCsv, nodeStatusCsvName);
         nodeStatus = t != null ? RushCsvLoader.LoadNodeStatus(t) : new Dictionary<int, RushNodeStatus>();
@@ -796,6 +810,7 @@ public class RushModeScreen : MonoBehaviour
             Rush(rushLineCsv, rushLineCsvName),
             stageNumber, defaultLevelSeconds,
             Common(nodeStatusCsv, nodeStatusCsvName));   // base 列が無いノードグループは nodestatus の hp の符号で良性/悪性を決める
+        if (rushSpawner.LineGauge > 0f) maxLineGauge = rushSpawner.LineGauge;   // ステージ表の造線ゲージ（linegauge 列）
         problemCount = rushSpawner.Levels.Count;
         Debug.Log($"[出現] ラッシュ（ステージ{stageNumber}・{problemCount}レベル）");
     }
@@ -1292,6 +1307,7 @@ public class RushModeScreen : MonoBehaviour
         while (timeLeft > 0f)
         {
             if (CurrentPhase == Phase.GameOver) yield break;
+            if (freeze) { yield return null; continue; }   // 欠損ズーム演出中は時間も出現も止める
             float dt = Time.deltaTime;
             timeLeft = Mathf.Max(0f, timeLeft - dt);
             rushElapsed += dt;
@@ -1317,6 +1333,7 @@ public class RushModeScreen : MonoBehaviour
         while (moving.Count > 0)
         {
             if (CurrentPhase == Phase.GameOver) yield break;
+            if (freeze) { yield return null; continue; }
             UpdateMoving(Time.deltaTime);
             yield return null;
         }
@@ -1343,6 +1360,11 @@ public class RushModeScreen : MonoBehaviour
             transStart = rushElapsed;
             transLength = first ? 0f : (currentLevel.transition >= 0f ? currentLevel.transition : levelTransitionSeconds);
             problemIndex = idx;   // 出現ログの「問題」列にはレベルの番号を入れる
+            if (logGroupChange)
+            {
+                int prevGroup = idx > 0 ? lv[idx - 1].group : -1;
+                Debug.Log($"<color=#ffd24a>[ラッシュ] ━━━━ 経過 {rushElapsed:0.0}s：LEVEL {currentLevel.level} 開始 ／ ノードグループ {(first ? "" : prevGroup + " → ")}{currentLevel.group}  {rushSpawner.GroupSummary(currentLevel.group)} ━━━━</color>");
+            }
             Debug.Log($"[ラッシュ] LEVEL {currentLevel.level}  速度×{currentLevel.speedRate:0.00}  間隔 {currentLevel.interval:0.0}s  （{transLength:0.#}秒かけて遷移）");
         }
         // 速度は遷移中ずっとなめらかに変える（既に流れているノードも同じ倍率で動く）
@@ -1365,6 +1387,8 @@ public class RushModeScreen : MonoBehaviour
         foreach (var sp in rushSpawner.Next(currentLevel, leftLines, rightLines))
         {
             spawnCount++;
+            if (logGroupChange)
+                Debug.Log($"[出現] #{spawnCount}  LEVEL {currentLevel.level}／グループ {currentLevel.group}  {RushNodeTypes.Name(sp.type)}  {(sp.bad ? "悪性" : "良性")}  {lines[sp.line].name}");
             SpawnMoving(new ProblemNode
             {
                 line = sp.line,
@@ -2314,8 +2338,75 @@ public class RushModeScreen : MonoBehaviour
 
         bool allLost = true;
         foreach (var l in limbs) if (!l.lost) allLost = false;
-        if (allLost) GameOver();
+        if (allLost && !limbLostZoom) { GameOver(); return; }
+        if (allLost) gameOverPending = true;   // 最後の部位も、ズームして映してからゲームオーバー
+        if (limbLostZoom)
+        {
+            zoomQueue.Add(limb);
+            if (!zoomRunning) StartCoroutine(LimbLostZoomRoutine());
+        }
     }
+
+    // ======================= 四肢欠損のズーム演出 =======================
+
+    /// <summary>ゲームを止める → 欠損した部位に寄る → 映す → 戻る → 再開（同時に複数欠損したら順番に）</summary>
+    IEnumerator LimbLostZoomRoutine()
+    {
+        zoomRunning = true;
+        freeze = true;
+        if (drawing) CancelDrawing();
+        yield return null;   // 同じタイミングで欠損した部位が出そろうのを 1 フレーム待つ
+
+        // 寄せる対象：人体・線・ノードなど「ゲーム世界」のレイヤー（UI・赤い縁取りは動かさない）
+        var targets = new List<RectTransform> { lineLayer, drawnLayer, limbLayer, nodeLayer };
+        if (centerImage != null) targets.Add(centerImage.rectTransform);
+        var basePos = targets.Select(t => t.anchoredPosition).ToList();
+        var baseScale = targets.Select(t => t.localScale).ToList();
+
+        void Apply(Vector2 p, float k)   // k = 0（通常）?1（最大ズーム）
+        {
+            float sc = Mathf.Lerp(1f, limbLostZoomScale, k);
+            for (int i = 0; i < targets.Count; i++)
+            {
+                targets[i].localScale = new Vector3(sc, sc, 1f);
+                targets[i].anchoredPosition = p + sc * (basePos[i] - p);   // p を画面の同じ位置に保ったまま拡大
+            }
+        }
+
+        while (zoomQueue.Count > 0 && CurrentPhase != Phase.GameOver)
+        {
+            // 優先順位：右側の部位から（x が大きい順。同じ側なら上＝腕が先）
+            var limb = zoomQueue.OrderByDescending(l => l.pos.x).ThenByDescending(l => l.pos.y).First();
+            zoomQueue.Remove(limb);
+            Vector2 p = limb.root.anchoredPosition;
+
+            for (float t = 0f; t < limbLostZoomInSeconds; t += Time.deltaTime)
+            {
+                Apply(p, Smooth(t / Mathf.Max(0.01f, limbLostZoomInSeconds)));
+                yield return null;
+            }
+            Apply(p, 1f);
+            for (float t = 0f; t < limbLostHoldSeconds; t += Time.deltaTime) yield return null;
+            if (gameOverPending && zoomQueue.Count == 0) break;   // 最後の部位は寄ったまま終わり、戻さずにゲームオーバーへ
+            for (float t = 0f; t < limbLostZoomOutSeconds; t += Time.deltaTime)
+            {
+                Apply(p, 1f - Smooth(t / Mathf.Max(0.01f, limbLostZoomOutSeconds)));
+                yield return null;
+            }
+            Apply(p, 0f);
+        }
+
+        for (int i = 0; i < targets.Count; i++)   // 念のため元に戻す
+        {
+            targets[i].localScale = baseScale[i];
+            targets[i].anchoredPosition = basePos[i];
+        }
+        zoomRunning = false;
+        freeze = false;
+        if (gameOverPending) { gameOverPending = false; GameOver(); }
+    }
+
+    static float Smooth(float k) { k = Mathf.Clamp01(k); return k * k * (3f - 2f * k); }
 
     // ======================= 四肢欠損の彼岸花演出 =======================
 

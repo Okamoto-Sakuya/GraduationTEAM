@@ -3576,11 +3576,17 @@ MonoBehaviour:
   rushSeconds: 60
   firstSpawnDelay: 1
   spawnJitter: 0.15
+  logGroupChange: 1
+  limbLostZoom: 1
+  limbLostZoomScale: 2.2
+  limbLostZoomInSeconds: 0.6
+  limbLostHoldSeconds: 2
+  limbLostZoomOutSeconds: 0.6
   levelTransitionSeconds: 3
   defaultLevelSeconds: 12
-  commonCsvFolder: MasterData/Main/Common
-  logicCsvFolder: MasterData/Main/Logic
-  rushCsvFolder: MasterData/Main/Rush
+  commonCsvFolder: MasterData1/Main1/Common1
+  logicCsvFolder: MasterData1/Main1/Rush
+  rushCsvFolder: MasterData1/Main1/Rush
   useDebugCsv: 0
   useStreamingAssets: 1
   paramsCsvName: logic_params.csv

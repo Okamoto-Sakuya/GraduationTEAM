@@ -43,7 +43,16 @@ public class RushSpawner
     class Entry { public bool bad; public int type; public float weight = 1f; }
     class StreakRow { public int count; public bool orMore; public float same; public float other; }
 
+    public int GroupSize(int group) => groups.TryGetValue(group, out var l) ? l.Count : 0;
+    public string GroupSummary(int group)
+    {
+        if (!groups.TryGetValue(group, out var l)) return "（グループなし）";
+        int good = l.Count(e => !e.bad), bad = l.Count - good;
+        return $"{l.Count}枠（良性{good}・悪性{bad}）";
+    }
+
     public List<LevelDef> Levels { get; private set; } = new List<LevelDef>();
+    public float LineGauge { get; private set; }   // ステージ表の linegauge 列（最初の行の値。無ければ 0）
 
     readonly Dictionary<int, List<Entry>> groups = new Dictionary<int, List<Entry>>();
     readonly List<StreakRow> sideTable = new List<StreakRow>();
@@ -144,7 +153,7 @@ public class RushSpawner
         {
             int cStage = t.Col("stage", "id"), cTime = t.Col("time", "starttime");
             int cLevel = t.Col("level"), cGroup = t.Col("nodegroup", "group");
-            int cRate = t.Col("rate"), cSpeed = t.Col("speed"), cCount = t.Col("nodecount"), cTrans = t.Col("transition", "transitionseconds");
+            int cRate = t.Col("rate"), cSpeed = t.Col("speed"), cCount = t.Col("nodecount"), cTrans = t.Col("transition", "transitionseconds"), cGauge = t.Col("linegauge");
 
             var rows = new List<string[]>();
             foreach (var row in t.rows)
@@ -155,6 +164,7 @@ public class RushSpawner
                 rows = t.rows;
             }
 
+            if (rows.Count > 0 && cGauge >= 0 && TryFloat(Cell(rows[0], cGauge), out float lg)) LineGauge = lg;
             float cumulative = 0f;   // 新形式：レベルの開始時刻を積み上げる
             int idx = 0;
             foreach (var row in rows)
@@ -201,34 +211,51 @@ public class RushSpawner
     public List<Spawn> Next(LevelDef level, List<int> leftLines, List<int> rightLines)
     {
         var result = new List<Spawn>();
-        var entry = PickEntry(level.group);
+        var entry = PickEntry(level);
         if (entry == null) return result;
 
         int count = RushNodeTypes.SpawnCount(entry.type);
+        var used = new List<int>();   // 同時出現：2 個は別々の基本線に出す
         for (int i = 0; i < count; i++)
         {
-            int line = PickLine(leftLines, rightLines);
+            int line = used.Count == 0 ? PickLine(leftLines, rightLines)
+                                       : PickLine(Without(leftLines, used), Without(rightLines, used));
+            if (line < 0 && used.Count > 0) line = PickLine(leftLines, rightLines);   // 空きが無ければ重なってもよい
             if (line < 0) break;
+            used.Add(line);
             result.Add(new Spawn { line = line, bad = entry.bad, type = entry.type });
         }
         return result;
     }
 
-    Entry PickEntry(int group)
+    static List<int> Without(List<int> src, List<int> ex) =>
+        src == null ? null : src.Where(l => !ex.Contains(l)).ToList();
+
+    // 1 つのレベルの間は、グループの行を「1 回ずつランダムな順番」で使い切る（使い切ったらまた混ぜ直す）。
+    // ＝ グループの行数がそのままそのレベルの出現数になる（行数 10 → 10 個を順番だけランダムに）
+    readonly List<Entry> bag = new List<Entry>();
+    LevelDef bagLevel;
+
+    Entry PickEntry(LevelDef level)
     {
-        if (!groups.TryGetValue(group, out var list) || list.Count == 0)
+        if (!groups.TryGetValue(level.group, out var list) || list.Count == 0)
         {
             if (groups.Count == 0) return null;
             list = groups.OrderBy(kv => kv.Key).First().Value;   // 指定のグループが無ければ最初のグループ
         }
-        float total = list.Sum(e => e.weight);
-        float r = UnityEngine.Random.value * total;
-        foreach (var e in list)
+        if (bagLevel != level) { bag.Clear(); bagLevel = level; }   // レベルが変わったら最初から
+        if (bag.Count == 0)
         {
-            r -= e.weight;
-            if (r <= 0f) return e;
+            bag.AddRange(list);
+            for (int i = bag.Count - 1; i > 0; i--)   // シャッフル
+            {
+                int j = UnityEngine.Random.Range(0, i + 1);
+                (bag[i], bag[j]) = (bag[j], bag[i]);
+            }
         }
-        return list[list.Count - 1];
+        var e = bag[bag.Count - 1];
+        bag.RemoveAt(bag.Count - 1);
+        return e;
     }
 
     int PickLine(List<int> left, List<int> right)

@@ -1,0 +1,21 @@
+﻿パラメータ名,数値,内容
+key,value,memo
+fastSpeedRate,2,迅速(id_3)：通常に対する移動速度の倍率
+heavyMinHardness,2,重圧(id_4)：通れる造線の硬さの下限（ロジック）
+heavyHardnessCost,2,重圧(id_4)：通ったときに減る硬さ（ロジック）
+stopAfterSeconds,2,停滞(id_5)：移動開始から止まるまでの秒数
+stopSeconds,2,停滞(id_5)：止まっている秒数
+limbMatchScoreRate,1.5,帰属(id_6〜9)：良性を対応部位に運んだときのスコア倍率
+limbMismatchSan,5,帰属(id_6〜9)：違う部位に運んだときの追加SAN減少量
+crossGauge,100,交錯(id_10)：固定するゲージ（100 = Lv4 / Lv-4）
+crossHitRate,0.8,交錯(id_10)：中心間距離が nodeSize×この値以下で交錯とみなす
+addLineAngleMin,30,造線(id_11)：生成角度の下限（度）
+addLineAngleMax,150,造線(id_11)：生成角度の上限（度）
+addLineMaxLength,600,造線(id_11)：最大距離（px）
+addLineHardness,1,造線(id_11)：追加する造線の硬さ
+vanishSeconds,7,造線の消滅までの秒数（ラッシュ・秒間消滅）
+warnBeforeSeconds,2,消滅準備（点滅）に入る残り秒数
+warnBeforeCount,1,消滅準備に入る残り回数（回数消滅）
+blinkSpeed,1.5,点滅の速さ（往復/秒）
+vanishAlpha,0.3,点滅の最低の濃さ
+levelTransitionSeconds,3,ラッシュのレベル遷移にかける秒数
