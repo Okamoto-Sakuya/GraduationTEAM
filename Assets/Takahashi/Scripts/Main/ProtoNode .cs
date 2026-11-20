@@ -10,6 +10,7 @@ using UnityEngine.UI;
 /// ・レベルは大きさから。区切りは nodestatus_master の lv〇min（SetLevelThresholds）。初期値 1(0-24) 2(25-49) 3(50-74) 4(75-100)
 /// ・周りのリングが残りゲージ（良性出現は反時計回り、悪性出現は時計回り。反転しても向きは出現時のまま）
 /// ・特殊ノードは下に種類の札を出す（SetTag。「右腕」「迅速」「重圧」「停滞」「交錯」「造線」など）
+/// ・見た目（仮）：良性 = 青い玉 / 悪性 = 赤いトゲトゲ（目なし）＋ゲージのリング。種類ごとのイラストは GoodSprite / BadSprite で差し替え。出現順は右上の白いバッジ
 /// ・LockGauge でゲージを固定できる（交錯ノード：時間で変化せず、FlipKind でのみ良性⇔悪性が入れ替わる）
 /// </summary>
 public class ProtoNode : MonoBehaviour
@@ -24,6 +25,15 @@ public class ProtoNode : MonoBehaviour
     public static Sprite BadSprite;
     public static Sprite RingSprite;
     public static float DefaultSize = 60f;
+
+    // 仮の見た目の色（図鑑の絵に寄せる：良性 = 青い玉 / 悪性 = 赤いトゲトゲ）
+    static readonly Color GoodBody = new Color(0.28f, 0.62f, 0.95f);
+    static readonly Color GoodRing = new Color(0.70f, 0.90f, 1f);
+    static readonly Color BadBody = new Color(0.82f, 0.06f, 0.10f);
+    static readonly Color BadCore = new Color(0.40f, 0.02f, 0.05f);
+    static readonly Color BadRing = new Color(1f, 0.38f, 0.36f);
+    static readonly Color BadgeColor = new Color(0.95f, 0.94f, 0.92f);   // 番号バッジの地
+    static readonly Color BadgeText = new Color(0.08f, 0.08f, 0.12f);
 
     public Kind CurrentKind { get; private set; }
     public Kind SpawnKind { get; private set; }
@@ -60,9 +70,10 @@ public class ProtoNode : MonoBehaviour
     public bool GaugeLocked { get; private set; }
 
     bool rising;          // true = 上昇中 / false = 減少中
-    Image body, ring;
+    Image body, ring, glow, orderBg, core, shine;
     Text orderLabel, tagLabel;
     Image tagBg;
+    float size;
     CanvasGroup group;
 
     Color tint = Color.white;
@@ -81,6 +92,10 @@ public class ProtoNode : MonoBehaviour
         var n = rt.gameObject.AddComponent<ProtoNode>();
         n.group = rt.gameObject.AddComponent<CanvasGroup>();
         n.group.blocksRaycasts = false;
+        n.size = size;
+
+        // 外側の光（仮の見た目のときだけ色が乗る）
+        n.glow = UIShapes.CreateImage(rt, "Glow", Vector2.zero, Vector2.one * size * 1.5f, UIShapes.SoftCircle, Color.clear);
 
         UIShapes.CreateImage(rt, "RingBg", Vector2.zero, new Vector2(size, size), ringSprite, new Color(1, 1, 1, 0.15f));
 
@@ -91,14 +106,20 @@ public class ProtoNode : MonoBehaviour
         // 向きは見た目確認しながら要調整
         n.ring.fillClockwise = (kind == Kind.Bad);
 
-        n.body = UIShapes.CreateImage(rt, "Body", Vector2.zero, new Vector2(size * 0.72f, size * 0.72f), UIShapes.Circle, Color.white);
+        n.body = UIShapes.CreateImage(rt, "Body", Vector2.zero, new Vector2(size * 0.76f, size * 0.76f), UIShapes.Circle, Color.white);
+        n.core = UIShapes.CreateImage(rt, "Core", Vector2.zero, Vector2.one * size * 0.46f, UIShapes.Circle, Color.white);    // 悪性の中の暗い丸
+        n.shine = UIShapes.CreateImage(rt, "Shine", Vector2.zero, Vector2.one * size * 0.62f, UIShapes.SoftCircle, Color.white); // 良性の中の白い光
 
-        n.orderLabel = UIShapes.CreateText(rt, "Order", "", font, 26, Color.white, TextAnchor.MiddleCenter,
-                                           Vector2.zero, new Vector2(size, size), new Vector2(0.5f, 0.5f));
-        n.orderLabel.gameObject.AddComponent<Outline>().effectColor = new Color(0, 0, 0, 0.8f);
+        // 出現順の番号（右上の白いバッジ）
+        Vector2 badgePos = BadgeOffset(new Vector2(1, 1), size);
+        float badge = Mathf.Max(20f, size * 0.32f);
+        n.orderBg = UIShapes.CreateImage(rt, "OrderBg", badgePos, Vector2.one * badge, UIShapes.Circle, BadgeColor);
+        n.orderLabel = UIShapes.CreateText(rt, "Order", "", font, Mathf.RoundToInt(badge * 0.78f), BadgeText, TextAnchor.MiddleCenter,
+                                           badgePos, Vector2.one * badge, new Vector2(0.5f, 0.5f));
+        n.orderBg.gameObject.SetActive(false);
 
         // 種類の札（ノードの下）
-        Vector2 tagPos = new Vector2(0, size * 0.5f + -20f);
+        Vector2 tagPos = new Vector2(0, -(size * 0.5f + 14f));
         n.tagBg = UIShapes.CreateImage(rt, "TagBg", tagPos, new Vector2(52, 24), UIShapes.White, new Color(0f, 0f, 0f, 0.7f));
         n.tagLabel = UIShapes.CreateText(rt, "Tag", "", font, 18, Color.white, TextAnchor.MiddleCenter,
                                          tagPos, new Vector2(80, 24), new Vector2(0.5f, 0.5f));
@@ -113,7 +134,25 @@ public class ProtoNode : MonoBehaviour
     }
 
     /// <summary>問題準備フェーズで「何番目に来るか」を表示。0で非表示</summary>
-    public void SetOrder(int order) => orderLabel.text = order > 0 ? order.ToString() : "";
+    public void SetOrder(int order)
+    {
+        orderLabel.text = order > 0 ? order.ToString() : "";
+        orderBg.gameObject.SetActive(order > 0);
+    }
+
+    /// <summary>番号バッジの位置（corner = (±1, ±1)。右上が (1, 1)）</summary>
+    public static Vector2 BadgeOffset(Vector2 corner, float size) =>
+        new Vector2(Mathf.Sign(corner.x) * size * 0.34f, Mathf.Sign(corner.y) * size * 0.38f);
+
+    /// <summary>番号バッジの位置を変える（ノードの中心から。画面外などで見えないとき）</summary>
+    public void SetBadgeOffset(Vector2 offset)
+    {
+        orderBg.rectTransform.anchoredPosition = offset;
+        orderLabel.rectTransform.anchoredPosition = offset;
+    }
+
+    /// <summary>種類の札が出ているか</summary>
+    public bool HasTag => tagBg != null && tagBg.gameObject.activeSelf;
 
     /// <summary>ノードの下の札（空文字で非表示）</summary>
     public void SetTag(string text)
@@ -177,20 +216,29 @@ public class ProtoNode : MonoBehaviour
     {
         Color c = CurrentKind == Kind.Good ? GoodColor : BadColor;
 
-        // 本体：画像があればその画像（色はそのまま）、無ければ白い丸に色を乗せる
-        Sprite s = CurrentKind == Kind.Good ? GoodSprite : BadSprite;
+        // 本体：画像があればその画像（色はそのまま）、無ければ 良性 = 青い玉 / 悪性 = 赤いトゲトゲ（目なし）
+        bool good = CurrentKind == Kind.Good;
+        Sprite s = good ? GoodSprite : BadSprite;
         if (s != null)
         {
             body.sprite = s;
             body.preserveAspect = true;
             body.color = tint;
+            glow.color = Color.clear;
+            core.enabled = shine.enabled = false;
         }
         else
         {
-            body.sprite = UIShapes.Circle;
-            body.color = c * tint;
+            body.preserveAspect = false;
+            body.sprite = good ? UIShapes.Circle : UIShapes.Starburst;
+            body.color = (good ? GoodBody : BadBody) * tint;
+            core.enabled = !good;
+            core.color = BadCore * tint;
+            shine.enabled = good;
+            shine.color = new Color(1f, 1f, 1f, 0.9f) * tint;
+            glow.color = new Color(c.r, c.g, c.b, good ? 0.5f : 0.45f) * tint;
         }
-        ring.color = Color.Lerp(c, Color.white, 0.35f) * tint;
+        ring.color = (good ? GoodRing : BadRing) * tint;
         ring.fillAmount = Value / 100f;
     }
 }

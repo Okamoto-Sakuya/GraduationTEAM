@@ -172,6 +172,9 @@ MonoBehaviour:
   armSprite: {fileID: 0}
   legSprite: {fileID: 0}
   limbIconSize: {x: 78, y: 78}
+  limbGaugeSprite: {fileID: 0}
+  limbSwirlSprite: {fileID: 0}
+  swirlSpeed: 40
   hpBarFrameSprite: {fileID: 0}
   hpBarFillSprite: {fileID: 0}
   nodeGoodSprite: {fileID: 0}
@@ -186,6 +189,25 @@ MonoBehaviour:
   lineGaugeFrameSprite: {fileID: 0}
   lineGaugeFillSprite: {fileID: 0}
   dangerSprite: {fileID: 0}
+  outerLineEdgeY: 540
+  basicLineColor: {r: 0.8, g: 0.76, b: 0.72, a: 0.85}
+  basicLineThickness: 4
+  arcLineColor: {r: 0.55, g: 0.22, b: 0.22, a: 0.5}
+  arcLineThickness: 3
+  basicLineSprite: {fileID: 0}
+  frameSprite: {fileID: 0}
+  ribbonSprite: {fileID: 0}
+  pillSprite: {fileID: 0}
+  menuIconSprites:
+  - {fileID: 0}
+  - {fileID: 0}
+  showMenuIconSlots: 1
+  limbLabelTexts:
+  - "\u53F3\u8155"
+  - "\u5DE6\u8155"
+  - "\u53F3\u811A"
+  - "\u5DE6\u811A"
+  limbLabelOffset: {x: 73, y: 100}
   useLimbBloom: 1
   limbBloomResources: Higanbana
   bloomDirection: 1
@@ -206,7 +228,33 @@ MonoBehaviour:
     veins: 1
     embers: 10
     randomEachTime: 1
-  hierarchyOverrides: []
+  hierarchyOverrides:
+  - path: GameScreen/UI/TimerGroup
+    overrideSprite: 0
+    sprite: {fileID: 0}
+    overrideColor: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    overrideActive: 0
+    active: 1
+    overridePosition: 1
+    position: {x: -404, y: 488}
+    overrideSize: 0
+    size: {x: 0, y: 0}
+    overrideScale: 0
+    scale: {x: 1, y: 1, z: 1}
+  - path: GameScreen/UI/MenuGroup
+    overrideSprite: 0
+    sprite: {fileID: 0}
+    overrideColor: 0
+    color: {r: 1, g: 1, b: 1, a: 1}
+    overrideActive: 0
+    active: 1
+    overridePosition: 1
+    position: {x: -553, y: -492}
+    overrideSize: 0
+    size: {x: 0, y: 0}
+    overrideScale: 0
+    scale: {x: 1, y: 1, z: 1}
   stageNumber: 1
   markClearedOnClear: 1
   clearCharacter: Daughter
@@ -324,6 +372,12 @@ MonoBehaviour:
   unplaceableColor: {r: 0.55, g: 0.55, b: 0.55, a: 1}
   violationColor: {r: 1, g: 0.2, b: 0.2, a: 1}
   violationBlinkSpeed: 4
+  centerZoneAlpha: 0.42
+  centerZoneColor: {r: 0.59, g: 0.03, b: 0.06, a: 1}
+  centerBlinkSpeed: 2.5
+  startEdgeMargin: 60
+  edgeFrameSeconds: 0.8
+  crossMarkSize: 40
   nodeSpeed: 160
   spawnInterval: 1.5
   previewRevealInterval: 0.4
@@ -776,6 +830,14 @@ PrefabInstance:
     - target: {fileID: 8683089068466984647, guid: 358f5ebd685383b4ea89b17444b86698, type: 3}
       propertyPath: m_Name
       value: HelpWindow
+      objectReference: {fileID: 0}
+    - target: {fileID: 9052549632433309680, guid: 358f5ebd685383b4ea89b17444b86698, type: 3}
+      propertyPath: helpButtonPos.x
+      value: -618.9
+      objectReference: {fileID: 0}
+    - target: {fileID: 9052549632433309680, guid: 358f5ebd685383b4ea89b17444b86698, type: 3}
+      propertyPath: helpButtonPos.y
+      value: -486.6
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
