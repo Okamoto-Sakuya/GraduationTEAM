@@ -74,7 +74,7 @@ public class LanguageController : MonoBehaviour
     /// </summary>
     public void ToggleLanguage(bool b)
     {
-        int count = Enum.GetValues(typeof(Type)).Length;
+        int count = Enum.GetValues(typeof(Lang)).Length;
         int current = (int)lang;
 
         if (b)
@@ -91,12 +91,11 @@ public class LanguageController : MonoBehaviour
         lang = (Lang)current;
 
         Changer();
-        ApplyLanguage();
     }
 
     public void Enter()
     {
-
+        ApplyLanguage();
     }
 
     /// <summary>
