@@ -58,6 +58,7 @@ using UnityEngine.InputSystem.UI;
 /// プレイヤーのステータス（部位ごとの HP・SAN・造線ゲージ）は playerstatus_master
 /// 出現ログ : 出たノードの種類・順番・位置・結果を Console と CSV（Excel 用、プロジェクト直下の SpawnLogs/）に出す（LogicSpawnLog）
 /// リザルト : 取得スコア / スコアランク(S〜D。rankScoreS〜C) / 取得ノード（良性・悪性 × Lv1〜4）
+/// 部位欠損 : HP が 0 になった部位をゲームを止めて lostZoomSeconds 秒拡大（lostZoom）。最後の部位なら拡大の後にゲームオーバー
 /// 危険演出 : SAN が減るほど・部位が欠損するほど、画面の外周から内側へ赤くなる（ダメージ時は一瞬強まる）
 /// 画像の差し替え
 ///   ① Inspector の「画像差し替え」欄に入れる
@@ -284,6 +285,15 @@ public class LogicModeScreen : MonoBehaviour
     public int rankScoreA = 45000;
     public int rankScoreB = 30000;
     public int rankScoreC = 15000;
+
+    [Header("部位欠損の拡大演出（HP が 0 になった部位をゲームを止めて拡大）")]
+    public bool lostZoom = true;                         // true = 部位の HP が 0 になったら、ゲームを止めてその部位を拡大表示
+    public enum LostZoomTarget { BodyPart, CollectPoint }
+    public LostZoomTarget lostZoomTarget = LostZoomTarget.BodyPart;   // BodyPart = 女の子の手足（彼岸花が咲く所）/ CollectPoint = 回収点
+    public float lostZoomSeconds = 2f;                   // 拡大したまま止めておく秒数
+    public float lostZoomScale = 2.2f;                   // 拡大率
+    public float lostZoomEaseSeconds = 0.3f;             // 寄る・戻るのにかける秒数（止まっている時間には含まない）
+    public bool lostZoomHideUI = true;                   // true = 拡大中は制限時間・ボタンなどの UI を隠す
 
     [Header("危険演出（画面の外周から内側へ赤くなる）")]
     public Color dangerColor = new Color(0.85f, 0f, 0f, 0.85f); // 赤さの色。α が最大時の濃さ
@@ -555,6 +565,13 @@ public class LogicModeScreen : MonoBehaviour
     int problemIndex;
     bool executeRequested;
 
+    // 部位欠損の拡大演出
+    bool zooming;                                         // true = 拡大演出中（ゲームの進行を止める）
+    readonly Queue<Limb> zoomQueue = new Queue<Limb>();   // 同じフレームで複数欠損したら順に見せる
+    bool pendingGameOver;                                 // 最後の部位の拡大が終わってからゲームオーバー
+    Coroutine zoomRoutine;
+    CanvasGroup uiGroup;
+
     // ======================= ライフサイクル =======================
 
     void Start()
@@ -756,6 +773,11 @@ public class LogicModeScreen : MonoBehaviour
         edgeFrame.Clear();
         edgeFrameTime = 0f;
         crossTime = 0f;
+        zooming = false;
+        zoomQueue.Clear();
+        pendingGameOver = false;
+        zoomRoutine = null;
+        uiGroup = null;
     }
 
     void LoadCsv()
@@ -1530,7 +1552,7 @@ public class LogicModeScreen : MonoBehaviour
             SetRouteInteractable(true);
             while (timeLeft > 0f && !executeRequested)
             {
-                timeLeft = Mathf.Max(0f, timeLeft - Time.deltaTime);
+                if (!zooming) timeLeft = Mathf.Max(0f, timeLeft - Time.deltaTime);
                 yield return null;
             }
             SetRouteInteractable(false);
@@ -1543,6 +1565,7 @@ public class LogicModeScreen : MonoBehaviour
             while (spawned < problem.Count || moving.Count > 0)
             {
                 if (CurrentPhase == Phase.GameOver) yield break;
+                if (zooming) { yield return null; continue; }   // 部位欠損の拡大中は止める（出現・移動・ゲージ）
                 t += Time.deltaTime;
                 while (spawned < problem.Count && t >= problem[spawned].time)
                 {
@@ -2451,6 +2474,7 @@ public class LogicModeScreen : MonoBehaviour
                 Destroy(m.node.gameObject);
                 moving.RemoveAt(i);
                 if (CurrentPhase == Phase.GameOver) return;
+                if (zooming) return;   // 部位が欠損した → このフレームの残りの移動も止める
             }
         }
 
@@ -2578,7 +2602,9 @@ public class LogicModeScreen : MonoBehaviour
     void LoseLimb(Limb limb)
     {
         limb.lost = true;
-        limb.root.gameObject.SetActive(false);
+        bool zoom = lostZoom && Application.isPlaying && root != null;
+        if (zoom) StartLostZoom(limb);                       // 回収点は拡大が終わってから消す
+        else limb.root.gameObject.SetActive(false);
         PlayLimbBloom(limb);   // 手足を消して彼岸花を咲かせる
         dangerFlash = Mathf.Min(1f, Mathf.Max(dangerFlash, damageFlash * 2f));   // 欠損は強めに脈打つ
 
@@ -2603,7 +2629,96 @@ public class LogicModeScreen : MonoBehaviour
 
         bool allLost = true;
         foreach (var l in limbs) if (!l.lost) allLost = false;
-        if (allLost) GameOver();
+        if (allLost)
+        {
+            if (zoom) pendingGameOver = true;   // 拡大を見せてからゲームオーバー
+            else GameOver();
+        }
+    }
+
+    // ======================= 部位欠損の拡大演出 =======================
+
+    void StartLostZoom(Limb limb)
+    {
+        zoomQueue.Enqueue(limb);
+        zooming = true;
+        if (zoomRoutine == null) zoomRoutine = StartCoroutine(LostZoomCo());
+    }
+
+    /// <summary>
+    /// HP が 0 になった部位へ寄って lostZoomSeconds 秒止め、元に戻す。その間ゲームの進行は止まる
+    /// （Time.timeScale は変えないので、彼岸花・渦・赤い演出は動き続ける）
+    /// </summary>
+    IEnumerator LostZoomCo()
+    {
+        if (uiGroup == null && uiLayer != null)
+        {
+            uiGroup = uiLayer.GetComponent<CanvasGroup>();
+            if (uiGroup == null) uiGroup = uiLayer.gameObject.AddComponent<CanvasGroup>();
+        }
+
+        while (zoomQueue.Count > 0)
+        {
+            var limb = zoomQueue.Dequeue();
+            Vector2 focus = ZoomFocusOf(limb);
+
+            yield return ZoomStep(focus, 0f, 1f);                                    // 寄る
+            float t = 0f;
+            while (t < lostZoomSeconds) { t += Time.unscaledDeltaTime; yield return null; }   // 止める
+            if (limb.root != null) limb.root.gameObject.SetActive(false);           // 回収点を消す
+            yield return ZoomStep(focus, 1f, 0f);                                    // 戻る
+        }
+
+        zoomRoutine = null;   // 自分自身を止めないように先に外す
+        ResetZoom();
+        if (pendingGameOver) { pendingGameOver = false; GameOver(); }
+    }
+
+    IEnumerator ZoomStep(Vector2 focus, float from, float to)
+    {
+        float dur = Mathf.Max(0.01f, lostZoomEaseSeconds), t = 0f;
+        while (t < dur)
+        {
+            t += Time.unscaledDeltaTime;
+            ApplyZoom(focus, Mathf.SmoothStep(from, to, Mathf.Clamp01(t / dur)));
+            yield return null;
+        }
+        ApplyZoom(focus, to);
+    }
+
+    /// <summary>e = 0（等倍）〜 1（focus を画面の中心に lostZoomScale 倍）。画面の外の黒が見えないよう寄せ過ぎない</summary>
+    void ApplyZoom(Vector2 focus, float e)
+    {
+        if (root == null) return;
+        float k = Mathf.Lerp(1f, Mathf.Max(1f, lostZoomScale), e);
+        Vector2 pos = -focus * e * k;
+        pos.x = Mathf.Clamp(pos.x, -960f * (k - 1f), 960f * (k - 1f));
+        pos.y = Mathf.Clamp(pos.y, -540f * (k - 1f), 540f * (k - 1f));
+        root.localScale = new Vector3(k, k, 1f);
+        root.anchoredPosition = pos;
+        if (uiGroup != null) uiGroup.alpha = lostZoomHideUI ? 1f - e : 1f;
+    }
+
+    void ResetZoom()
+    {
+        zooming = false;
+        zoomQueue.Clear();
+        if (zoomRoutine != null) { StopCoroutine(zoomRoutine); zoomRoutine = null; }
+        if (root != null) { root.localScale = Vector3.one; root.anchoredPosition = Vector2.zero; }
+        if (uiGroup != null) uiGroup.alpha = 1f;
+    }
+
+    /// <summary>拡大の中心（画面の座標）。BodyPart = 女の子の手足の切り抜き（無ければ回収点）</summary>
+    Vector2 ZoomFocusOf(Limb limb)
+    {
+        if (lostZoomTarget == LostZoomTarget.BodyPart && limb.limbImage != null && root != null)
+        {
+            var c = new Vector3[4];
+            limb.limbImage.rectTransform.GetWorldCorners(c);
+            Vector2 a = root.InverseTransformPoint(c[0]), b = root.InverseTransformPoint(c[2]);
+            return (a + b) * 0.5f;
+        }
+        return limb.pos;
     }
 
     // ======================= 四肢欠損の彼岸花演出 =======================
@@ -2691,6 +2806,7 @@ public class LogicModeScreen : MonoBehaviour
 
     void GameOver()
     {
+        ResetZoom();
         CurrentPhase = Phase.GameOver;
         SetRouteInteractable(false);
         Time.timeScale = 0f;
@@ -2701,6 +2817,7 @@ public class LogicModeScreen : MonoBehaviour
     /// <summary>ステージクリア：クリアを記録してリザルト画面を出す</summary>
     void StageClear()
     {
+        ResetZoom();
         CurrentPhase = Phase.Clear;
         SetRouteInteractable(false);
 
