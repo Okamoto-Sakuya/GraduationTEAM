@@ -2,6 +2,7 @@
 key,value,memo
 fastSpeedRate,2,迅速(id_3)：通常に対する移動速度の倍率
 heavyMinHardness,2,重圧(id_4)：通れる造線の硬さの下限（ロジック）
+heavyLifeDrainRate,2,重圧(id_4)：重圧ノードが乗っている造線の残り時間が減る速さの倍率（ラッシュ・秒間消滅）
 heavyHardnessCost,2,重圧(id_4)：通ったときに減る硬さ（ロジック）
 stopAfterSeconds,2,停滞(id_5)：移動開始から止まるまでの秒数
 stopSeconds,2,停滞(id_5)：止まっている秒数
