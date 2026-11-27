@@ -3582,6 +3582,7 @@ MonoBehaviour:
   limbLostZoomInSeconds: 0.6
   limbLostHoldSeconds: 2
   limbLostZoomOutSeconds: 0.6
+  spawnLogColor: {r: 0.43, g: 0.91, b: 1, a: 1}
   levelTransitionSeconds: 3
   defaultLevelSeconds: 12
   commonCsvFolder: MasterData1/Main1/Common1
@@ -3603,10 +3604,10 @@ MonoBehaviour:
   rushNodeGroupCsvName: rush_nodegroup_master.csv
   rushSideCsvName: rush_sidespawn_master.csv
   rushLineCsvName: rush_linespawn_master.csv
-  rushStageCsv: {fileID: 4900000, guid: c560fc8cbbce1ca42a732bc82f1015e0, type: 3}
-  rushNodeGroupCsv: {fileID: 4900000, guid: c895bd62a103aa845a65554aa3992d3b, type: 3}
-  rushSideCsv: {fileID: 4900000, guid: 5b9ae034067f530418c2b2256eb14a86, type: 3}
-  rushLineCsv: {fileID: 4900000, guid: 6b6825bef80d2e64fb390c3d5ea6353e, type: 3}
+  rushStageCsv: {fileID: 4900000, guid: 003050384a11d1a49b392ea0d1069ec9, type: 3}
+  rushNodeGroupCsv: {fileID: 4900000, guid: dd779ac1597568d42b39b6621254b220, type: 3}
+  rushSideCsv: {fileID: 4900000, guid: 2c4370efbca8a6b47be7ee36c9e2f3f7, type: 3}
+  rushLineCsv: {fileID: 4900000, guid: ec06557b45e8987469d5df10b30b7967, type: 3}
   hpLeftArm: 25
   hpLeftLeg: 25
   hpRightArm: 25
@@ -3621,7 +3622,7 @@ MonoBehaviour:
   vanishMode: 1
   vanishSeconds: 7
   warnBeforeSeconds: 2
-  warnBeforeCount: 1
+  warnBeforeCount: 5
   blinkSpeed: 1.5
   vanishAlpha: 0.3
   nodeStartGauge: 100
@@ -3651,6 +3652,7 @@ MonoBehaviour:
   scoreDigits: 8
   fastSpeedRate: 2
   heavyMinHardness: 2
+  heavyLifeDrainRate: 2
   heavyHardnessCost: 2
   stopAfterSeconds: 2
   stopSeconds: 2

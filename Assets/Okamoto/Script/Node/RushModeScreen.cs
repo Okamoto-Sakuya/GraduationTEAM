@@ -154,6 +154,7 @@ public class RushModeScreen : MonoBehaviour
     public float limbLostHoldSeconds = 2f;               // 寄ったまま映しておく秒数（この間も彼岸花の演出は動く）
     public float limbLostZoomOutSeconds = 0.6f;          // 戻るのにかける秒数
 
+    public Color spawnLogColor = new Color(0.43f, 0.91f, 1f);   // [出現] ログの文字色（Console のリッチテキスト）
     public float levelTransitionSeconds = 3f;            // レベルが変わるとき、速度・出現間隔を一気に変えず、この秒数かけて変える（ステージ表に transition 列があればそちらを優先）
     public float defaultLevelSeconds = 12f;              // ステージ表に starttime が無いときの 1 レベルの長さ（秒）
 
@@ -177,8 +178,8 @@ public class RushModeScreen : MonoBehaviour
     public TextAsset miscParamsCsv;
 
     [Header("ラッシュのマスター CSV（rushCsvFolder。ファイル名は実際のものに合わせる）")]
-    public string rushStageCsvName = "rush_stage_master_1114.csv";           // レベルごとの設定（stage, level, starttime, interval, speed, nodegroup）
-    public string rushNodeGroupCsvName = "rush_nodegroup_master_1114.csv";   // グループの中身（nodegroup, nodetype, base, weight）
+    public string rushStageCsvName = "rush_stage_master_1127.csv";           // レベルごとの設定（stage, level, starttime, interval, speed, nodegroup）
+    public string rushNodeGroupCsvName = "rush_nodegroup_{stage}_master_1127.csv";   // グループの中身（ステージごとのファイル。{stage} は stageNumber に置き換わる）
     public string rushSideCsvName = "rush_sidespawn_master_1114.csv";        // 左右の確率（count, same, opposite）
     public string rushLineCsvName = "rush_linespwan_master_1114.csv";        // 基本線の確率（count, sameline, differentline）
     public TextAsset rushStageCsv;
@@ -223,6 +224,7 @@ public class RushModeScreen : MonoBehaviour
     [Header("参照数値：特殊ノード（miscparams_master が届くまでの仮の値）")]
     public float fastSpeedRate = 2f;                     // type3 迅速：通常ノードに対する移動速度の倍率
     public int heavyMinHardness = 2;                     // type4 重圧：通れる造線の硬さ（残り通過回数）の下限
+    public float heavyLifeDrainRate = 2f;                // type4 重圧（秒間消滅）：重圧ノードが乗っている造線の残り時間が減る速さの倍率（2 = 通常の 2 倍）
     public int heavyHardnessCost = 2;                    // type4 重圧：通ったときに減る硬さ
     public float stopAfterSeconds = 2f;                  // type5 停滞：移動開始から止まるまでの秒数
     public float stopSeconds = 2f;                       // type5 停滞：止まっている秒数（その間もゲージは進む）
@@ -384,6 +386,7 @@ public class RushModeScreen : MonoBehaviour
         public float lifeLeft;
         public DrawnState state;
         public int occupants;
+        public int heavyOccupants;   // 上に乗っている重圧ノードの数（秒間消滅では、乗っている間は消滅が速くなる）
         public RectTransform root;
         public Image body;
         public Text label;
@@ -805,7 +808,7 @@ public class RushModeScreen : MonoBehaviour
         // ラッシュ：ステージ表・ノードグループ・左右・基本線
         rushSpawner = RushSpawner.Load(
             Rush(rushStageCsv, rushStageCsvName),
-            Rush(rushNodeGroupCsv, rushNodeGroupCsvName),
+            Rush(rushNodeGroupCsv, rushNodeGroupCsvName.Replace("{stage}", stageNumber.ToString())),
             Rush(rushSideCsv, rushSideCsvName),
             Rush(rushLineCsv, rushLineCsvName),
             stageNumber, defaultLevelSeconds,
@@ -1388,7 +1391,7 @@ public class RushModeScreen : MonoBehaviour
         {
             spawnCount++;
             if (logGroupChange)
-                Debug.Log($"[出現] #{spawnCount}  LEVEL {currentLevel.level}／グループ {currentLevel.group}  {RushNodeTypes.Name(sp.type)}  {(sp.bad ? "悪性" : "良性")}  {lines[sp.line].name}");
+                Debug.Log($"<color=#{ColorUtility.ToHtmlStringRGB(spawnLogColor)}>[出現] #{spawnCount}  LEVEL {currentLevel.level}／グループ {currentLevel.group}（{rushSpawner.DrawnInGroup}/{rushSpawner.GroupDrawSize}個目）  type{sp.type} {RushNodeTypes.Name(sp.type)}  {(sp.bad ? "悪性" : "良性")}  {lines[sp.line].name}</color>");
             SpawnMoving(new ProblemNode
             {
                 line = sp.line,
@@ -1800,7 +1803,7 @@ public class RushModeScreen : MonoBehaviour
         {
             var d = drawnLines[i];
             if (d.state == DrawnState.VanishPending) continue;
-            d.lifeLeft -= dt;
+            d.lifeLeft -= dt * (d.heavyOccupants > 0 ? Mathf.Max(1f, heavyLifeDrainRate) : 1f);   // 重圧ノードが乗っている間は速く減る
             if (d.lifeLeft <= 0f) Vanish(d);
             else RefreshDrawnState(d);
         }
@@ -2223,8 +2226,9 @@ public class RushModeScreen : MonoBehaviour
         return best;
     }
 
-    /// <summary>type4 重圧：硬さ（残り通過回数）が heavyMinHardness 以上の造線だけ通れる</summary>
-    bool CanPass(DrawnLine d, int nodeType) => nodeType != TypeHeavy || d.remaining >= heavyMinHardness;
+    /// <summary>type4 重圧：硬さ（残り通過回数）が heavyMinHardness 以上の造線だけ通れる（回数消滅のときだけ。秒間消滅の造線は硬さ 1 なので、制限すると通れる造線が無くなる）</summary>
+    bool CanPass(DrawnLine d, int nodeType) =>
+        nodeType != TypeHeavy || vanishMode != VanishMode.Count || d.remaining >= heavyMinHardness;   // 硬さ（通過回数）があるのは Count のときだけ。秒間消滅では制限しない
 
     void EnterDrawn(MovingNode m, DrawnLine d, bool atA)
     {
@@ -2232,6 +2236,7 @@ public class RushModeScreen : MonoBehaviour
         m.fromA = atA;
         m.drawnPos = 0f;
         d.occupants++;
+        if (m.type == TypeHeavy) d.heavyOccupants++;
         if (vanishMode == VanishMode.Count)
         {
             d.remaining = Mathf.Max(0, d.remaining - (m.type == TypeHeavy ? Mathf.Max(1, heavyHardnessCost) : 1));
@@ -2246,6 +2251,7 @@ public class RushModeScreen : MonoBehaviour
         m.onDrawn = null;
         m.node.SetAlpha(1f);
         d.occupants--;
+        if (m.type == TypeHeavy) d.heavyOccupants = Mathf.Max(0, d.heavyOccupants - 1);
         if (d.state == DrawnState.VanishPending && d.occupants <= 0) RemoveDrawn(d);
     }
 

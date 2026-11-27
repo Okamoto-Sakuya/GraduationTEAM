@@ -235,6 +235,8 @@ public class RushSpawner
     // ＝ グループの行数がそのままそのレベルの出現数になる（行数 10 → 10 個を順番だけランダムに）
     readonly List<Entry> bag = new List<Entry>();
     LevelDef bagLevel;
+    public int DrawnInGroup { get; private set; }   // 今のグループ（袋）で何個目か
+    public int GroupDrawSize { get; private set; }  // 今の袋の大きさ（グループの行数）
 
     Entry PickEntry(LevelDef level)
     {
@@ -246,6 +248,7 @@ public class RushSpawner
         if (bagLevel != level) { bag.Clear(); bagLevel = level; }   // レベルが変わったら最初から
         if (bag.Count == 0)
         {
+            DrawnInGroup = 0; GroupDrawSize = list.Count;
             bag.AddRange(list);
             for (int i = bag.Count - 1; i > 0; i--)   // シャッフル
             {
@@ -255,6 +258,7 @@ public class RushSpawner
         }
         var e = bag[bag.Count - 1];
         bag.RemoveAt(bag.Count - 1);
+        DrawnInGroup++;
         return e;
     }
 
