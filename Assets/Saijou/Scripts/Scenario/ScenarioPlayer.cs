@@ -14,7 +14,8 @@ public class ScenarioPlayer : MonoBehaviour
     [SerializeField] private TMP_Text speakerText;
     [SerializeField] private TMP_Text messageText;
     [SerializeField] private ScenarioButtonManager buttonManager;
-    [SerializeField] private ScenarioLogView logView; 
+    [SerializeField] private ScenarioLogView logView;
+    [SerializeField] private PortraitView portraitView;
 
     [Header("開始設定")]
     [SerializeField] private int startId = 1;
@@ -114,6 +115,10 @@ public class ScenarioPlayer : MonoBehaviour
             Debug.LogWarning($"シナリオID {id} が見つかりません。");
             return;
         }
+
+        // キャラ画像（A・B）を表示する
+        if (portraitView != null)             // ★追加
+            portraitView.Show(data);          // ★追加
 
         // 話者名を表示する
         speakerText.text = data.Get("speaker");
