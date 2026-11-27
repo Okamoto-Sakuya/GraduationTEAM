@@ -4,11 +4,19 @@ using UnityEngine;
 
 /// <summary>
 /// CSVの読み込みと解析用Script（複数CSV対応）
+/// 2行ヘッダー形式（日本語の見出し行 + キー名の行）に対応。
+/// 区切り文字はカンマ・タブを自動判別する。
 /// </summary>
 public class ScenarioCsvLoader : MonoBehaviour
 {
     // インスペクターで自由に増やせる（1ストーリー = 1CSV）
     [SerializeField] private List<TextAsset> csvFiles = new();
+
+    // キー名が空の列に、日本語の見出しから補うときの対応表
+    private static readonly Dictionary<string, string> LabelAliases = new()
+    {
+        { "話者", "speaker" },
+    };
 
     // ストーリー名(CSVのファイル名) → (ID → シナリオ)
     private readonly Dictionary<string, Dictionary<int, ScenarioData>> stories = new();
@@ -111,31 +119,43 @@ public class ScenarioCsvLoader : MonoBehaviour
         Dictionary<int, ScenarioData> result = new();
 
         string csv = csvFile.text.TrimStart('\uFEFF');
-        List<List<string>> rows = ParseCsv(csv, csvFile.name);
+        char delimiter = DetectDelimiter(csv);
+        List<List<string>> rows = ParseCsv(csv, csvFile.name, delimiter);
 
-        if (rows.Count < 2)
+        // キー名の行（1列目が "id" の行）を探す
+        int headerRow = FindHeaderRow(rows);
+        if (headerRow < 0)
+        {
+            Debug.LogWarning($"[{csvFile.name}] キー名の行（1列目が id の行）が見つかりません。");
+            return result;
+        }
+
+        if (rows.Count <= headerRow + 1)
         {
             Debug.LogWarning($"[{csvFile.name}] シナリオデータがありません。");
             return result;
         }
 
-        List<string> headers = rows[0];
+        List<string> keys = BuildKeys(rows, headerRow);
 
-        for (int i = 1; i < rows.Count; i++)
+        for (int i = headerRow + 1; i < rows.Count; i++)
         {
             List<string> row = rows[i];
 
-            if (row.Count == 1 && string.IsNullOrWhiteSpace(row[0]))
+            if (IsEmptyRow(row))
                 continue;
 
             Dictionary<string, string> fields = new();
 
-            for (int j = 0; j < headers.Count; j++)
+            for (int j = 0; j < keys.Count; j++)
             {
-                string header = headers[j].Trim();
-                if (string.IsNullOrEmpty(header)) continue;
+                string key = keys[j];
+                if (string.IsNullOrEmpty(key)) continue;
 
-                fields[header] = j < row.Count ? row[j] : "";
+                string value = j < row.Count ? row[j] : "";
+
+                // 表示テキスト以外は前後の空白を取り除く
+                fields[key] = key == "text" ? value : value.Trim();
             }
 
             if (!fields.TryGetValue("id", out string idText) ||
@@ -158,8 +178,68 @@ public class ScenarioCsvLoader : MonoBehaviour
         return result;
     }
 
-    // CSVの解析（カンマ、引用符、改行に対応）
-    private List<List<string>> ParseCsv(string csv, string fileName)
+    // 1列目が "id" の行を探す（先頭10行まで）。見つからなければ -1
+    private int FindHeaderRow(List<List<string>> rows)
+    {
+        int limit = Mathf.Min(rows.Count, 10);
+        for (int i = 0; i < limit; i++)
+        {
+            if (rows[i].Count > 0 &&
+                rows[i][0].Trim().ToLowerInvariant() == "id")
+                return i;
+        }
+        return -1;
+    }
+
+    // 列ごとのキー名を作る。キー名が空なら、すぐ上の行の見出しから補う
+    private List<string> BuildKeys(List<List<string>> rows, int headerRow)
+    {
+        List<string> header = rows[headerRow];
+        List<string> labels = headerRow > 0 ? rows[headerRow - 1] : null;
+        List<string> keys = new();
+
+        for (int j = 0; j < header.Count; j++)
+        {
+            string key = header[j].Trim();
+
+            if (string.IsNullOrEmpty(key) && labels != null && j < labels.Count)
+            {
+                string label = labels[j].Trim();
+                if (!string.IsNullOrEmpty(label))
+                    key = LabelAliases.TryGetValue(label, out string alias) ? alias : label;
+            }
+
+            keys.Add(key);
+        }
+        return keys;
+    }
+
+    // 全部の列が空白の行かどうか
+    private bool IsEmptyRow(List<string> row)
+    {
+        foreach (string cell in row)
+        {
+            if (!string.IsNullOrWhiteSpace(cell))
+                return false;
+        }
+        return true;
+    }
+
+    // 1行目のタブとカンマの数から、区切り文字を判別する
+    private char DetectDelimiter(string csv)
+    {
+        int tabs = 0, commas = 0;
+        foreach (char c in csv)
+        {
+            if (c == '\n' || c == '\r') break;
+            if (c == '\t') tabs++;
+            else if (c == ',') commas++;
+        }
+        return tabs > commas ? '\t' : ',';
+    }
+
+    // CSVの解析（区切り文字、引用符、改行に対応）
+    private List<List<string>> ParseCsv(string csv, string fileName, char delimiter)
     {
         List<List<string>> rows = new();
         List<string> row = new();
@@ -182,7 +262,7 @@ public class ScenarioCsvLoader : MonoBehaviour
                     inQuotes = !inQuotes;
                 }
             }
-            else if (c == ',' && !inQuotes)
+            else if (c == delimiter && !inQuotes)
             {
                 row.Add(field.ToString());
                 field.Clear();
