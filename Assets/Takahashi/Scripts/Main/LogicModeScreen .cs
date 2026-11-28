@@ -159,9 +159,13 @@ public class LogicModeScreen : MonoBehaviour
     [Header("ヒエラルキーで変更した内容（非再生中の変更を自動記録。要素を消すと元に戻る）")]
     public List<HierarchyOverride> hierarchyOverrides = new List<HierarchyOverride>();
 
-    [Header("ステージ")]
+    [Header("ステージ（ステージごとにシーンを分ける：LogicScene1〜5）")]
     [FormerlySerializedAs("clearStageNumber")]
-    public int stageNumber = 1;                          // 何ステージ目か。確率出現の問題構成（randomproblem の stage）とクリア記録の両方に使う
+    public int stageNumber = 1;                          // 何ステージ目か。問題構成（fixedproblem / randomproblem の stage）とクリア記録の両方に使う
+    public bool stageFromSceneName = true;               // true = シーン名 LogicScene〇 の数字をステージ番号にする（上の値より優先）
+    public bool autoNextStageScene = true;               // true = クリア画面の「次のステージへ」で LogicScene〇+1 を読み込む（ResultScreen の onNextStage が空のとき）
+    public string afterLastStageScene = "";              // 最後のステージの次に読み込むシーン（キャラセレクトなど。空欄なら何もしない）
+    public const string StageScenePrefix = "LogicScene";
 
     [Header("クリア記録（キャラセレクトに反映）")]
     public bool markClearedOnClear = true;               // true = ステージクリア時に FogStageController.MarkCleared を呼ぶ
@@ -189,7 +193,7 @@ public class LogicModeScreen : MonoBehaviour
     }
 
     [Header("出現モード")]
-    public SpawnMode spawnMode = SpawnMode.Random;       // 指定出現 / 確率出現の切り替え（初期値は確率出現＝新しいマスター CSV）
+    public SpawnMode spawnMode = SpawnMode.Auto;         // 指定出現 / 確率出現の切り替え（11/28 からステージ制＝指定出現。Auto なら CSV にステージがあれば指定出現）
 
     [Header("CSV（Resources → StreamingAssets → TextAsset → どれも無ければInspectorの値）")]
     public string commonCsvFolder = "MasterData/Main/Common";   // メイン共通の CSV（Resources 以下）。nodestatus / playerstatus / miscparams
@@ -235,7 +239,7 @@ public class LogicModeScreen : MonoBehaviour
     public float maxSan = 40f;                           // 正気度の最大値。悪性ノード回収で減る（現状、0 になっても効果なし）
 
     [Header("参照数値：造線")]
-    public float maxLineGauge = 1000f;                   // 造線ゲージの最大値（playerstatus id6。造線を引くと消費、消すと返却）
+    public float maxLineGauge = 1000f;                   // 造線ゲージの最大値（playerstatus id6 → 指定出現なら fixedproblem の linegauge が優先。造線を引くと消費、消すと返却）
     public float armLostGaugePenalty = 500f;             // 腕が1本欠損するごとに造線ゲージの上限が減る量
     public float costPerMeter = 100f;                    // 造線 1m あたりのゲージ消費量（playerstatus id7）
     public float pixelsPerMeter = 100f;                  // 1m を何 px とみなすか（仮）。コスト = 長さ(px) ÷ これ × costPerMeter
@@ -306,12 +310,19 @@ public class LogicModeScreen : MonoBehaviour
 
     // 設定の版。古い版のまま保存されていたら、新仕様で変わった値を一度だけ直す（HelpWindow と同じ仕組み）
     [SerializeField, HideInInspector] int settingsVersion = 0;
-    const int CurrentSettingsVersion = 1;
+    const int CurrentSettingsVersion = 2;
 
     /// <summary>11/12 仕様：造線ゲージ 2000→1000、悪性スコアの向き、足欠損で中間線を消す</summary>
     void MigrateSettings()
     {
         if (settingsVersion >= CurrentSettingsVersion) return;
+        if (settingsVersion < 2 && spawnMode == SpawnMode.Random)
+        {
+            // 11/28：ステージ制（指定出現）に。指定出現の CSV にこのステージがあればそちらを使う
+            spawnMode = SpawnMode.Auto;
+            Debug.Log("[LogicMode] 出現モードを「自動（指定出現の CSV があれば指定出現）」に変更しました");
+        }
+        if (settingsVersion >= 1) { settingsVersion = CurrentSettingsVersion; MarkDirty(); return; }
         if (Mathf.Approximately(maxLineGauge, 2000f)) maxLineGauge = 1000f;
         if (badScore != null && badScore.Length == 4 && badScore[0] == 500 && badScore[3] == 50) badScore = new[] { 50, 200, 350, 500 };
         if (goodDamage == null || goodDamage.Length < 4) goodDamage = new float[4];
@@ -319,6 +330,11 @@ public class LogicModeScreen : MonoBehaviour
         killMiddleOnLegLost = true;
         settingsVersion = CurrentSettingsVersion;
         Debug.Log("[LogicMode] 設定を 11/12 仕様に更新しました（造線ゲージ最大 1000 / 悪性スコア lv-1→-4 = 50→500 / 足欠損で中間線を消す）");
+        MarkDirty();
+    }
+
+    void MarkDirty()
+    {
 #if UNITY_EDITOR
         if (!Application.isPlaying) UnityEditor.EditorUtility.SetDirty(this);
 #endif
@@ -590,6 +606,8 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         Time.timeScale = 1f;
+        if (stageFromSceneName && TryStageFromSceneName(SceneManager.GetActiveScene().name, out int sceneStage))
+            stageNumber = sceneStage;
         font = ResolveFont();
         LoadCsv();
         san = maxSan;
@@ -825,7 +843,18 @@ public class LogicModeScreen : MonoBehaviour
         }
 
         useFixedSpawn = fixedStageProblems != null;
-        if (useFixedSpawn) problemCount = fixedStageProblems.Count;
+        if (useFixedSpawn)
+        {
+            problemCount = fixedStageProblems.Count;
+
+            // ステージごとの造線ゲージ（fixedproblem の linegauge）。playerstatus の値より優先
+            float g = fixedSpawner.LineGaugeOf(stageNumber);
+            if (g > 0f)
+            {
+                maxLineGauge = g;
+                Debug.Log($"[指定出現] ステージ{stageNumber} の造線ゲージ最大値 = {g:0}（fixedproblem の linegauge）");
+            }
+        }
 
         // 確率出現のマスター
         stageProblems = null;
@@ -2832,11 +2861,57 @@ public class LogicModeScreen : MonoBehaviour
         ShowResult(true);
     }
 
+    /// <summary>シーン名 LogicScene〇 → ステージ番号（全角数字も可）</summary>
+    public static bool TryStageFromSceneName(string sceneName, out int stage)
+    {
+        stage = 0;
+        if (string.IsNullOrEmpty(sceneName) || !sceneName.StartsWith(StageScenePrefix, System.StringComparison.OrdinalIgnoreCase)) return false;
+        string rest = sceneName.Substring(StageScenePrefix.Length).Trim();
+        if (rest.Length == 0) return false;
+        int v = 0;
+        foreach (char ch in rest)
+        {
+            if (!char.IsDigit(ch)) return false;
+            v = v * 10 + (int)char.GetNumericValue(ch);
+        }
+        stage = v;
+        return v > 0;
+    }
+
+    bool nextStageHooked;
+
+    /// <summary>次のステージのシーン（LogicScene〇+1）へ。無ければ afterLastStageScene</summary>
+    void LoadNextStage()
+    {
+        string next = StageScenePrefix + (stageNumber + 1);
+        string target = Application.CanStreamedLevelBeLoaded(next) ? next
+                      : !string.IsNullOrEmpty(afterLastStageScene) && Application.CanStreamedLevelBeLoaded(afterLastStageScene) ? afterLastStageScene
+                      : null;
+        if (target == null)
+        {
+            Debug.Log($"[ステージ] {next} が Build Settings にありません（最後のステージ）。afterLastStageScene に戻り先のシーン名を入れると移動します");
+            return;
+        }
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(target);
+    }
+
     /// <summary>リザルト画面（ResultScreen）を表示。未設定ならシーンから探し、無ければ自動で追加</summary>
     void ShowResult(bool clear)
     {
         if (resultScreen == null) resultScreen = FindObjectOfType<ResultScreen>();
         if (resultScreen == null) resultScreen = gameObject.AddComponent<ResultScreen>();
+
+        // 「次のステージへ」：ResultScreen 側で何も登録していなければ、次の LogicScene を読み込む
+        if (clear && autoNextStageScene && !nextStageHooked)
+        {
+            if (resultScreen.onNextStage == null) resultScreen.onNextStage = new UnityEngine.Events.UnityEvent();
+            if (resultScreen.onNextStage.GetPersistentEventCount() == 0)
+            {
+                resultScreen.onNextStage.AddListener(LoadNextStage);
+                nextStageHooked = true;
+            }
+        }
 
         // 10/30 仕様：取得スコア / スコアランク / 取得ノード（良性・悪性 × Lv1〜4）
         var data = new ResultScreen.ResultData
@@ -3172,6 +3247,90 @@ namespace LogicModeEditorInternal
         }
     }
 
+    /// <summary>
+    /// 今開いているシーン（LogicModeScreen 入り）を、CSV にあるステージの数だけ LogicScene1, LogicScene2 … にコピーする。
+    /// 各シーンの Stage Number をそのステージにし、Build Settings にも追加する（同じフォルダに作る）
+    /// </summary>
+    public static class LogicStageSceneMaker
+    {
+        [MenuItem("Tools/ロジックモード/ステージのシーンを作る（LogicScene1〜）")]
+        public static void Make()
+        {
+            var src = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
+            var screen = UnityEngine.Object.FindObjectOfType<LogicModeScreen>();
+            if (screen == null)
+            {
+                EditorUtility.DisplayDialog("ステージのシーンを作る", "今開いているシーンに LogicModeScreen がありません。\n元にするシーンを開いてから実行してください。", "OK");
+                return;
+            }
+            if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            if (string.IsNullOrEmpty(src.path))
+            {
+                EditorUtility.DisplayDialog("ステージのシーンを作る", "先に今のシーンを保存してください。", "OK");
+                return;
+            }
+
+            // ステージ数は指定出現の CSV（fixedproblem）から。読めなければ 5
+            var stages = new List<int>();
+            var spawner = LogicFixedSpawner.Load(
+                LogicCsvLoader.LoadText(screen.fixedProblemCsv, screen.fixedProblemCsvName, screen.useStreamingAssets, screen.logicCsvFolder, screen.useDebugCsv),
+                LogicCsvLoader.LoadText(screen.fixedNodeCsv, screen.fixedNodeCsvName, screen.useStreamingAssets, screen.logicCsvFolder, screen.useDebugCsv));
+            if (spawner != null) stages = spawner.Stages();
+            if (stages.Count == 0) for (int i = 1; i <= 5; i++) stages.Add(i);
+
+            string folder = System.IO.Path.GetDirectoryName(src.path).Replace('\\', '/');
+            string PathOf(int st) => $"{folder}/{LogicModeScreen.StageScenePrefix}{st}.unity";
+
+            bool recreate = true;
+            if (stages.Exists(st => PathOf(st) != src.path && System.IO.File.Exists(PathOf(st))))
+            {
+                int r = EditorUtility.DisplayDialogComplex("ステージのシーンを作る",
+                    "すでにある LogicScene があります。\n「作り直す」= 今のシーンをコピーし直す（そのシーンでの変更は消えます）\n「ステージ番号だけ」= 既存のシーンは残して Stage Number だけ合わせる",
+                    "作り直す", "キャンセル", "ステージ番号だけ");
+                if (r == 1) return;
+                recreate = r == 0;
+            }
+
+            string srcPath = src.path;
+            var made = new List<string>();
+            foreach (int st in stages)
+            {
+                string path = PathOf(st);
+                if (path != srcPath)
+                {
+                    bool exists = System.IO.File.Exists(path);
+                    if (exists && recreate) AssetDatabase.DeleteAsset(path);
+                    if (!exists || recreate)
+                    {
+                        if (!AssetDatabase.CopyAsset(srcPath, path)) { Debug.LogError($"[ステージ] {path} を作れませんでした"); continue; }
+                    }
+                }
+
+                var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(path, UnityEditor.SceneManagement.OpenSceneMode.Single);
+                var s = UnityEngine.Object.FindObjectOfType<LogicModeScreen>();
+                if (s != null)
+                {
+                    s.stageNumber = st;
+                    s.stageFromSceneName = true;
+                    EditorUtility.SetDirty(s);
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+                    UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+                }
+                made.Add(path);
+            }
+
+            // Build Settings に追加（無いものだけ。ステージ順）
+            var list = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+            foreach (var path in made)
+                if (!list.Exists(x => x.path == path)) list.Add(new EditorBuildSettingsScene(path, true));
+            EditorBuildSettings.scenes = list.ToArray();
+
+            if (System.IO.File.Exists(srcPath)) UnityEditor.SceneManagement.EditorSceneManager.OpenScene(srcPath);
+            Debug.Log($"[ステージ] シーンを用意しました：{string.Join(", ", made)}（Build Settings に追加済み）");
+            EditorUtility.DisplayDialog("ステージのシーンを作る", $"{made.Count} 個のシーンを用意しました。\n{folder}/{LogicModeScreen.StageScenePrefix}1 〜", "OK");
+        }
+    }
+
     [CustomEditor(typeof(LogicModeScreen))]
     public class LogicModeScreenEditor : Editor
     {
@@ -3204,6 +3363,13 @@ namespace LogicModeEditorInternal
                 }
             }
             EditorGUILayout.HelpBox("シーンビューのハンドルで円の中心・半径・腕／足の位置をドラッグできます。", MessageType.Info);
+
+            EditorGUILayout.Space();
+            using (new EditorGUI.DisabledScope(Application.isPlaying))
+            {
+                if (GUILayout.Button("ステージのシーンを作る（今のシーンを LogicScene1〜 にコピー）"))
+                    LogicStageSceneMaker.Make();
+            }
 
             EditorGUILayout.Space();
             var s = (LogicModeScreen)target;
