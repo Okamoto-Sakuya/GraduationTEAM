@@ -256,6 +256,9 @@ MonoBehaviour:
     overrideScale: 0
     scale: {x: 1, y: 1, z: 1}
   stageNumber: 1
+  stageFromSceneName: 1
+  autoNextStageScene: 1
+  afterLastStageScene: 
   markClearedOnClear: 1
   clearCharacter: Daughter
   debugKeys: 1
@@ -355,6 +358,12 @@ MonoBehaviour:
   rankScoreA: 45000
   rankScoreB: 30000
   rankScoreC: 15000
+  lostZoom: 1
+  lostZoomTarget: 0
+  lostZoomSeconds: 2
+  lostZoomScale: 2.2
+  lostZoomEaseSeconds: 0.3
+  lostZoomHideUI: 1
   dangerColor: {r: 0.6886792, g: 0, b: 0, a: 0.85}
   lostLimbDanger: 0.25
   damageFlash: 0.35
@@ -362,7 +371,7 @@ MonoBehaviour:
   flashDecay: 2
   dangerStartScale: 2.2
   previewDanger: 0
-  settingsVersion: 1
+  settingsVersion: 2
   snapRadius: 22
   forbiddenRadius: 45
   minLineLength: 30

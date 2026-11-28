@@ -4,9 +4,11 @@ using UnityEngine;
 /// <summary>
 /// ロジックモード「指定出現」（マスター CSV 2 種から問題を作る）。
 ///
-///   logic_fixedproblem_master : stage, problem, nodecount
+///   logic_fixedproblem_master : stage, problem, nodecount, linegauge
 ///       … ステージの問題構成。その問題で出すノードの数（2つ同時出現も 1 個と数える）
-///   logic_fixednode_master    : id, stage, problem(ploblem), nodegroup, nodetype, base, nodeorder, nodeposition1, nodeposition2, …
+///         linegauge = そのステージの造線ゲージの最大値（11/28 追加。空欄・列なしなら playerstatus の値）
+///   logic_fixednode_master    : id, stage, problem(ploblem), group, base, type, order, position1, position2, …
+///       （11/28 版の列名。旧名 nodegroup / nodetype / nodeorder / nodeposition1〜 でも読める）
 ///       … 問題ごとのノード。同じ問題の中に nodegroup が複数あれば、そのうち 1 つを抽選して出す
 ///         nodetype  メイン共通仕様（LogicNodeTypes）
 ///                   1=通常 / 2=同時出現 / 3=迅速 / 4=重圧 / 5=停滞
@@ -19,7 +21,7 @@ using UnityEngine;
 /// </summary>
 public class LogicFixedSpawner
 {
-    public class ProblemDef { public int stage, problem, nodecount; }
+    public class ProblemDef { public int stage, problem, nodecount; public float linegauge = -1f; }
 
     class NodeRow
     {
@@ -56,17 +58,18 @@ public class LogicFixedSpawner
         var s = new LogicFixedSpawner();
 
         // --- ノード ---
-        var table = Table(nodeCsv, new[] { "id", "nodetype", "nodeorder" }, "fixednode");
+        var table = Table(nodeCsv, new[] { "id", "type|nodetype", "order|nodeorder" }, "fixednode");
         if (table != null)
         {
             var h = table.header;
             int cId = Col(h, "id"), cStage = Col(h, "stage"), cProb = Col(h, "problem", "ploblem"),
-                cGroup = Col(h, "nodegroup"), cType = Col(h, "nodetype"), cOrder = Col(h, "nodeorder"),
+                cGroup = Col(h, "group", "nodegroup"), cType = Col(h, "type", "nodetype"), cOrder = Col(h, "order", "nodeorder"),
                 cBase = Col(h, "base", "nodebase", "nodekind", "kind");
             if (cBase < 0) Debug.LogWarning("[指定出現:fixednode] base 列がありません → すべて良性として扱います");
             var posCols = new List<int>();
             for (int i = 0; i < h.Length; i++)
-                if (h[i].StartsWith("nodeposition", System.StringComparison.OrdinalIgnoreCase)) posCols.Add(i);
+                if (h[i].StartsWith("nodeposition", System.StringComparison.OrdinalIgnoreCase) ||
+                    h[i].StartsWith("position", System.StringComparison.OrdinalIgnoreCase)) posCols.Add(i);
 
             int stage = 0, prob = 0, group = 1;
             foreach (var r in table.rows)
@@ -112,9 +115,15 @@ public class LogicFixedSpawner
         var pt = string.IsNullOrEmpty(problemCsv) ? null : Table(problemCsv, new[] { "stage", "nodecount" }, "fixedproblem");
         if (pt != null)
         {
-            int cStage = Col(pt.header, "stage"), cProb = Col(pt.header, "problem", "ploblem"), cCount = Col(pt.header, "nodecount");
+            int cStage = Col(pt.header, "stage"), cProb = Col(pt.header, "problem", "ploblem"), cCount = Col(pt.header, "nodecount"),
+                cGauge = Col(pt.header, "linegauge", "line_gauge");
             foreach (var r in pt.rows)
-                s.problems.Add(new ProblemDef { stage = Int(Get(r, cStage)), problem = Int(Get(r, cProb)), nodecount = Int(Get(r, cCount)) });
+            {
+                float g = -1f;
+                if (Has(r, cGauge) && float.TryParse(Get(r, cGauge).Trim(), System.Globalization.NumberStyles.Float,
+                                                     System.Globalization.CultureInfo.InvariantCulture, out float v) && v > 0f) g = v;
+                s.problems.Add(new ProblemDef { stage = Int(Get(r, cStage)), problem = Int(Get(r, cProb)), nodecount = Int(Get(r, cCount)), linegauge = g });
+            }
         }
         else
         {
@@ -142,6 +151,22 @@ public class LogicFixedSpawner
     }
 
     // ======================= ステージ =======================
+
+    /// <summary>そのステージの造線ゲージの最大値（fixedproblem の linegauge。無ければ -1）</summary>
+    public float LineGaugeOf(int stage)
+    {
+        foreach (var p in problems) if (p.stage == stage && p.linegauge > 0f) return p.linegauge;
+        return -1f;
+    }
+
+    /// <summary>CSV にあるステージ番号（小さい順）</summary>
+    public List<int> Stages()
+    {
+        var list = new List<int>();
+        foreach (var p in problems) if (p.stage > 0 && !list.Contains(p.stage)) list.Add(p.stage);
+        list.Sort();
+        return list;
+    }
 
     /// <summary>そのステージの問題（problem 順）</summary>
     public List<ProblemDef> ProblemsOf(int stage) => problems.FindAll(p => p.stage == stage);
@@ -217,7 +242,7 @@ public class LogicFixedSpawner
             if (t == null)
             {
                 bool all = true;
-                foreach (var name in required) if (Col(cells, name) < 0) { all = false; break; }
+                foreach (var name in required) if (Col(cells, name.Split('|')) < 0) { all = false; break; }   // "a|b" = どちらかがあれば OK
                 if (all) t = new CsvTable { header = cells };
                 continue;
             }
@@ -226,7 +251,7 @@ public class LogicFixedSpawner
             foreach (var c in cells) if (c.Length > 0) { empty = false; break; }
             if (!empty) t.rows.Add(cells);
         }
-        if (t == null) Debug.LogWarning($"[指定出現:{label}] 見出し行（{string.Join(", ", required)}）が見つかりません");
+        if (t == null) Debug.LogWarning($"[指定出現:{label}] 見出し行（{string.Join(", ", required).Replace("|", " または ")}）が見つかりません");
         return t;
     }
 
