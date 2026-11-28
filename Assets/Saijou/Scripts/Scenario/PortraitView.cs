@@ -55,7 +55,6 @@ public class PortraitView : MonoBehaviour
 
     private void Apply(Image img, string prefix, CharaImageSpec spec, float x)
     {
-        Debug.Log($"[Portrait] {prefix} ”Ô†={spec.Number} ˆÃ‚­={spec.Dark} F={darkColor}");   // š’Ç‰Á
         if (!spec.Visible)
         {
             img.gameObject.SetActive(false);

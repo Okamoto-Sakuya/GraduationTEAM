@@ -4,8 +4,8 @@ id,,A,B,text,nextId,storyType,voice
 2,A,0,1,ロジックモード第１話導入のサンプルテキストです,3,,g1_002_debug
 3,A,1,1b,<color=#d3381c>緋<color=#d3381c>です,4,,g1_003_debug
 4,B,1b,1,<color=#0067C0>蒼<color=#0067C0>です,5,,g1_004_debug
-5,A&B,1,1,ゲームを開始します,,intro,g1_005_debug
-6,A&B,1,1,お疲れ様でした,,,g1_001_debug
+5,A&B,1,1,ゲームを開始します,,logicintro1,g1_005_debug
+6,A&B,1,1,お疲れ様でした,7,,g1_001_debug
 7,A,0,1,ロジックモード第１話結末のサンプルテキストです,8,,g1_002_debug
 8,A,1,1b,<color=#d3381c>緋<color=#d3381c>です,9,,g1_003_debug
 9,B,1b,1,<color=#0067C0>蒼<color=#0067C0>です,10,,g1_004_debug

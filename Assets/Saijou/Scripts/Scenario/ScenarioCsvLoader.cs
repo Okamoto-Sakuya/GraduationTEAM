@@ -294,4 +294,23 @@ public class ScenarioCsvLoader : MonoBehaviour
 
         return rows;
     }
+
+    // 指定idより大きい最小のidを返す（そのCSVの続きの行）。無ければ false
+    public bool TryGetNextIdAfter(int id, out int nextId)
+    {
+        nextId = int.MaxValue;
+        bool found = false;
+
+        if (current == null) return false;
+
+        foreach (int key in current.Keys)
+        {
+            if (key > id && key < nextId)
+            {
+                nextId = key;
+                found = true;
+            }
+        }
+        return found;
+    }
 }
