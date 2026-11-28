@@ -731,6 +731,52 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1098744766
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1098744768}
+  - component: {fileID: 1098744767}
+  m_Layer: 0
+  m_Name: ReturnToScenario
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1098744767
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1098744766}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 049160d5681f26f4a94a1eabb8c56ecb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ReturnToScenario
+  scenarioSceneName: ScenarioScene
+  fallbackSceneName: CharacterSelectScene
+--- !u!4 &1098744768
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1098744766}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 773.7089, y: 503.08258, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &3729817648152522315
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -742,6 +788,26 @@ PrefabInstance:
     - target: {fileID: 5631191340357297347, guid: 75db1555a8b6022498db5ada757be171, type: 3}
       propertyPath: m_Name
       value: Result
+      objectReference: {fileID: 0}
+    - target: {fileID: 6385510542004331885, guid: 75db1555a8b6022498db5ada757be171, type: 3}
+      propertyPath: nextButtonText
+      value: "\u6B21\u3078"
+      objectReference: {fileID: 0}
+    - target: {fileID: 6385510542004331885, guid: 75db1555a8b6022498db5ada757be171, type: 3}
+      propertyPath: onNextStage.m_PersistentCalls.m_Calls.Array.data[0].m_Mode
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 6385510542004331885, guid: 75db1555a8b6022498db5ada757be171, type: 3}
+      propertyPath: onNextStage.m_PersistentCalls.m_Calls.Array.data[0].m_Target
+      value: 
+      objectReference: {fileID: 1098744767}
+    - target: {fileID: 6385510542004331885, guid: 75db1555a8b6022498db5ada757be171, type: 3}
+      propertyPath: onNextStage.m_PersistentCalls.m_Calls.Array.data[0].m_MethodName
+      value: ReturnToScenarioScene
+      objectReference: {fileID: 0}
+    - target: {fileID: 6385510542004331885, guid: 75db1555a8b6022498db5ada757be171, type: 3}
+      propertyPath: onNextStage.m_PersistentCalls.m_Calls.Array.data[0].m_TargetAssemblyTypeName
+      value: ReturnToScenario, Assembly-CSharp
       objectReference: {fileID: 0}
     - target: {fileID: 8389438960850457081, guid: 75db1555a8b6022498db5ada757be171, type: 3}
       propertyPath: m_LocalPosition.x
@@ -864,3 +930,4 @@ SceneRoots:
   - {fileID: 3729817648152522315}
   - {fileID: 3744174039667977052}
   - {fileID: 429421361}
+  - {fileID: 1098744768}
