@@ -29,6 +29,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Saijou/Scene/ScenarioScene.unity
     guid: 10f8f4184cc285c4685bd717c361a9d6
+  - enabled: 1
+    path: Assets/Saijou/Scene/LogicScene1.unity
+    guid: 3971e44fd4cca214eae5845bbd8b2f21
   m_configObjects:
     com.unity.addressableassets: {fileID: 11400000, guid: a961426425e82ed4cbd682250e0a1563, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}

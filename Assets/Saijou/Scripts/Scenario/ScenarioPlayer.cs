@@ -1,9 +1,11 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+
 /// <summary>
 /// 読み込んだセリフを TextMeshPro に表示するスクリプト
 /// </summary>
@@ -19,10 +21,6 @@ public class ScenarioPlayer : MonoBehaviour
 
     [Header("開始設定")]
     [SerializeField] private int startId = 1;
-
-    [Header("シーン遷移設定")]
-    // シナリオ終了後に移動するシーン名
-    [SerializeField] private string nextSceneName = "TitleScene";
 
     [Header("テキストの速さ")]
     // 1文字を表示する間隔（秒）
@@ -59,18 +57,24 @@ public class ScenarioPlayer : MonoBehaviour
 
     private void Start()
     {
-        // ストーリー切り替え時にログを消す(無くてもいいかも)
-        loader.Load();
-        if (logView != null) logView.Clear();
-
         // CSVを読み込む
         loader.Load();
 
+        int firstId = startId;
+
+        // 他のシーンから戻ってきた場合は、保存してあるCSVと位置から再開する
+        if (ScenarioResume.TryConsume(out string storyName, out int resumeId))
+        {
+            if (loader.SetStory(storyName))
+                firstId = resumeId;
+        }
+
+        if (logView != null) logView.Clear();
+
         // 最初のシナリオを表示する
-        currentId = startId;
+        currentId = firstId;
         ShowScenario(currentId);
     }
-
     private void Update()
     {
         // UIが非表示の間は、クリックで文章を進めない
@@ -117,8 +121,8 @@ public class ScenarioPlayer : MonoBehaviour
         }
 
         // キャラ画像（A・B）を表示する
-        if (portraitView != null)             // ★追加
-            portraitView.Show(data);          // ★追加
+        if (portraitView != null)
+            portraitView.Show(data);
 
         // 話者名を表示する
         speakerText.text = data.Get("speaker");
@@ -263,11 +267,14 @@ public class ScenarioPlayer : MonoBehaviour
         Debug.Log("シナリオ終了。左クリックで次のシーンへ移動します。");
     }
 
-    // スキップボタンを押したら、最後の行のstoryTypeに応じて遷移
+    // スキップボタンを押したら、このまとまりの最終行のstoryTypeに応じて遷移
     public void ToggleSkip()
     {
         // シナリオの途中でもスキップできるように終了状態にする
         isScenarioEnded = true;
+
+        // 自動スキップ中ならそれも止める
+        StopSkip();
 
         // 文字送りを停止する
         if (typingCoroutine != null)
@@ -339,50 +346,99 @@ public class ScenarioPlayer : MonoBehaviour
         }
     }
 
-    // 最後の行のstoryTypeに応じてシーン遷移する
+    // 今のセリフから nextId をたどって、そのまとまりの最終行のstoryTypeに応じてシーン遷移する
     public void LoadNextScene()
     {
         // シナリオ終了後にだけ移動する
         if (!isScenarioEnded)
             return;
 
-        // CSVの最後のシナリオを取得する
-        ScenarioData lastData = loader.GetLastScenario();
+        // 今のIDから nextId をたどって最終行を取得する
+        ScenarioData endData = FindChainEnd(currentId);
 
-        if (lastData == null)
+        if (endData == null)
         {
-            Debug.LogError("最後のシナリオが見つかりません。");
+            Debug.LogError($"シナリオID {currentId} が見つかりません。");
             return;
         }
 
-        // 最後の行のstoryTypeを取得する
-        string storyType = lastData.Get("storyType");
+        string storyType = endData.Get("storyType").Trim();
 
-        string sceneName = "";
+        // 空欄ならシーン移動しない
+        if (string.IsNullOrEmpty(storyType))
+            return;
 
-        // storyTypeに応じて遷移先を決定する
-        switch (storyType)
+        string sceneName = ResolveSceneName(storyType);
+
+        if (string.IsNullOrEmpty(sceneName))
         {
-            case "intro":
-                sceneName = "RushScene";
-                break;
-
-            case "stageEnd":
-                sceneName = "CharacterSelectScene";
-                break;
-
-            case "ending":
-                sceneName = "TitleScene";
-                break;
-
-            default:
-                Debug.LogError(
-                    $"未対応のstoryTypeです: {storyType}");
-                return;
+            Debug.LogError($"未対応のstoryTypeです: {storyType}");
+            return;
         }
 
-        // シーンを読み込む
-        UnityEngine.SceneManagement.SceneManager.LoadScene(sceneName);
+        // ロジック／ラッシュへ行くときだけ、戻ってきたときの再開位置を保存する
+        string lowerType = storyType.ToLowerInvariant();
+        if (lowerType.StartsWith("logicintro") || lowerType.StartsWith("rushintro"))
+        {
+            if (loader.TryGetNextIdAfter(endData.Id, out int resumeId))
+                ScenarioResume.Set(loader.CurrentStoryName, resumeId);
+            else
+                ScenarioResume.Clear();
+        }
+
+        SceneManager.LoadScene(sceneName);
+
+        SceneManager.LoadScene(sceneName);
+    }
+
+    // startId から nextId をたどって、そのまとまりの最後の行を返す
+    // （nextIdが空、または存在しないIDに当たったところで終了。ループ防止付き）
+    private ScenarioData FindChainEnd(int startId)
+    {
+        ScenarioData last = null;
+        int id = startId;
+        HashSet<int> visited = new();
+
+        while (visited.Add(id) && loader.TryGetScenario(id, out ScenarioData d))
+        {
+            last = d;
+            if (!d.HasNext) break;
+            id = d.NextId;
+        }
+
+        return last;
+    }
+
+    // storyType から遷移先のシーン名を決める。対応外なら空文字
+    private string ResolveSceneName(string storyType)
+    {
+        string lower = storyType.ToLowerInvariant();
+
+        if (lower == "stageend")
+            return "CharacterSelectScene";
+
+        // logicintro1?5 → LogicScene1?5
+        if (TryGetNumber(lower, "logicintro", 1, 5, out int logicNo))
+            return $"LogicScene{logicNo}";
+
+        // rushintro1?4 → RushScene1?4
+        if (TryGetNumber(lower, "rushintro", 1, 4, out int rushNo))
+            return $"RushScene{rushNo}";
+
+        if (lower == "ending")
+            return "TitleScene";
+
+        return "";
+    }
+
+    // "logicintro3" のような文字列から末尾の番号を取り出す（範囲チェック付き）
+    private bool TryGetNumber(string value, string prefix, int min, int max, out int number)
+    {
+        number = 0;
+        if (!value.StartsWith(prefix)) return false;
+
+        return int.TryParse(value.Substring(prefix.Length), out number)
+            && number >= min && number <= max;
     }
 
     // 外部から文字送り速度を変更する
@@ -406,7 +462,7 @@ public class ScenarioPlayer : MonoBehaviour
         PointerEventData eventData = new PointerEventData(EventSystem.current);
         eventData.position = Input.mousePosition;
 
-        var results = new System.Collections.Generic.List<RaycastResult>();
+        var results = new List<RaycastResult>();
         EventSystem.current.RaycastAll(eventData, results);
 
         foreach (RaycastResult result in results)
