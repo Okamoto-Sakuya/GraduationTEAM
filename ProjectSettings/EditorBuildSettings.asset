@@ -29,9 +29,24 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Saijou/Scene/ScenarioScene.unity
     guid: 10f8f4184cc285c4685bd717c361a9d6
-  - enabled: 1
+  - enabled: 0
     path: Assets/Saijou/Scene/LogicScene1.unity
     guid: 3971e44fd4cca214eae5845bbd8b2f21
+  - enabled: 1
+    path: Assets/Takahashi/Scene/LogicScene1.unity
+    guid: 1878921b00d94004f99e5d2e61f7b4f7
+  - enabled: 1
+    path: Assets/Takahashi/Scene/LogicScene2.unity
+    guid: 19372787c8fb2f34d8780d1734745a42
+  - enabled: 1
+    path: Assets/Takahashi/Scene/LogicScene3.unity
+    guid: 18e1a6116a7f4d840887fbff5e5eedf5
+  - enabled: 1
+    path: Assets/Takahashi/Scene/LogicScene4.unity
+    guid: b01637a7f2ed5d2408bdb8c3122199a6
+  - enabled: 1
+    path: Assets/Takahashi/Scene/LogicScene5.unity
+    guid: 2958b721a83c049428790e78b0ed6cfb
   m_configObjects:
     com.unity.addressableassets: {fileID: 11400000, guid: a961426425e82ed4cbd682250e0a1563, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}
